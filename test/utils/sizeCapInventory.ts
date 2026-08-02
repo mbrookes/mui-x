@@ -130,9 +130,61 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
 
   // ── x-studio/chat: the same shared limits, enforced across the package boundary ──
   {
-    site: 'x-studio/chat/sseUtils.ts:processLine#0',
+    site: 'x-studio/chat/autoSubmit.tsx:attempt#0',
+    probedIn: null,
+    why:
+      'NOT A CAP. `store.state.messageIds.length > messageCountBefore` asks whether the ' +
+      'submit actually appended a message; nothing is bounded and there is no threshold to ' +
+      'relax. Listed because the scan deliberately over-approximates on the right operand ' +
+      '(see sizeCapScan.ts): the cost of never missing a cap written against a variable is ' +
+      'a handful of rows like this one.',
+  },
+  {
+    site: 'x-studio/chat/chatTurnMutations.ts:record#0',
+    probedIn: null,
+    why:
+      'turn-ledger retention cap on a Map `.size`; pinned by chatTurnMutations.test.ts ' +
+      '(round 15). This is the cap the scan was rebuilt for: the file had no test file at ' +
+      'all and the previous scan could not see a `.size` cap, so the inventory reported ' +
+      'everything accounted for while this sat unpinned inside a walked directory.',
+  },
+  {
+    site: 'x-studio/chat/generateInsight.ts:buildChartWidgetSummary#0',
+    probedIn: null,
+    why:
+      'prompt-context TRUNCATION of a heatmap axis, not an admission check: the over-cap ' +
+      'branch appends "showing first N" and the rows are sliced either way, so relaxing it ' +
+      'lengthens a prompt rather than admitting a payload. Bound is a parameter (`maxRows`), ' +
+      'which is why the previous name-matching scan could not see it.',
+  },
+  {
+    site: 'x-studio/chat/richContext.ts:strideSample#0',
+    probedIn: null,
+    why:
+      'MAX_STATS_ROWS, passed in as `max`; pinned by richContext.test.ts. Round 14 reported ' +
+      'this cap as unpinned and added its file to the scan in the same commit — and the ' +
+      'scan still could not see it, because the bound is an argument rather than a name.',
+  },
+  {
+    site: 'x-studio/chat/sseUtils.ts:parseSSEStream#0',
     probedIn: null,
     why: 'SSE read-buffer cap; pinned by sseUtils.test.ts (an un-delimited stream aborts).',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:truncateToWireSize#0',
+    probedIn: null,
+    why:
+      'the fast path of a TRUNCATION helper (return the value whole when it already fits), ' +
+      'not an admission check — the function returns a prefix rather than rejecting. Its ' +
+      'callers are the sites that decide what the budget is, and those are inventoried ' +
+      'separately. Exercised throughout studioBackendAdapter.test.ts.',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:truncateToWireSize#1',
+    probedIn: null,
+    why:
+      'the binary-search step of the same truncation helper: it is the LOOP INVARIANT, not a ' +
+      'bound on a payload. Relaxing it does not admit more data, it returns a wrong prefix.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:isWithinApprovalListLimits#0',
@@ -151,13 +203,15 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     probedIn: APPROVAL_LIST_LIMITS,
   },
   {
-    site: 'x-studio/chat/studioBackendAdapter.ts:closeReasoningPart#0',
+    site: 'x-studio/chat/studioBackendAdapter.ts:failVisiblyIfCardIsOnScreen#0',
     probedIn: null,
     why:
       "`failVisiblyIfCardIsOnScreen`'s cap is defense-in-depth on an input that cannot occur: " +
       '`turnToolPartIds` is only ever written after the same cap passed, so the second ' +
       'disjunct (`!turnToolPartIds.has(id)`) already rejects every over-cap id. Relaxing this ' +
-      'clause alone changes no outcome (measured, 4822/4822).',
+      'clause alone changes no outcome (measured, 4822/4822). Previously mis-attributed to ' +
+      '`closeReasoningPart` by the line-based scan, which named the last declaration it had ' +
+      'seen rather than the enclosing one.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#0',
@@ -172,30 +226,39 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#2',
     probedIn: null,
-    why: 'metadata string-VALUE cap; pinned by studioBackendAdapter.test.ts.',
+    why:
+      'the per-call / per-turn tool-OUTPUT size cap (`outputAllowance`), pinned by ' +
+      "studioBackendAdapter.test.ts's tool-output budget tests. Same wire boundary and same " +
+      'persisted sink as the approval caps beside it; invisible to the previous scan purely ' +
+      'because the budget arrives as a variable rather than a named constant.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#3',
     probedIn: null,
-    why: 'metadata KEY cap; pinned by studioBackendAdapter.test.ts.',
+    why: 'metadata string-VALUE cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#4',
     probedIn: null,
-    why: 'metadata non-string VALUE cap; pinned by studioBackendAdapter.test.ts.',
+    why: 'metadata KEY cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#5',
     probedIn: null,
-    why: 'approval tool-call id cap; pinned by studioBackendAdapter.test.ts.',
+    why: 'metadata non-string VALUE cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#6',
     probedIn: null,
-    why: 'approval tool NAME cap; pinned by studioBackendAdapter.test.ts.',
+    why: 'approval tool-call id cap; pinned by studioBackendAdapter.test.ts.',
   },
   {
     site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#7',
+    probedIn: null,
+    why: 'approval tool NAME cap; pinned by studioBackendAdapter.test.ts.',
+  },
+  {
+    site: 'x-studio/chat/studioBackendAdapter.ts:processEvent#8',
     probedIn: null,
     why: 'approval id cap; pinned by studioBackendAdapter.test.ts.',
   },
@@ -209,6 +272,16 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
   },
 
   // ── x-studio-data-middleware: the request boundary and its own shared limits ──
+  {
+    site: 'x-studio-data-middleware/handler.ts:mapWithConcurrency#0',
+    probedIn: null,
+    why:
+      'NOT A CAP. `index >= items.length` is the exhaustion test of a work-queue worker — the ' +
+      'size is the LIMIT here rather than the measured quantity, the same shape a `for` ' +
+      'condition has (and `for` conditions are excluded structurally). Listed for the same ' +
+      'reason as `autoSubmit.tsx:attempt#0`: over-approximating is what stops a real cap ' +
+      'written against a variable from being silently dropped.',
+  },
   {
     site: 'x-studio-data-middleware/handler.ts:checkSemiJoinBounds#0',
     probedIn: null,
@@ -240,6 +313,14 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     why: 'where-clause count cap; pinned by the mutation handler tests.',
   },
   {
+    site: 'x-studio-data-middleware/security/cacheKey.ts:computeSecurityHash#0',
+    probedIn: null,
+    why:
+      'security-hash memo eviction cap on a Map `.size`; pinned (measured: relaxing it is ' +
+      'killed by 1 test). Invisible to the previous scan, which matched `.length` and ' +
+      '`.byteLength` but not `.size`.',
+  },
+  {
     site: 'x-studio-data-middleware/shared/columnValidation.ts:assertIdentifierLength#0',
     probedIn: null,
     why: 'identifier length cap; pinned by columnValidation tests (killed by 2 tests).',
@@ -255,6 +336,15 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     why: 'predicate-value array cap; pinned by requestShapeGuards tests.',
   },
   {
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:checkPredicateValueBounds#1',
+    probedIn: null,
+    why:
+      'the predicate-value STRING-LENGTH cap, whose in-function sibling (#0, the array cap) ' +
+      'was already inventoried while this one was invisible — the "one sentence about N ' +
+      'things, a test for N-1" shape, inside the enumeration built to break it. Pinned ' +
+      '(measured: relaxing it is killed by 3 tests). The bound arrives as a parameter.',
+  },
+  {
     site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertIdAndTableLength#0',
     probedIn: null,
     why: 'id/table-name length cap; pinned by requestShapeGuards tests.',
@@ -268,6 +358,14 @@ export const SIZE_CAP_INVENTORY: SizeCapEntry[] = [
     site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField#1',
     probedIn: null,
     why: 'object KEY length cap; pinned by requestShapeGuards tests.',
+  },
+  {
+    site: 'x-studio-data-middleware/shared/requestShapeGuards.ts:assertBoundedObjectField#2',
+    probedIn: null,
+    why:
+      'object VALUE length cap — the THIRD of three caps on consecutive `if`s in this ' +
+      'function, of which the previous scan could see the first two. Pinned (measured: ' +
+      'relaxing it is killed by 2 tests). The bound arrives as a parameter.',
   },
 ];
 

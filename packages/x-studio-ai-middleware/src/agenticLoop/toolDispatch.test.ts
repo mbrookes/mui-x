@@ -750,6 +750,117 @@ describe('dispatchToolCall', () => {
     });
   });
 
+  // ── `query_data_source`'s `needs-approval` gate, both directions ──────────────
+  //
+  // Round-15 finding F3. `query_data_source` is the only SIDE-EFFECTFUL non-mutating
+  // tool on the chat transport (its branch comment says so), and `require-approval` is
+  // the documented `ToolPolicyDecision` a host returns for "this one needs a human".
+  // The gate on this branch was the ONE of its four siblings with no test: the same
+  // `denied`/`needs-approval` pair on the server-tool-skill branch is pinned, and so is
+  // the `denied` half of this branch's own pair — but replacing this `needs-approval`
+  // condition with `false` survived the entire 1652-test suite, while emitting NO
+  // `tool-approval-request` and running the live query. That is an authorization control
+  // failing OPEN: every human-in-the-loop decision on data access silently becomes an
+  // automatic allow.
+  //
+  // Both directions are pinned, deliberately: a rejection-only test is satisfied by a
+  // gate that refuses everything, and an approval-only test by a gate that is not there
+  // at all. The load-bearing assertion in each is on `queryDataSource` itself — whether
+  // the live query RAN — not merely on the event, because the harm is the query, and the
+  // event without the query would be a different (fail-closed) bug.
+  const approvalRequiredPolicy: ToolPolicy = () => ({
+    action: 'require-approval',
+    reason: 'live query needs confirmation',
+  });
+
+  function makeQueryCtxAwaitingApproval(
+    queryDataSource: ReturnType<typeof vi.fn>,
+    approvalPending: Map<string, PendingApproval>,
+  ) {
+    return makeCtx({
+      advertisedToolNames: new Set(['query_data_source']),
+      // An explicit allowlist, so the fail-closed table check above cannot be what
+      // stops the query and mask the gate under test.
+      data: {
+        queryDataSource: queryDataSource as unknown as NonNullable<
+          ToolDispatchContext['data']
+        >['queryDataSource'],
+        allowedTables: ['src1_table'],
+      },
+      toolPolicy: approvalRequiredPolicy,
+      approvalPending,
+    });
+  }
+
+  const QUERYABLE_STATE = createDefaultStudioState({
+    runtime: {
+      dataSources: {
+        src1: { id: 'src1', label: 'Source 1', tableName: 'src1_table', fields: [] },
+      },
+    },
+  });
+
+  it('raises an approval request for query_data_source, and does not run the live query until it is resolved', async () => {
+    const queryDataSource = vi.fn(async () => ({ rows: [{ secret: 42 }], rowCount: 1 }));
+    const approvalPending = new Map<string, PendingApproval>();
+    const gen = dispatchToolCall(
+      tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+      { sourceId: 'src1' },
+      false,
+      QUERYABLE_STATE,
+      makeQueryCtxAwaitingApproval(queryDataSource, approvalPending),
+    );
+
+    const first = await gen.next();
+    const event = first.value as { type: string; toolName?: string; reason?: string };
+    expect(event.type).toBe('tool-approval-request');
+    expect(event.toolName).toBe('query_data_source');
+    expect(event.reason).toBe('live query needs confirmation');
+    // The human has been asked and has NOT answered: the query must not have run.
+    expect(queryDataSource).not.toHaveBeenCalled();
+
+    const pendingStep = gen.next();
+    await Promise.resolve();
+    approvalPending.get(soleApprovalKey(approvalPending))!.resolve(false, 'not this table');
+    const done = await pendingStep;
+
+    // Denied: still no query, and the model is told why.
+    expect(queryDataSource).not.toHaveBeenCalled();
+    const parsed = JSON.parse((done.value as { output: string }).output) as {
+      denied: boolean;
+      reason: string;
+    };
+    expect(parsed.denied).toBe(true);
+    expect(parsed.reason).toMatch(/not this table/);
+  });
+
+  it('runs the query_data_source query only after the approval resolves true', async () => {
+    const queryDataSource = vi.fn(async () => ({ rows: [{ secret: 42 }], rowCount: 1 }));
+    const approvalPending = new Map<string, PendingApproval>();
+    const gen = dispatchToolCall(
+      tc('query_data_source', JSON.stringify({ sourceId: 'src1' })),
+      { sourceId: 'src1' },
+      false,
+      QUERYABLE_STATE,
+      makeQueryCtxAwaitingApproval(queryDataSource, approvalPending),
+    );
+
+    const first = await gen.next();
+    expect((first.value as { type: string }).type).toBe('tool-approval-request');
+    expect(queryDataSource).not.toHaveBeenCalled();
+
+    const pendingStep = gen.next();
+    await Promise.resolve();
+    approvalPending.get(soleApprovalKey(approvalPending))!.resolve(true);
+    const done = await pendingStep;
+
+    expect(queryDataSource).toHaveBeenCalledOnce();
+    expect(JSON.parse((done.value as { output: string }).output)).toMatchObject({
+      sourceId: 'src1',
+      rowCount: 1,
+    });
+  });
+
   // Regression for finding 7 (Tier 3, latent, iteration 24): a real `data.queryDataSource`
   // failure still goes through `errorResult` (`mcp/helpers.ts`), i.e. valid JSON, and
   // the fix must not have broken that ordinary path — `onToolError` should still

@@ -786,11 +786,21 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       // ONE `||`, so a fixture with both fields over the cap would pass either test with
       // either clause deleted. This checks the entry as it ARRIVES — after the SSE JSON
       // round trip — rather than as it was written a few lines up.
+      //
+      // `kind: 'bound'` is load-bearing here, and this is the fixture that proved why. With
+      // the `id` grown to `6 * MAX_STRING_LENGTH` instead of `+ 1`, all three of the helper's
+      // original assertions passed, both directions of the pin above passed, and a
+      // token-preserving mutant of this clause SURVIVED the whole project — because
+      // `MAX_TURN_APPROVAL_SIZE` (40 000, ~1400 lines away) sets the identical
+      // `effectsWithheld: true`. The minimality check is what refuses that payload: a bound
+      // 40 000 characters away cannot hide in a window one character wide.
       expect(() =>
         expectClauseIsolated({
+          kind: 'bound',
           guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
           clauses: ENTRY_CLAUSES,
           target: 'entry.id.length > MAX_STRING_LENGTH',
+          measure: (entry) => (entry.id as string).length,
           control: entryAsDelivered({ id: 'i'.repeat(MAX_STRING_LENGTH), title: 'Q4 Revenue' }),
           observed: entryAsDelivered({
             id: 'i'.repeat(MAX_STRING_LENGTH + 1),
@@ -800,12 +810,49 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       ).not.toThrow();
     });
 
+    // The counter-example as a test, so the property cannot quietly stop holding: the same
+    // fixture written with an "obviously over the cap" payload must now be REFUSED.
+    it('refuses the same fixture written with an obviously-over-cap id', () => {
+      expect(() =>
+        expectClauseIsolated({
+          kind: 'bound',
+          guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
+          clauses: ENTRY_CLAUSES,
+          target: 'entry.id.length > MAX_STRING_LENGTH',
+          measure: (entry) => (entry.id as string).length,
+          control: entryAsDelivered({ id: 'i'.repeat(MAX_STRING_LENGTH), title: 'Q4 Revenue' }),
+          observed: entryAsDelivered({
+            id: 'i'.repeat(6 * MAX_STRING_LENGTH),
+            title: 'Q4 Revenue',
+          }),
+        }),
+      ).toThrow(/not the MINIMAL violation/);
+    });
+
+    // …and why that payload is dangerous, measured rather than asserted: at
+    // 6 * MAX_STRING_LENGTH the turn budget alone already withholds the summary, so the
+    // observable is identical whether or not the per-string clause fires.
+    it('shows the turn budget producing the same observable for the over-sized payload', async () => {
+      expect(
+        await effectsFor({
+          willRemoveWidgets: [{ id: 'i'.repeat(6 * MAX_STRING_LENGTH), title: 'Q4 Revenue' }],
+        }),
+      ).toEqual({ effectsWithheld: true });
+      // The serialized entry is over MAX_TURN_APPROVAL_SIZE on its own, so the budget reaches
+      // that same verdict with no help from the clause the fixture would have claimed to test.
+      expect(
+        JSON.stringify({ id: 'i'.repeat(6 * MAX_STRING_LENGTH), title: 'Q4 Revenue' }).length,
+      ).toBeGreaterThan(MAX_TURN_APPROVAL_SIZE);
+    });
+
     it('reaches the `title` clause, and not its `id` sibling', () => {
       expect(() =>
         expectClauseIsolated({
+          kind: 'bound',
           guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
           clauses: ENTRY_CLAUSES,
           target: 'entry.title.length > MAX_STRING_LENGTH',
+          measure: (entry) => (entry.title as string).length,
           control: entryAsDelivered({ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH) }),
           observed: entryAsDelivered({ id: 'w1', title: 'T'.repeat(MAX_STRING_LENGTH + 1) }),
         }),

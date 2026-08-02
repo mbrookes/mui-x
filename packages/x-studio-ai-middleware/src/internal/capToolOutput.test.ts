@@ -10,6 +10,7 @@ import {
   MAX_TOOL_OUTPUT_CELL_CHARS,
   MAX_TOOL_OUTPUT_ARRAY_ITEMS,
   MAX_TOOL_OUTPUT_OBJECT_KEYS,
+  MAX_TOOL_OUTPUT_DEPTH,
   TOOL_OUTPUT_TRUNCATED_NOTE_KEY,
   TOOL_OUTPUT_TRUNCATED_RESULT_KEY,
   TOOL_OUTPUT_TRUNCATED_SUFFIX,
@@ -247,5 +248,83 @@ describe('capToolOutput', () => {
     const output = `{"__proto__":{"polluted":"yes"},"pad":"${'p'.repeat(MAX_TOOL_OUTPUT_CHARS)}"}`;
     capToolOutput(output);
     expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+
+  // ── MAX_TOOL_OUTPUT_DEPTH, both arms ─────────────────────────────────────────
+  //
+  // Round-15 finding F4. The depth cap was the one member of this five-cap family
+  // with no test at all: token-preserving mutants of BOTH arms
+  // (`depth >= MAX_TOOL_OUTPUT_DEPTH * 1000`) survived the whole 1652-test suite,
+  // while `MAX_TOOL_OUTPUT_CHARS`, `caps.cellChars`, `caps.arrayItems` and
+  // `caps.objectKeys` are each killed by their own test above. It is also the cap
+  // whose loss does not merely loosen a bound: `trimValue` recurses, and it runs
+  // OUTSIDE both of `capToolOutput`'s `try`/`catch`es (which cover `JSON.parse` and
+  // `JSON.stringify`), so an unbounded walk throws `RangeError: Maximum call stack
+  // size exceeded` out of a function that runs on EVERY `ToolDispatchOutcome.output`.
+  //
+  // Three tests: the object arm, the array arm, and the stack-overflow case that
+  // motivates the cap. The first two assert the exact cut point structurally, so they
+  // fail deterministically rather than depending on the platform's stack size.
+
+  /** Length of the nested-container chain reachable from `value` by following `step`. */
+  function chainDepth(value: unknown, step: (v: object) => unknown): number {
+    let depth = 0;
+    let current = value;
+    while (current !== null && typeof current === 'object' && Object.keys(current).length > 0) {
+      depth += 1;
+      current = step(current as object);
+    }
+    return depth;
+  }
+
+  it('replaces an over-deep OBJECT with an empty object at MAX_TOOL_OUTPUT_DEPTH', () => {
+    let nested: Record<string, unknown> = {};
+    for (let i = 0; i < MAX_TOOL_OUTPUT_DEPTH * 2; i += 1) {
+      nested = { a: nested };
+    }
+    // `deep` sits one level in from the root, so its outermost object is walked at
+    // depth 1 and the chain is cut when the walk reaches MAX_TOOL_OUTPUT_DEPTH —
+    // leaving MAX_TOOL_OUTPUT_DEPTH - 1 objects that still carry `a`, then `{}`.
+    const output = JSON.stringify({ deep: nested, pad: 'p'.repeat(MAX_TOOL_OUTPUT_CHARS) });
+    const parsed = JSON.parse(capToolOutput(output)) as { deep: unknown };
+
+    expect(chainDepth(parsed.deep, (v) => (v as { a: unknown }).a)).toBe(MAX_TOOL_OUTPUT_DEPTH - 1);
+  });
+
+  it('replaces an over-deep ARRAY with an empty array at MAX_TOOL_OUTPUT_DEPTH', () => {
+    let nested: unknown[] = [];
+    for (let i = 0; i < MAX_TOOL_OUTPUT_DEPTH * 2; i += 1) {
+      nested = [nested];
+    }
+    const output = JSON.stringify({ deep: nested, pad: 'p'.repeat(MAX_TOOL_OUTPUT_CHARS) });
+    const parsed = JSON.parse(capToolOutput(output)) as { deep: unknown };
+
+    expect(chainDepth(parsed.deep, (v) => (v as unknown[])[0])).toBe(MAX_TOOL_OUTPUT_DEPTH - 1);
+  });
+
+  it('survives a producer result nested far deeper than the walk could recurse', () => {
+    // The shape `JSON.parse` accepts but a recursive walk cannot: 40,000 levels of
+    // `{"a": …}` is well over 200,000 characters, so the trim engages, and without the
+    // depth cap `trimValue` overflows the stack BEFORE any `try`/`catch` in this module
+    // can see it. Producer-supplied: a host skill's return, an MCP resource, or a
+    // data-source row set.
+    const levels = 40_000;
+    const output = `${'{"a":'.repeat(levels)}1${'}'.repeat(levels)}`;
+    expect(output.length).toBeGreaterThan(MAX_TOOL_OUTPUT_CHARS);
+
+    let capped: string | undefined;
+    expect(() => {
+      capped = capToolOutput(output);
+    }).not.toThrow();
+    expect(capped!.length).toBeLessThanOrEqual(MAX_TOOL_OUTPUT_CHARS);
+    expect(JSON.parse(capped!)).toBeTypeOf('object');
+  });
+
+  // The two arm tests read their cut point off the exported constant, so a
+  // token-preserving mutation of either USE site (`depth >= MAX_TOOL_OUTPUT_DEPTH * 1000`)
+  // reddens them. This pins the DECLARATION too, so raising the constant itself cannot
+  // quietly relax both arms and their expectations together.
+  it('keeps MAX_TOOL_OUTPUT_DEPTH at a value a recursive walk can actually reach', () => {
+    expect(MAX_TOOL_OUTPUT_DEPTH).toBe(12);
   });
 });

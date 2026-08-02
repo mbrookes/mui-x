@@ -1978,4 +1978,67 @@ describe('expression depth bound (M4)', () => {
     expect(evaluateExpression(nest(8), ctx({}))).toBe(1);
     expect(evaluateExpression(nest(9), ctx({}))).toBe(-1);
   });
+
+  /**
+   * `inferExpressionTypeInternal`'s depth guard, on the recursion that actually reaches it.
+   *
+   * It is the one of five `MAX_EXPRESSION_DEPTH` guards in this module with no test of its
+   * own: a token-preserving mutant of it (`depth > MAX_EXPRESSION_DEPTH * 1000`) SURVIVED the
+   * whole 4843-test project, with a deletion elsewhere in the same file killed by the same
+   * run. Every test above stayed green. Why is worth recording, because the conjecture about
+   * the route was wrong in an instructive way.
+   *
+   * The AST-depth route is nearly closed. `docScreening.ts`'s `isValidExpressionNode` carries
+   * its own `MAX_EXPRESSION_DEPTH` and runs at the LOAD boundary, so an over-deep tree never
+   * survives to a render path (measured: `deserializeState` keeps an expression field whose
+   * nested `if` is 31 deep, and drops it at 33). On that axis this guard is defense-in-depth
+   * beneath a screen exactly as strict, which is why the mutant lived.
+   *
+   * The route that IS open is the OTHER recursion in the same function: a field expression
+   * naming another EXPRESSION field. `seen` bounds CYCLES there; nothing bounds LENGTH. Every
+   * field in a chain `f0 -> f1 -> … -> f4999` carries a trivially shallow expression, so the
+   * load screen has nothing to catch and `deserializeState` keeps all 5000 (measured). With
+   * the guard relaxed, `inferExpressionType(f0)` then throws `RangeError: Maximum call stack
+   * size exceeded` — on `StudioMapWidget`'s render path and in the expression dialog, which is
+   * the exact failure the neighbouring `seen` guard's own comment describes for cycles.
+   *
+   * Dashboards are exchanged as JSON, so a doc carrying thousands of chained expression fields
+   * is an import away.
+   */
+  describe('the expression-FIELD reference chain, which is what this guard really bounds', () => {
+    /** `f0 -> f1 -> … -> f(length-1) -> revenue`, every hop a shallow field reference. */
+    function chainedFields(length: number): StudioExpressionField[] {
+      return Array.from({ length }, (_unused, i) => ({
+        id: `f${i}`,
+        label: `F${i}`,
+        sourceId: 'sales',
+        isMeasure: false,
+        expression: i === length - 1 ? field('revenue') : field(`f${i + 1}`),
+      }));
+    }
+
+    // Two directions, on the chain's own dimension. Neither alone is a pin: "always resolve"
+    // passes the first and "always fall back to string" passes the second, and only the depth
+    // guard can tell a chain of 32 hops from one of 33.
+    it('resolves a chain exactly at the bound to the physical field it ends on', () => {
+      expect(
+        inferExpressionType(field('f0'), sourceFields, chainedFields(MAX_EXPRESSION_DEPTH)),
+      ).toBe('number');
+    });
+
+    it('falls back to string one hop over the bound', () => {
+      expect(
+        inferExpressionType(field('f0'), sourceFields, chainedFields(MAX_EXPRESSION_DEPTH + 1)),
+      ).toBe('string');
+    });
+
+    it('does not overflow the stack on a chain nothing else bounds', () => {
+      // The half a mutant of the guard breaks. Each field here passes the load screen
+      // individually — its expression tree is one node deep — so nothing upstream has
+      // anything to reject, and `seen` only stops the chain from looping back on itself.
+      const chain = chainedFields(5_000);
+      expect(() => inferExpressionType(field('f0'), sourceFields, chain)).not.toThrow();
+      expect(inferExpressionType(field('f0'), sourceFields, chain)).toBe('string');
+    });
+  });
 });

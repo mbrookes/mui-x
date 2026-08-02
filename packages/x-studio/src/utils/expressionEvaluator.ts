@@ -883,7 +883,17 @@ function inferExpressionTypeInternal(
    * (`StudioMapWidget`) and in the expression dialog.
    */
   seen: Set<string>,
-  /** AST depth guard, see `MAX_EXPRESSION_DEPTH`. */
+  /**
+   * Depth guard, see `MAX_EXPRESSION_DEPTH`. It counts BOTH recursions, and the one it earns
+   * its keep on is the second. A deeply nested AST arriving here has already been screened at
+   * load by `docScreening.ts`'s `isValidExpressionNode`, which carries the same bound — so on
+   * that axis this is defense-in-depth beneath an equally strict screen. A CHAIN of expression
+   * fields (`f0 -> f1 -> … -> f4999`) is trivially shallow at every hop, passes that screen
+   * intact, and is bounded by nothing else: `seen` above stops the chain LOOPING, not being
+   * LONG. Without this guard such a chain throws `RangeError: Maximum call stack size
+   * exceeded` on the render path (`StudioMapWidget`) and in the expression dialog — measured,
+   * and pinned in `expressionEvaluator.test.ts`.
+   */
   depth: number,
 ): StudioDataField['type'] {
   if (depth > MAX_EXPRESSION_DEPTH) {

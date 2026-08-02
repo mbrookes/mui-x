@@ -212,6 +212,9 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
       expect(() =>
         expectClauseIsolated({
           kind: 'shape',
+          // `Infinity` serialises as `null`, so this payload SHRINKS — no size budget
+          // anywhere can be what rejects it.
+          serializedWindow: -6,
           whyNotMinimal:
             'finiteness is not a measurable dimension: there is no value one unit short of ' +
             'Infinity that this clause admits, so there is no minimal violation to supply. ' +

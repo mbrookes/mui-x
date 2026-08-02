@@ -65,7 +65,7 @@ interface TurnRecord {
  * and each entry pins two whole `doc` snapshots, so the map is bounded rather than
  * growing for the lifetime of the panel.
  */
-const MAX_TRACKED_TURNS = 8;
+export const MAX_TRACKED_TURNS = 8;
 
 export function createChatTurnMutationLedger(
   controller: StudioController,

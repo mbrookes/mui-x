@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { findSizeCapSites } from 'test/utils/sizeCapScan';
+import { findSizeCapSites, SIZE_CALLS, SIZE_PROPERTIES } from 'test/utils/sizeCapScan';
 import { SIZE_CAP_INVENTORY, SIZE_CAP_ROOTS, sitesProbedIn } from 'test/utils/sizeCapInventory';
 import { parseStateMutation } from './parseStateMutation';
 import { repairFilterDependsOn } from './internalGuards';
@@ -43,25 +43,46 @@ import { MAX_STRING_LENGTH } from './wireLimits';
  *     everything" each pass one of them.
  *
  *  2. `SIZE_CAP_INVENTORY` (in `test/utils/sizeCapInventory.ts`) derives the site list from
- *     the SOURCE and fails if it disagrees. A new cap cannot be added without the
- *     inventory naming it and this test failing until somebody writes either a probe or a
- *     reason there is none.
+ *     the SOURCE and fails if it disagrees. A cap written as a comparison against a
+ *     measurement the scan knows how to spell cannot be added without the inventory naming
+ *     it and this test failing until somebody writes either a probe or a reason there is
+ *     none.
  *
- * ── What (2) used to be, and why it was replaced ──
+ *     That qualifier is load-bearing and it is new. The sentence used to end at "a new cap
+ *     cannot be added", and the completeness test below was titled `accounts for every size
+ *     cap at the inventoried boundaries`. Both were false. The boundary of the claim is now
+ *     fixed in place by the `escapes that defeated the NAME test` and `blind spots` blocks
+ *     at the bottom of this file, as fixtures rather than as a paragraph that can drift.
  *
- * The first version counted occurrences of the IDENTIFIER `MAX_STRING_LENGTH` in a
- * non-recursive `readdirSync` of THIS directory, and its docblock claimed that made "the
- * eighth occurrence impossible to ship unpinned". A later sweep shipped three real,
- * reachable caps it could not see — `import { MAX_STRING_LENGTH as MAX_LEN }`,
- * `value.length <= 10_000`, and the same file moved into a subdirectory — and one it
- * imagined (a prettier-reflowed multi-line import). Meanwhile a genuinely unpinned cap was
- * sitting one package over, in `x-studio`'s `isWithinApprovalListLimits`, where a
- * package-scoped scan could never look; relaxing it put 20 429 JSON characters into the
- * persisted doc where 399 belong, with the whole 4822-test suite green.
+ * ── What (2) used to be, and why it was replaced twice ──
  *
- * So the scan now matches the SHAPE of a size clause over a stated list of boundary roots,
- * walked recursively — see `test/utils/sizeCapScan.ts` for the reasoning, and the
- * `source scan` block at the bottom of this file for each of those escapes as a test.
+ * v1 counted occurrences of the IDENTIFIER `MAX_STRING_LENGTH` in a non-recursive
+ * `readdirSync` of THIS directory, and its docblock claimed that made "the eighth occurrence
+ * impossible to ship unpinned". A later sweep shipped three real, reachable caps it could
+ * not see — `import { MAX_STRING_LENGTH as MAX_LEN }`, `value.length <= 10_000`, and the
+ * same file moved into a subdirectory — and one it imagined (a prettier-reflowed multi-line
+ * import). Meanwhile a genuinely unpinned cap was sitting one package over, in `x-studio`'s
+ * `isWithinApprovalListLimits`, where a package-scoped scan could never look; relaxing it
+ * put 20 429 JSON characters into the persisted doc where 399 belong, with the whole
+ * 4822-test suite green.
+ *
+ * v2 replaced the token count with a per-LINE regex for "a size expression compared against
+ * a SCREAMING_SNAKE_CASE name or a large literal", over recursive roots. That is still a
+ * test on the NAME of the right operand, and a sweep found SEVEN real caps inside the three
+ * directories it walks that it could not see — four with the bound passed in as an argument,
+ * two written on a `Map`'s `.size`, one both — while its completeness test reported 43 sites
+ * and 43 inventory rows. One of the seven was `MAX_STATS_ROWS`, the cap the round that
+ * shipped v2 had itself just reported as unpinned, in a file that same commit added to the
+ * scan. Two more were the string-length clause of a guard whose SIBLING clause in the same
+ * function WAS inventoried — this file's own founding shape, reproduced inside the
+ * enumeration built to break it. And because v2 matched per LINE while prettier reflows a
+ * long comparison across two, the same formatting pressure that made v1 cry wolf now moved a
+ * site OUT of the inventory silently.
+ *
+ * So the scan is now an AST pass whose identity function INCLUDES by default: a size
+ * comparison is a site unless what it is compared against is provably not a bound. See
+ * `test/utils/sizeCapScan.ts` for the structural exclusions and the exact limits of the
+ * resulting claim.
  *
  * Adding a row is deliberately cheap and deliberately not optional. A site with no probe
  * needs a `why` in the inventory, which is a claim a reader can check rather than a silence.
@@ -211,7 +232,7 @@ describe('bounded-string guards', () => {
 
   // The mechanism. Everything above is a backlog; this is what stops the next one.
   describe('source scan', () => {
-    it('accounts for every size cap at the inventoried boundaries', () => {
+    it('accounts for every size comparison it can see at the inventoried boundaries', () => {
       const inSource = findSizeCapSites(SIZE_CAP_ROOTS).map(({ site }) => site);
       const accountedFor = SIZE_CAP_INVENTORY.map(({ site }) => site);
 
@@ -347,6 +368,186 @@ describe('bounded-string guards', () => {
       const sites = findSizeCapSites([{ label: 'fixture', dir: root }]).map((hit) => hit.site);
       expect(sites.filter((site) => site.startsWith('fixture/reflowed.ts'))).toEqual([]);
       expect(sites.filter((site) => site.startsWith('fixture/ordinary.ts'))).toEqual([]);
+    });
+  });
+
+  /**
+   * The seven shapes that defeated v2's NAME test, each as a real file on disk.
+   *
+   * Every one of these was measured MISSED against the regex scan while a real cap of that
+   * exact shape sat inside the three inventoried roots. They are the reason the identity
+   * function no longer asks what the right operand is CALLED.
+   */
+  describe('source scan — the escapes that defeated the NAME test', () => {
+    let root: string;
+
+    beforeAll(() => {
+      root = mkdtempSync(join(tmpdir(), 'size-cap-scan-v2-'));
+      // The one that got worse, not better: v1 cried wolf when prettier reflowed an import,
+      // v2 dropped the site when prettier reflowed a long COMPARISON — the same formatting
+      // pressure, now failing silently. An AST does not have lines.
+      writeFileSync(
+        join(root, 'reflowed-comparison.ts'),
+        [
+          "import { MAX_STRING_LENGTH } from './wireLimits';",
+          'export function isBoundedEntry(entry: { veryLongPropertyNameIndeed: string }): boolean {',
+          '  return (',
+          '    entry.veryLongPropertyNameIndeed.length <=',
+          '    MAX_STRING_LENGTH',
+          '  );',
+          '}',
+        ].join('\n'),
+      );
+      // The bound written on the LEFT. A comparison has two sides and a cap can be on either.
+      writeFileSync(
+        join(root, 'reversed.ts'),
+        [
+          "import { MAX_STRING_LENGTH } from './wireLimits';",
+          'export function isBoundedReversed(value: string): boolean {',
+          '  return MAX_STRING_LENGTH >= value.length;',
+          '}',
+        ].join('\n'),
+      );
+      // Four of the seven real misses were this: the cap arrives as an argument, so it has
+      // no name to match. It is not an exotic way to write a cap — it is how a shared guard
+      // parameterised over several limits has to be written.
+      writeFileSync(
+        join(root, 'parameterised.ts'),
+        [
+          'export function isBoundedByArgument(value: string, maxLength: number): boolean {',
+          '  return value.length <= maxLength;',
+          '}',
+        ].join('\n'),
+      );
+      // Two of the seven: a Map/Set cap is a cap.
+      writeFileSync(
+        join(root, 'mapsize.ts'),
+        [
+          "import { MAX_TRACKED } from './wireLimits';",
+          'export function isBoundedMemo(seen: Map<string, number>): boolean {',
+          '  return seen.size <= MAX_TRACKED;',
+          '}',
+        ].join('\n'),
+      );
+      // A namespace import gives the bound a dotted name, which no identifier pattern matches.
+      writeFileSync(
+        join(root, 'namespaced.ts'),
+        [
+          "import * as limits from './wireLimits';",
+          'export function isBoundedNamespaced(value: string): boolean {',
+          '  return value.length <= limits.MAX_STRING_LENGTH;',
+          '}',
+        ].join('\n'),
+      );
+      // The controls, restated for the new rule: iteration and arity must still stay out, or
+      // the inventory becomes noise nobody maintains.
+      writeFileSync(
+        join(root, 'ordinary2.ts'),
+        [
+          'export function summarise(rows: string[][]): number {',
+          '  let total = 0;',
+          '  for (let i = 0; i < rows.length; i += 1) {',
+          '    if (rows[i].length > 0 && rows[i].length >= 2) {',
+          '      total += 1;',
+          '    }',
+          '  }',
+          '  return total;',
+          '}',
+          'export function sameShape(a: string[], b: string[]): boolean {',
+          '  return a.length === b.length;',
+          '}',
+        ].join('\n'),
+      );
+    });
+
+    afterAll(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it.each([
+      [
+        "prettier's own reflow of a long comparison",
+        'fixture/reflowed-comparison.ts:isBoundedEntry#0',
+      ],
+      ['the operands reversed', 'fixture/reversed.ts:isBoundedReversed#0'],
+      ['the cap passed in as a parameter', 'fixture/parameterised.ts:isBoundedByArgument#0'],
+      ['a Map/Set `.size`', 'fixture/mapsize.ts:isBoundedMemo#0'],
+      ['a namespace import', 'fixture/namespaced.ts:isBoundedNamespaced#0'],
+    ])('sees a cap written with %s', (_label, site) => {
+      const sites = findSizeCapSites([{ label: 'fixture', dir: root }]).map((hit) => hit.site);
+      expect(sites).toContain(site);
+    });
+
+    it('still keeps iteration, emptiness, arity and size-vs-size comparisons out', () => {
+      // Four separate exclusions, all structural: the `for` condition, `> 0`, `>= 2`, and a
+      // comparison of two measured sizes. None of them consults a name.
+      const sites = findSizeCapSites([{ label: 'fixture', dir: root }]).map((hit) => hit.site);
+      expect(sites.filter((site) => site.startsWith('fixture/ordinary2.ts'))).toEqual([]);
+    });
+  });
+
+  /**
+   * What the scan STILL cannot see, asserted rather than described.
+   *
+   * The operand side of the identity function now over-approximates, so a bound cannot hide
+   * behind its own name. The MEASUREMENT side is still a list (`SIZE_PROPERTIES`,
+   * `SIZE_CALLS`), and a bound enforced without a comparison at all is not a comparison. Both
+   * are real gaps. They are fixtures here — asserted MISSED — so that the limit of the claim
+   * is machine-checked, a reader is told exactly where it ends, and the next sweep finds them
+   * already written down instead of reporting them as a discovery.
+   *
+   * If one of these ever needs to be covered, the fix is to add the helper to `SIZE_CALLS`
+   * (and delete the corresponding expectation here), not to widen a pattern.
+   */
+  describe('source scan — blind spots', () => {
+    let root: string;
+
+    beforeAll(() => {
+      root = mkdtempSync(join(tmpdir(), 'size-cap-scan-blind-'));
+      // A size measured by a helper the scan has not been told about.
+      writeFileSync(
+        join(root, 'customMeasure.ts'),
+        [
+          "import { MAX_STRING_LENGTH } from './wireLimits';",
+          'declare function utf8Bytes(value: string): number;',
+          'export function isBoundedByBytes(value: string): boolean {',
+          '  return utf8Bytes(value) <= MAX_STRING_LENGTH;',
+          '}',
+        ].join('\n'),
+      );
+      // A bound enforced by TRUNCATION, with no comparison anywhere.
+      writeFileSync(
+        join(root, 'truncating.ts'),
+        [
+          "import { MAX_STRING_LENGTH } from './wireLimits';",
+          'export function boundedNote(value: string): string {',
+          '  return value.slice(0, MAX_STRING_LENGTH);',
+          '}',
+          'export function boundedCount(values: string[]): number {',
+          '  return Math.min(values.length, MAX_STRING_LENGTH);',
+          '}',
+        ].join('\n'),
+      );
+    });
+
+    afterAll(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    it.each([
+      ['a size measured by a helper not in SIZE_CALLS', 'fixture/customMeasure.ts'],
+      ['a bound enforced by slice/Math.min rather than a comparison', 'fixture/truncating.ts'],
+    ])('does NOT see %s — a known, stated limit of the claim', (_label, filePrefix) => {
+      const sites = findSizeCapSites([{ label: 'fixture', dir: root }]).map((hit) => hit.site);
+      expect(sites.filter((site) => site.startsWith(filePrefix))).toEqual([]);
+    });
+
+    it('names the measurements it does know, so the gap above is reviewable', () => {
+      // The under-approximating half of the identity function, in one place, exported. A cap
+      // written against any of these is seen whatever the bound is called; a cap written
+      // against anything else is not seen at all.
+      expect([...SIZE_PROPERTIES].sort()).toEqual(['byteLength', 'length', 'size']);
+      expect([...SIZE_CALLS].sort()).toEqual(['wireStringSize', 'wireValueSize']);
     });
   });
 });

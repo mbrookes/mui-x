@@ -886,3 +886,257 @@ describe('docTransforms — dependsOn cascade on filter drops (R6 F3)', () => {
     expect(next.filters.find((f) => f.id === 'fp')).not.toHaveProperty('dependsOn');
   });
 });
+
+// ── `isSameManagedFilterContent` — every conjunct, both directions ────────────
+//
+// This is the shared identity bail for `setDashboardDateRange`,
+// `setDashboardDateRangeAll`, `setWidgetDateRange` and (with `ignoreId`) `applyCrossFilter`.
+// A false "same" makes the setter return the ORIGINAL doc: the write is dropped with no
+// commit, no undo entry and nothing in the UI. Five of its nine comparisons were unobserved,
+// and removing `scope` and `filterSourceId` TOGETHER was still green — so it was not a
+// masking pair, the source-change case simply had no test. Each case below differs in
+// EXACTLY ONE field, so it fails if and only if that conjunct is gone.
+describe('docTransforms.isSameManagedFilterContent', () => {
+  const base: StudioFilterState = {
+    id: 'f1',
+    field: 'created',
+    fieldType: 'date',
+    filterSourceId: 'source-a',
+    dateRangePreset: 'last_7_days',
+    filterMode: 'value',
+    operator: 'between',
+    value: { from: '2024-01-01', to: '2024-01-07' },
+    scope: { kind: 'page', pageId: 'page-1' },
+  } as unknown as StudioFilterState;
+
+  it('reports identical content as the same', () => {
+    // The positive direction. Without it every case below is satisfiable by a function that
+    // always returns false, which would break every caller's no-op guard in the other
+    // direction (a dead undo entry on every re-save).
+    expect(docTransforms.isSameManagedFilterContent(base, { ...base })).toBe(true);
+  });
+
+  const cases: Array<[string, Partial<StudioFilterState>]> = [
+    ['id', { id: 'f2' }],
+    ['field', { field: 'updated' }],
+    ['fieldType', { fieldType: 'string' }],
+    ['filterSourceId', { filterSourceId: 'source-b' }],
+    ['dateRangePreset', { dateRangePreset: 'last_30_days' }],
+    ['filterMode', { filterMode: 'rank' }],
+    ['operator', { operator: 'equals' }],
+    ['value', { value: { from: '2024-02-01', to: '2024-02-07' } }],
+    ['scope', { scope: { kind: 'page', pageId: 'page-2' } }],
+  ] as Array<[string, Partial<StudioFilterState>]>;
+
+  it.each(cases)('reports a differing %s as NOT the same', (_name, patch) => {
+    expect(
+      docTransforms.isSameManagedFilterContent(base, { ...base, ...patch } as StudioFilterState),
+    ).toBe(false);
+  });
+
+  it('reports a differing scope AND filterSourceId as not the same', () => {
+    // The two are near-duplicates in the date-range setters, so each surviving alone could be
+    // explained by the other masking it. Removing both is the measurement that shows the
+    // source-change case is genuinely covered rather than covered by its twin.
+    expect(
+      docTransforms.isSameManagedFilterContent(base, {
+        ...base,
+        filterSourceId: 'source-b',
+        scope: { kind: 'page', pageId: 'page-2' },
+      } as StudioFilterState),
+    ).toBe(false);
+  });
+
+  it('ignores the id when `ignoreId` is set, but still compares everything else', () => {
+    // `applyCrossFilter` mints a fresh id per emission, so comparing ids there would make
+    // every re-apply look like a change — the bug the guard exists to prevent.
+    expect(
+      docTransforms.isSameManagedFilterContent(base, { ...base, id: 'f2' }, { ignoreId: true }),
+    ).toBe(true);
+    expect(
+      docTransforms.isSameManagedFilterContent(
+        base,
+        { ...base, id: 'f2', field: 'updated' },
+        { ignoreId: true },
+      ),
+    ).toBe(false);
+  });
+
+  it('compares `value` structurally rather than by reference', () => {
+    expect(
+      docTransforms.isSameManagedFilterContent(base, {
+        ...base,
+        value: { from: '2024-01-01', to: '2024-01-07' },
+      } as StudioFilterState),
+    ).toBe(true);
+  });
+});
+
+// ── `applyFilterPreset`'s identity-bail COMPARATOR ───────────────────────────
+//
+// The bail itself is pinned (deleting it is killed). Every refinement INSIDE it was not:
+// `isDeepValueEqual`'s undefined-key normalisation, its ORDERED array comparison and its
+// `Object.is`, and `dependsOnPositions`' empty→undefined normalisation and drop-unresolved
+// filter, plus the `dependsOn` half of `isSamePresetApplication` entirely. All three helpers
+// are private and reachable only through `applyFilterPreset`, so these drive them from there.
+//
+// The bail returns the ORIGINAL doc reference. Getting it WRONG in the "same" direction is the
+// dangerous one: a genuinely different apply is bailed out of and the user's click does nothing.
+describe('docTransforms.applyFilterPreset — identity-bail comparator', () => {
+  /**
+   * Builds a doc whose active-page filters ARE `liveFilters` and whose preset carries
+   * `presetFilters`, then applies. Returns `true` when the bail fired (same doc reference).
+   */
+  function bails(
+    liveFilters: Partial<StudioFilterState>[],
+    presetFilters: Partial<StudioFilterState>[],
+  ): boolean {
+    const live = liveFilters.map(
+      (f) => ({ operator: 'equals', scope: { kind: 'page', pageId: 'page-1' }, ...f }) as never,
+    );
+    const preset: StudioFilterPreset = {
+      id: 'preset-1',
+      name: 'p',
+      filters: presetFilters.map(
+        (f) => ({ operator: 'equals', scope: { kind: 'page', pageId: 'page-1' }, ...f }) as never,
+      ),
+    };
+    const doc = makeDoc({ filters: live, filterPresets: [preset] });
+    // FIXTURE GUARD. `createDefaultStudioState` screens both `filters` and `filterPresets`,
+    // and a filter it rejects (an operator outside `STUDIO_FILTER_OPERATORS`, say) is dropped
+    // SILENTLY. Two empty lists compare equal, so a rejected fixture makes the bail fire and
+    // every `toBe(true)` assertion below pass while measuring nothing at all. Fail loudly
+    // instead — this is the same class of blind spot as a sanitizer test that renders nothing.
+    if (doc.filters.length !== liveFilters.length) {
+      throw new Error(
+        `fixture rejected: expected ${liveFilters.length} live filters, doc has ${doc.filters.length}`,
+      );
+    }
+    const storedPreset = (doc.filterPresets ?? []).find((p) => p.id === 'preset-1');
+    if (!storedPreset || storedPreset.filters.length !== presetFilters.length) {
+      throw new Error(
+        `fixture rejected: expected ${presetFilters.length} preset filters, doc has ${storedPreset?.filters.length ?? 'no preset'}`,
+      );
+    }
+    return docTransforms.applyFilterPreset(doc, 'preset-1') === doc;
+  }
+
+  it('bails when the apply reproduces the live filters exactly', () => {
+    // The baseline. Without it, every "does not bail" case below is satisfied by a comparator
+    // that always answers "different" — which is the bug the bail exists to prevent.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'status', value: 'shipped' }],
+        [{ id: 'p-1', field: 'status', value: 'shipped' }],
+      ),
+    ).toBe(true);
+  });
+
+  it('does not bail when a field genuinely differs', () => {
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'status', value: 'shipped' }],
+        [{ id: 'p-1', field: 'region', value: 'shipped' }],
+      ),
+    ).toBe(false);
+  });
+
+  it('treats an own key whose value is undefined as absent', () => {
+    // `applyFilterPreset` writes `dependsOn: undefined` explicitly, and a doc round-tripped
+    // through JSON simply loses such keys — so the two sides legitimately disagree on key
+    // PRESENCE while agreeing on every value. Counting the undefined key makes a re-apply
+    // look like a change and commits a phantom undoable step.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'status', value: 'shipped' }],
+        [{ id: 'p-1', field: 'status', value: 'shipped', value2: undefined }],
+      ),
+    ).toBe(true);
+  });
+
+  it('compares arrays by ORDER, not as sets', () => {
+    // The dangerous direction: two differently-ordered selections are genuinely different
+    // filters, so an order-insensitive comparison bails out of a real apply and the user's
+    // click silently does nothing.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'region', operator: 'in', value: ['a', 'b'] }],
+        [{ id: 'p-1', field: 'region', operator: 'in', value: ['b', 'a'] }],
+      ),
+    ).toBe(false);
+    // …and the same order still bails.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'region', operator: 'in', value: ['a', 'b'] }],
+        [{ id: 'p-1', field: 'region', operator: 'in', value: ['a', 'b'] }],
+      ),
+    ).toBe(true);
+  });
+
+  it('treats NaN as equal to itself', () => {
+    // `Object.is`, not `===`. A `NaN` bound would otherwise make every re-apply look like a
+    // change forever.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'amount', operator: 'greater_than', value: NaN }],
+        [{ id: 'p-1', field: 'amount', operator: 'greater_than', value: NaN }],
+      ),
+    ).toBe(true);
+  });
+
+  it('compares the dependsOn cascade, not just the filter payloads', () => {
+    // Same payloads, different cascade: `dependsOn` is destructured out of the payload
+    // comparison, so without its own comparison this apply is wrongly bailed out of.
+    expect(
+      bails(
+        [
+          { id: 'live-1', field: 'country', value: 'FR' },
+          { id: 'live-2', field: 'city', value: 'Paris', dependsOn: ['live-1'] },
+        ],
+        [
+          { id: 'p-1', field: 'country', value: 'FR' },
+          { id: 'p-2', field: 'city', value: 'Paris' },
+        ],
+      ),
+    ).toBe(false);
+  });
+
+  it('compares the cascade by POSITION so re-minted ids still bail', () => {
+    // Live ids and the fresh ids the apply mints live in different id spaces, so the same
+    // cascade never shares a literal id — position is the only id-space-independent encoding.
+    expect(
+      bails(
+        [
+          { id: 'live-1', field: 'country', value: 'FR' },
+          { id: 'live-2', field: 'city', value: 'Paris', dependsOn: ['live-1'] },
+        ],
+        [
+          { id: 'p-1', field: 'country', value: 'FR' },
+          { id: 'p-2', field: 'city', value: 'Paris', dependsOn: ['p-1'] },
+        ],
+      ),
+    ).toBe(true);
+  });
+
+  it('normalizes an EMPTY cascade to the same answer as no cascade at all', () => {
+    // `dependsOn: []` and no `dependsOn` encode the same thing, and `applyFilterPreset` itself
+    // stores `undefined` for an empty remap — so the comparator must agree.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'status', value: 'shipped', dependsOn: [] }],
+        [{ id: 'p-1', field: 'status', value: 'shipped' }],
+      ),
+    ).toBe(true);
+  });
+
+  it('drops cascade ids that resolve to nothing before comparing', () => {
+    // A dangling `dependsOn` id (its target was deleted) contributes no position. Keeping it
+    // as a hole makes the live side incomparable to any apply, so the bail never fires again.
+    expect(
+      bails(
+        [{ id: 'live-1', field: 'status', value: 'shipped', dependsOn: ['deleted-long-ago'] }],
+        [{ id: 'p-1', field: 'status', value: 'shipped' }],
+      ),
+    ).toBe(true);
+  });
+});

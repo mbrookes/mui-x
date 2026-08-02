@@ -1309,6 +1309,63 @@ describe('StudioController.updateWidget', () => {
     expect(w.title).toBe('Stale title');
   });
 
+  // `isAutoSubtitle`'s unset fallback — the exact twin of `isAutoTitle`'s, which IS pinned.
+  // A LEGACY widget predating the auto/explicit split carries neither `subtitleMode` nor
+  // `subtitle`; without the `(!widget.subtitleMode && !widget.subtitle)` disjunct it gets
+  // auto-TITLED but never auto-SUBTITLED.
+  it('auto-subtitles a legacy widget that carries no subtitleMode and no subtitle', () => {
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            sourceId: 'orders',
+            // `titleMode` is set explicitly so this test turns ONLY on the subtitle branch.
+            title: 'Explicit title',
+            titleMode: 'manual',
+            // No `subtitleMode`, no `subtitle` — the legacy shape.
+            config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+          },
+        },
+      },
+      runtime: { dataSources: ordersSource },
+    });
+
+    controller.updateWidget('chart1', { sourceId: 'orders' });
+
+    const w = controller.getState().doc.widgets.chart1;
+    // The title branch is untouched (manual), proving the assertion below is about the
+    // subtitle disjunct alone.
+    expect(w.title).toBe('Explicit title');
+    expect(w.subtitleMode).toBe('auto');
+    expect(w.subtitle).toBeTruthy();
+  });
+
+  it('does not auto-subtitle a widget that carries an explicit subtitle and no mode', () => {
+    // The other side of the same disjunct: `!widget.subtitle` must still gate it.
+    const controller = new StudioController({
+      doc: {
+        widgets: {
+          chart1: {
+            id: 'chart1',
+            kind: 'chart',
+            sourceId: 'orders',
+            title: 'Explicit title',
+            titleMode: 'manual',
+            subtitle: 'My own subtitle',
+            config: { chartType: 'bar', xField: 'month', yField: 'revenue' },
+          },
+        },
+      },
+      runtime: { dataSources: ordersSource },
+    });
+
+    controller.updateWidget('chart1', { sourceId: 'orders' });
+
+    expect(controller.getState().doc.widgets.chart1.subtitle).toBe('My own subtitle');
+  });
+
   it('re-infers titles in auto mode when no title/subtitle is provided', () => {
     const controller = new StudioController({
       doc: {
@@ -2027,6 +2084,181 @@ describe('StudioController.moveWidget', () => {
 });
 
 // ─── 2.2: cross-page widget move must not land TWO rank filters on one page ────
+// `getPage`'s own-key guard. `doc.pages` is a plain-object Record and every id indexing it is
+// caller- or doc-authored, so a bare `pages['constructor']` read returns the `Object` FUNCTION
+// — truthy, so the ubiquitous `if (!page) return;` existence check passes and the caller
+// proceeds against a page that does not exist. Both `Object.hasOwn` sites in `reorderPages`
+// (added for the same reason) were pinned; this accessor, which exists precisely so call sites
+// do not have to remember, was not.
+describe('StudioController — prototype-safe page lookup (getPage)', () => {
+  function controllerWithPages() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+        widgets: { w1: makeWidget('w1') },
+      },
+    });
+  }
+
+  it.each(['constructor', 'toString', 'valueOf', 'hasOwnProperty'])(
+    'setActivePage does not navigate to the inherited page id %s',
+    (protoId) => {
+      const controller = controllerWithPages();
+
+      controller.setActivePage(protoId);
+
+      expect(controller.getState().doc.dashboard.activePageId).toBe('page-1');
+    },
+  );
+
+  it('setActivePage still navigates to a real page', () => {
+    const controller = controllerWithPages();
+    controller.setActivePage('page-2');
+    expect(controller.getState().doc.dashboard.activePageId).toBe('page-2');
+  });
+
+  it('setWidgetLayout ignores an inherited page id instead of validating against it', () => {
+    const controller = controllerWithPages();
+
+    // With a bare `pages[pageId]` read the lookup yields the `Object` function, whose
+    // `widgetRows` is undefined — so every incoming id reads as "unknown" and the method
+    // throws, turning a nonexistent page into a render-path exception.
+    expect(() => controller.setWidgetLayout([['w1']], 'constructor')).not.toThrow();
+    expect(controller.getState().doc.pages['page-1'].widgetRows).toEqual([['w1']]);
+  });
+});
+
+// `moveWidgetToPage` with the target page equal to the widget's own page.
+//
+// The early return in `moveWidgetToPage` is a pure early-out, NOT the thing that maintains the
+// no-duplicate-ids layout invariant. Deleting it leaves every observable channel identical —
+// rows, undo depth, doc reference identity and the mutation log — because the same-page call
+// would compute `[...widgetRows, [widgetId]]` and hand it to the reducer, whose
+// `setWidgetLayout` handler runs `dedupeLayoutRows` (repeated id dropped, first occurrence
+// wins) and then returns the SAME state via its `rowsEqual` reference-equality no-op. The
+// invariant is enforced in the reducer, which is where `applyMutation.ts` documents it.
+//
+// These tests therefore pin the end-to-end BEHAVIOUR (a same-page move is a no-op that commits
+// nothing) rather than the early return itself, and the third pins the negative direction so
+// the no-op cannot swallow a real cross-page move.
+describe('StudioController.moveWidgetToPage — same-page move is a no-op', () => {
+  function oneWidgetController() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] },
+          'page-2': { id: 'page-2', title: 'P2', widgetRows: [] },
+        },
+        widgets: { w1: makeWidget('w1') },
+      },
+    });
+  }
+
+  it('leaves the layout untouched when the target page is the widget own page', () => {
+    const controller = oneWidgetController();
+
+    controller.moveWidgetToPage('w1', 'page-1');
+
+    const rows = controller.getState().doc.pages['page-1'].widgetRows;
+    // The load-bearing assertion: `w1` appears exactly ONCE across the page's rows.
+    expect(rows.flat().filter((id) => id === 'w1')).toHaveLength(1);
+    expect(rows).toEqual([['w1']]);
+  });
+
+  it('pushes no undo entry for a same-page move', () => {
+    const controller = oneWidgetController();
+    expect(controller.canUndo()).toBe(false);
+
+    controller.moveWidgetToPage('w1', 'page-1');
+
+    // A no-op that commits would also clear the redo stack and show up as a user action.
+    expect(controller.canUndo()).toBe(false);
+  });
+
+  it('still moves the widget when the target page is a DIFFERENT page', () => {
+    // The negative direction: the early return must not swallow a real move.
+    const controller = oneWidgetController();
+
+    controller.moveWidgetToPage('w1', 'page-2');
+
+    const state = controller.getState();
+    expect(state.doc.pages['page-1'].widgetRows.flat()).not.toContain('w1');
+    expect(state.doc.pages['page-2'].widgetRows.flat()).toEqual(['w1']);
+  });
+});
+
+// The `duplicateWidget` call site of `hasConflictingRankFilter`. There IS a describe block
+// further down asserting this behaviour, but it does not DISCRIMINATE: with the controller's
+// filter removed, its assertions still pass, because the reducer's `addFilter` handler runs
+// the same rank gate and drops the cloned filter itself. So the committed doc is identical
+// either way, and the guard's unique observable effect is the dev warning — which is what the
+// first test below pins. (The guard's own comment used to claim the reducer "applies verbatim
+// (no rank check)" and that the violated invariant would be persisted; that is stale, and the
+// comment in `StudioController.ts` has been corrected.)
+describe('StudioController.duplicateWidget — rank guard warning (2.7)', () => {
+  function rankController() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: makeWidget('w1') },
+        filters: [
+          makeFilter({
+            id: 'w1-rank',
+            filterMode: 'rank',
+            rankDirection: 'top',
+            value: 5,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          }),
+        ],
+      },
+    });
+  }
+
+  it('drops the cloned rank filter when the SOURCE widget rank filter already occupies the page', () => {
+    // No other rank filter is present: the source widget's own rank filter resolves to the
+    // active page, and the clone lands on that same page, so the clone is the conflict.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = rankController();
+
+    controller.duplicateWidget('w1');
+
+    const state = controller.getState();
+    const copyId = Object.keys(state.doc.widgets).find((id) => id !== 'w1')!;
+    expect(state.doc.filters.filter((f) => f.filterMode === 'rank').map((f) => f.id)).toEqual([
+      'w1-rank',
+    ]);
+    expect(state.doc.filters.some((f) => f.id === `${copyId}-w1-rank`)).toBe(false);
+    // The discriminating assertion. The doc assertions above hold with or without the
+    // controller-side guard (the reducer drops the clone regardless); the WARNING is the only
+    // thing that tells the user their Top-N filter did not come along with the copy.
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('still clones a NON-rank widget filter (the guard drops only conflicting rank filters)', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: makeWidget('w1') },
+        filters: [makeFilter({ id: 'w1-status', scope: { kind: 'widget', widgetId: 'w1' } })],
+      },
+    });
+
+    controller.duplicateWidget('w1');
+
+    const state = controller.getState();
+    const copyId = Object.keys(state.doc.widgets).find((id) => id !== 'w1')!;
+    expect(state.doc.filters.some((f) => f.id === `${copyId}-w1-status`)).toBe(true);
+  });
+});
+
 // Sibling of the iter-9 `duplicateWidget` rank-uniqueness fix, missed on the move paths.
 // Moving a widget carrying a widget-scoped rank (Top-N) filter onto a page whose context
 // already holds a rank filter would otherwise produce the forbidden "two rank filters on
@@ -2363,6 +2595,70 @@ describe('StudioController expression fields', () => {
     expect(controller.getState().doc.expressionFields[0].label).toBe('Margin');
   });
 
+  // Cycle guard (2.8) on the ADD path. `updateExpressionField`'s twin is pinned by
+  // `StudioExpressionFieldDialog.test.tsx`, which saves an EXISTING field; nothing exercised
+  // the add path's rejection, and `deserializeState` does NOT run `hasExpressionCycle` (see
+  // `expressionEvaluator.test.ts`) — so this is the only gate between a host call, an AI tool
+  // call or a replayed persisted doc and a cyclic expression graph in `doc`.
+  it('addExpressionField rejects a self-referencing field instead of committing it', () => {
+    const controller = new StudioController();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = controller.addExpressionField({
+      ...ef,
+      id: 'ef-self',
+      expression: { operator: 'add' as const, inputs: [{ id: 'revenue' }, { id: 'ef-self' }] },
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'cycle' });
+    expect(controller.getState().doc.expressionFields).toHaveLength(0);
+    // The dev warning is the only signal on the host/persisted-doc paths, which do not
+    // inspect the returned result.
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('circular dependency');
+    warnSpy.mockRestore();
+  });
+
+  it('addExpressionField rejects a field that closes a MUTUAL cycle with an existing one', () => {
+    // `ef-a` already references `ef-b`; adding `ef-b` referencing `ef-a` closes the loop. The
+    // added field is not itself self-referencing, so only a guard that considers the whole
+    // resulting field set catches it.
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [
+          {
+            ...ef,
+            id: 'ef-a',
+            expression: { operator: 'add' as const, inputs: [{ id: 'revenue' }, { id: 'ef-b' }] },
+          },
+        ],
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = controller.addExpressionField({
+      ...ef,
+      id: 'ef-b',
+      expression: { operator: 'add' as const, inputs: [{ id: 'cost' }, { id: 'ef-a' }] },
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'cycle' });
+    expect(controller.getState().doc.expressionFields.map((f) => f.id)).toEqual(['ef-a']);
+    warnSpy.mockRestore();
+  });
+
+  it('addExpressionField still accepts an acyclic field that references another one', () => {
+    // The negative direction: the guard must not reject an ordinary chained reference.
+    const controller = new StudioController({ doc: { expressionFields: [ef] } });
+    const result = controller.addExpressionField({
+      ...ef,
+      id: 'ef2',
+      expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+    });
+
+    expect(result).toEqual({ ok: true, committed: true });
+    expect(controller.getState().doc.expressionFields.map((f) => f.id)).toEqual(['ef1', 'ef2']);
+  });
+
   it('updateExpressionField merges partial changes', () => {
     const controller = new StudioController({ doc: { expressionFields: [ef] } });
     controller.updateExpressionField('ef1', { label: 'Profit Margin' });
@@ -2425,6 +2721,40 @@ describe('StudioController expression fields', () => {
     expect(controller.getExpressionFieldReferenceCount('ef2')).toBe(0);
     // An unknown id reports 0.
     expect(controller.getExpressionFieldReferenceCount('nope')).toBe(0);
+  });
+
+  // Same-SOURCE scoping of the expression-to-expression reference scan. Expression field ids
+  // are only unique within a source, so an identically-named reference from ANOTHER source's
+  // formula is a different field entirely — counting it would inflate the "used by N places"
+  // deletion warning with references that do not exist. The `rankByField` /
+  // `rankMultiSeriesBy` terms of the same loop family are pinned; this term was not.
+  it('getExpressionFieldReferenceCount ignores a same-id reference owned by another source', () => {
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [
+          // The target, on `orders`.
+          { ...ef, id: 'ef1', sourceId: 'orders' },
+          // Same formula shape, but owned by a DIFFERENT source: not a reference to the
+          // target above.
+          {
+            ...ef,
+            id: 'ef-other-source',
+            sourceId: 'customers',
+            expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+          },
+          // A genuine same-source referrer, so the assertion is "one, not two" rather than
+          // "zero" — a scan that counted nothing at all would also satisfy a 0 assertion.
+          {
+            ...ef,
+            id: 'ef-same-source',
+            sourceId: 'orders',
+            expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+          },
+        ],
+      },
+    });
+
+    expect(controller.getExpressionFieldReferenceCount('ef1')).toBe(1);
   });
 
   // Tier-3 finding: a rank filter references an expression field not only via `field`

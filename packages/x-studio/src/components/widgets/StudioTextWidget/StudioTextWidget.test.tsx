@@ -1,11 +1,16 @@
 import * as React from 'react';
-import { createRenderer, screen } from '@mui/internal-test-utils';
-import { describe, expect, it } from 'vitest';
+import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type {
   StudioWidgetConfig,
   StudioWidgetConfigForKind,
   StudioWidgetOf,
 } from '../../../models';
+import { createStudioHarness } from '../../../internals/test-utils';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../../internals/StudioUIConfigContext';
 import { StudioTextWidget } from './StudioTextWidget';
 
 const { render } = createRenderer();
@@ -57,6 +62,103 @@ describe('StudioTextWidget', () => {
       />,
     );
     expect(container.firstChild).toBe(null);
+  });
+});
+
+// The AI branch is the route by which LLM-authored markdown reaches the DOM. `renderMarkdown`
+// itself is pinned in `renderMarkdown.test.tsx`; what THIS block pins is that the widget still
+// routes AI output THROUGH it — replacing `{renderMarkdown(markdown)}` with `{markdown}` in
+// `TextWidgetAIContent` is otherwise invisible, which is the same "guard present, call site
+// unobserved" shape as the rest of this file.
+describe('StudioTextWidget AI markdown rendering', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    // `useTextWidgetAI` memoizes generated markdown in `localStorage` keyed by widget id +
+    // prompt hash, and that store outlives a test. Without this, the second test in this
+    // block replayed the FIRST test's markdown and never issued a fetch at all.
+    window.localStorage.clear();
+  });
+
+  function mockAiResponse(markdown: string) {
+    const sse = new TextEncoder().encode(
+      [{ type: 'text-delta', delta: markdown }, { type: 'finish' }]
+        .map((event) => `data: ${JSON.stringify(event)}\n\n`)
+        .join(''),
+    );
+    // A fresh single-use `ReadableStream` PER CALL: the hook's effect can run more than once
+    // (mount/effect re-entry), and a plain `mockResolvedValue` would hand the same
+    // already-locked stream to the second call — the same hazard `mockFetchSequence` in
+    // `useTextWidgetAI.test.tsx` exists to avoid.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation(async () => ({
+        ok: true,
+        body: new ReadableStream({
+          start(ctrl) {
+            ctrl.enqueue(sse);
+            ctrl.close();
+          },
+        }),
+      })),
+    );
+  }
+
+  function renderAiWidget(markdown: string, prompt: string) {
+    mockAiResponse(markdown);
+    const { wrapper: StudioWrapper } = createStudioHarness();
+    const uiConfigValue = {
+      tableSourceMode: 'explicit' as const,
+      featureFlags: {},
+      localeText: DEFAULT_STUDIO_LOCALE_TEXT,
+      aiConfig: { endpoint: 'https://fake.test/api/ai' },
+    };
+    function wrapper(props: { children?: React.ReactNode }) {
+      return (
+        <StudioWrapper>
+          <StudioUIConfigContext.Provider value={uiConfigValue}>
+            {props.children}
+          </StudioUIConfigContext.Provider>
+        </StudioWrapper>
+      );
+    }
+    return render(
+      <StudioTextWidget
+        widget={makeWidget({ textAiEnabled: true, textBody: prompt })}
+        pageId="page-1"
+      />,
+      { wrapper },
+    );
+  }
+
+  /** Reads an element out of an already-rendered tree (kept out of the test bodies so the
+   *  container is a plain parameter rather than a `render()` result). */
+  function pick(root: HTMLElement, selector: string) {
+    return root.querySelector(selector);
+  }
+
+  it('renders AI-produced markdown as elements rather than raw text', async () => {
+    const { container } = renderAiWidget('Revenue is **up** sharply.', 'Summarize revenue');
+
+    await waitFor(() => {
+      expect(pick(container, 'strong')).not.toBe(null);
+    });
+    expect(pick(container, 'strong')!.textContent).toBe('up');
+  });
+
+  it('sanitizes AI-produced markdown: a javascript: link and a remote image are defanged', async () => {
+    const { container } = renderAiWidget(
+      'See [click](javascript:alert(1)) and ![x](https://attacker.example/pixel.png)',
+      'Summarize links',
+    );
+
+    await waitFor(() => {
+      expect(pick(container, 'a')).not.toBe(null);
+    });
+    expect(pick(container, 'a')!.getAttribute('href')).toBe(null);
+    expect(pick(container, 'img')!.getAttribute('src')).toBe(null);
+    // eslint-disable-next-line no-script-url
+    expect(container.innerHTML).not.toContain('javascript:');
+    expect(container.innerHTML).not.toContain('attacker.example');
   });
 });
 

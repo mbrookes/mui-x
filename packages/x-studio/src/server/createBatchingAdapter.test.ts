@@ -3782,3 +3782,761 @@ describe('createBatchingAdapter — field ids that name Object.prototype members
     warnSpy.mockRestore();
   });
 });
+
+// ── The TWO-HOP expression chain (section 1b of `resolveField`) ───────────────
+//
+// `resolveField` resolves an expression field defined on a RELATED source by chaining two
+// hops: PRIMARY → the expression field's own source → the expression's join target. Every
+// guard on the ONE-hop path had a test and the identical guard on the TWO-hop path had none:
+// both `hop1FansOut`/`hop2FansOut` flags, both halves of the `hop1FansOut || hop2FansOut`
+// orientation guard that reads them, both hops' ON-pair orientations, and both
+// `divergesFromInMemory` announcements could each be switched off with the whole project
+// green. The failure mode is not a server rejection but a SILENTLY inflated aggregate — a
+// `SUM` reading 3x — which is exactly what the guard was introduced to stop.
+describe('createBatchingAdapter — two-hop expression chain', () => {
+  /**
+   * Builds a 3-source chain on ONE endpoint and returns an adapter for the widget's
+   * (primary) source. `expressionFields` always defines the expression field on the MIDDLE
+   * source, never on the primary — that is what routes resolution into section 1b.
+   */
+  function makeChainHarness(
+    fetchFn: ReturnType<typeof makeOkFetch>,
+    options: {
+      relationships: StudioRelationship[];
+      expressionFields: StudioExpressionField[];
+    },
+  ) {
+    const endpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-order-items': {
+        id: 'source-order-items',
+        label: 'Order items',
+        tableName: 'order_items',
+        fields: [field('lineId', 'number'), field('orderId', 'number'), field('qty', 'number')],
+        adapter: sharedAdapter,
+      },
+      'source-orders': {
+        id: 'source-orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [
+          field('id', 'number'),
+          field('customerId', 'number'),
+          field('shipperId', 'number'),
+          field('total', 'number'),
+        ],
+        adapter: sharedAdapter,
+      },
+      'source-customers': {
+        id: 'source-customers',
+        label: 'Customers',
+        tableName: 'customers',
+        fields: [field('id', 'number'), field('country'), field('lifetime_value', 'number')],
+        adapter: sharedAdapter,
+      },
+      'source-returns': {
+        id: 'source-returns',
+        label: 'Returns',
+        tableName: 'returns',
+        fields: [field('returnId', 'number'), field('orderId', 'number'), field('reason')],
+        adapter: sharedAdapter,
+      },
+      'source-shippers': {
+        id: 'source-shippers',
+        label: 'Shippers',
+        tableName: 'shippers',
+        fields: [field('id', 'number'), field('carrier')],
+        adapter: sharedAdapter,
+      },
+    };
+    return createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships: options.relationships,
+      expressionFields: options.expressionFields,
+    });
+  }
+
+  function exprField(
+    id: string,
+    sourceId: string,
+    joinSourceId: string,
+    fieldId: string,
+  ): StudioExpressionField {
+    return {
+      id,
+      sourceId,
+      label: id,
+      type: 'string',
+      expression: { joinSourceId, fieldId },
+    } as unknown as StudioExpressionField;
+  }
+
+  /** `order_items --many-to-one--> orders`: the widget is on the MANY side, no fan-out. */
+  const itemsToOrders: StudioRelationship = {
+    id: 'rel-items-orders',
+    type: 'many-to-one',
+    sourceId: 'source-order-items',
+    sourceField: 'orderId',
+    targetId: 'source-orders',
+    targetField: 'id',
+  };
+  /** `orders --many-to-one--> customers`: traversed forwards from orders, no fan-out. */
+  const ordersToCustomers: StudioRelationship = {
+    id: 'rel-orders-customers',
+    type: 'many-to-one',
+    sourceId: 'source-orders',
+    sourceField: 'customerId',
+    targetId: 'source-customers',
+    targetField: 'id',
+  };
+  /** `orders --many-to-one--> shippers`: traversed forwards from orders, no fan-out. */
+  const ordersToShippers: StudioRelationship = {
+    id: 'rel-orders-shippers',
+    type: 'many-to-one',
+    sourceId: 'source-orders',
+    sourceField: 'shipperId',
+    targetId: 'source-shippers',
+    targetField: 'id',
+  };
+  /**
+   * `returns --many-to-one--> orders`. Reached from `orders` this is traversed BACKWARDS —
+   * orders is the "one" side — so hop 2 fans out.
+   */
+  const returnsToOrders: StudioRelationship = {
+    id: 'rel-returns-orders',
+    type: 'many-to-one',
+    sourceId: 'source-returns',
+    sourceField: 'orderId',
+    targetId: 'source-orders',
+    targetField: 'id',
+  };
+
+  async function bodyFor(
+    adapter: ReturnType<typeof createBatchingAdapter>,
+    fetchFn: ReturnType<typeof makeOkFetch>,
+    descriptor: Partial<StudioQueryDescriptor>,
+  ) {
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-order-items',
+        tableName: 'order_items',
+        widgetId: 'w1',
+        select: ['lineId'],
+        ...descriptor,
+      }),
+    );
+    return JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{
+        columns?: string[];
+        joins?: Array<{ table: string; type: string; on: [string, string][] }>;
+        filters?: unknown;
+        semiJoins?: Array<{
+          table: string;
+          column: string;
+          foreignColumn: string;
+          filters: unknown[];
+          semiJoins?: Array<{
+            table: string;
+            column: string;
+            foreignColumn: string;
+            filters: unknown[];
+          }>;
+        }>;
+      }>;
+    };
+  }
+
+  // ── The no-fan-out baseline: both hops forward ──────────────────────────────
+
+  it('emits BOTH hops as LEFT JOINs, each ON pair oriented left-in-scope/right-introduced', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeChainHarness(fetchFn, {
+      relationships: [itemsToOrders, ordersToCustomers],
+      // Defined on `source-orders` — NOT on the widget's own source. Section 1's lookup is
+      // scoped by `f.sourceId === primarySourceId` precisely so this falls through to the
+      // two-hop section; dropping that scope makes section 1 claim the field and resolve a
+      // join that does not exist, so this assertion pins the ownership check too.
+      expressionFields: [
+        exprField('expr-order-country', 'source-orders', 'source-customers', 'country'),
+      ],
+    });
+
+    const body = await bodyFor(adapter, fetchFn, { select: ['lineId', 'expr-order-country'] });
+
+    expect(body.widgets[0].joins).toEqual([
+      { table: 'orders', type: 'left', on: [['order_items.orderId', 'orders.id']] },
+      { table: 'customers', type: 'left', on: [['orders.customerId', 'customers.id']] },
+    ]);
+    // The logical id is kept as the column; the server aliases the physical column onto it.
+    expect(body.widgets[0].columns).toContain('expr-order-country');
+    expect(body.widgets[0].semiJoins).toBeUndefined();
+  });
+
+  it('resolves to no joins at all when hop 2 lands back on the primary source', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeChainHarness(fetchFn, {
+      relationships: [itemsToOrders, ordersToCustomers],
+      // Defined on `orders`, joining back to the WIDGET's own source. The final physical
+      // column already sits on the primary table, so the intermediate hop is pointless.
+      expressionFields: [
+        exprField('expr-back-to-items', 'source-orders', 'source-order-items', 'qty'),
+      ],
+    });
+
+    const body = await bodyFor(adapter, fetchFn, { select: ['lineId', 'expr-back-to-items'] });
+
+    expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].semiJoins).toBeUndefined();
+    expect(body.widgets[0].columns).toContain('expr-back-to-items');
+  });
+
+  // ── The orientation guard: a fan-out at EITHER hop abandons the join form ───
+
+  it('abandons the join form for a semi-join when a ONE-hop join expression fans out', async () => {
+    // The single-hop sibling of the guard above, in section 1: an expression field defined on
+    // the WIDGET's own source whose join target is the "many" side. Its plain-field twin (a
+    // cross-source column) was pinned; this join-expression form was not.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const endpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const adapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources: {
+        'source-customers': {
+          id: 'source-customers',
+          label: 'Customers',
+          tableName: 'customers',
+          fields: [field('id', 'number'), field('lifetime_value', 'number')],
+          adapter: sharedAdapter,
+        },
+        'source-orders': {
+          id: 'source-orders',
+          label: 'Orders',
+          tableName: 'orders',
+          fields: [field('id', 'number'), field('customerId', 'number'), field('status')],
+          adapter: sharedAdapter,
+        },
+      },
+      relationships: [ordersToCustomers],
+      // Defined on the widget's OWN source, so section 1 (not 1b) resolves it.
+      expressionFields: [
+        exprField('expr-cust-order-status', 'source-customers', 'source-orders', 'status'),
+      ],
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-customers',
+        tableName: 'customers',
+        widgetId: 'w1',
+        select: ['lifetime_value'],
+        aggregations: [{ field: 'lifetime_value', fn: 'sum', alias: 'lifetime_value' }],
+        filter: {
+          type: 'leaf',
+          field: 'expr-cust-order-status',
+          op: 'equals',
+          value: 'shipped',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ joins?: unknown; semiJoins?: unknown }>;
+    };
+    expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].semiJoins).toEqual([
+      {
+        table: 'orders',
+        column: 'customers.id',
+        foreignColumn: 'orders.customerId',
+        filters: [{ column: 'orders.status', operator: 'eq', value: 'shipped' }],
+      },
+    ]);
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'MANY rows per row of this source',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('abandons the join form for a NESTED semi-join when HOP 1 fans out', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    // Widget on `customers` (the "one" side of orders→customers), so hop 1 customers→orders
+    // is a `many-to-one` traversed BACKWARDS: joining it multiplies the widget's rows.
+    const endpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const adapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources: {
+        'source-customers': {
+          id: 'source-customers',
+          label: 'Customers',
+          tableName: 'customers',
+          fields: [field('id', 'number'), field('lifetime_value', 'number')],
+          adapter: sharedAdapter,
+        },
+        'source-orders': {
+          id: 'source-orders',
+          label: 'Orders',
+          tableName: 'orders',
+          fields: [field('id', 'number'), field('customerId', 'number'), field('shipperId', 'number')],
+          adapter: sharedAdapter,
+        },
+        'source-shippers': {
+          id: 'source-shippers',
+          label: 'Shippers',
+          tableName: 'shippers',
+          fields: [field('id', 'number'), field('carrier')],
+          adapter: sharedAdapter,
+        },
+      },
+      relationships: [ordersToCustomers, ordersToShippers],
+      expressionFields: [
+        exprField('expr-order-carrier', 'source-orders', 'source-shippers', 'carrier'),
+      ],
+    });
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-customers',
+        tableName: 'customers',
+        widgetId: 'w1',
+        select: ['lifetime_value'],
+        aggregations: [{ field: 'lifetime_value', fn: 'sum', alias: 'lifetime_value' }],
+        filter: {
+          type: 'leaf',
+          field: 'expr-order-carrier',
+          op: 'equals',
+          value: 'DHL',
+          fieldType: 'string',
+        },
+      }),
+    );
+
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ joins?: unknown; semiJoins?: unknown }>;
+    };
+    // A LEFT JOIN here would make a customer with three DHL orders contribute three rows and
+    // the KPI's SUM read 3x. The nested semi-join filters the customer rows without
+    // multiplying them.
+    expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].semiJoins).toEqual([
+      {
+        table: 'orders',
+        column: 'customers.id',
+        foreignColumn: 'orders.customerId',
+        filters: [],
+        semiJoins: [
+          {
+            table: 'shippers',
+            column: 'orders.shipperId',
+            foreignColumn: 'shippers.id',
+            filters: [{ column: 'shippers.carrier', operator: 'eq', value: 'DHL' }],
+          },
+        ],
+      },
+    ]);
+    // `EXISTS` is not the answer in-memory evaluation gives (it compares against ONE
+    // representative related row), so the divergence must be ANNOUNCED rather than silent.
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'MANY rows per row of this source',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('abandons the join form for a NESTED semi-join when HOP 2 fans out', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    // Hop 1 (order_items→orders) is forward and safe; hop 2 (orders→returns) is a
+    // `many-to-one` traversed BACKWARDS, so the fan-out is on the SECOND hop only. This is
+    // the half of `hop1FansOut || hop2FansOut` that a `hop1FansOut`-only guard would miss.
+    const adapter = makeChainHarness(fetchFn, {
+      relationships: [itemsToOrders, returnsToOrders],
+      expressionFields: [
+        exprField('expr-order-return-reason', 'source-orders', 'source-returns', 'reason'),
+      ],
+    });
+
+    const body = await bodyFor(adapter, fetchFn, {
+      aggregations: [{ field: 'qty', fn: 'sum', alias: 'qty' }],
+      select: ['qty'],
+      filter: {
+        type: 'leaf',
+        field: 'expr-order-return-reason',
+        op: 'equals',
+        value: 'damaged',
+        fieldType: 'string',
+      },
+    });
+
+    expect(body.widgets[0].joins).toBeUndefined();
+    expect(body.widgets[0].semiJoins).toEqual([
+      {
+        table: 'orders',
+        column: 'order_items.orderId',
+        foreignColumn: 'orders.id',
+        filters: [],
+        semiJoins: [
+          {
+            table: 'returns',
+            column: 'orders.id',
+            foreignColumn: 'returns.orderId',
+            filters: [{ column: 'returns.reason', operator: 'eq', value: 'damaged' }],
+          },
+        ],
+      },
+    ]);
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'MANY rows per row of this source',
+    );
+    warnSpy.mockRestore();
+  });
+});
+
+// ── M:N orientation, completeness and endpoint guards ────────────────────────
+//
+// The existing many-to-many tests all put the widget on the relationship's SOURCE side, so the
+// TARGET-side branch — which has to swap `junctionSourceField`/`junctionTargetField` and
+// `sourceField`/`targetField` around the widget — shipped unobserved, as did the completeness
+// check and the junction's own endpoint guard.
+describe('createBatchingAdapter — many-to-many orientation and guards', () => {
+  function makeHarness(
+    fetchFn: ReturnType<typeof makeOkFetch>,
+    options: {
+      relationship: StudioRelationship;
+      junctionOnOtherEndpoint?: boolean;
+    },
+  ) {
+    const endpoint = uid();
+    const otherEndpoint = uid();
+    const sharedAdapter = createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const otherAdapter = createBatchingAdapter(otherEndpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-customers': {
+        id: 'source-customers',
+        label: 'Customers',
+        tableName: 'customers',
+        fields: [field('id', 'number'), field('lifetime_value', 'number')],
+        adapter: sharedAdapter,
+      },
+      'source-tags': {
+        id: 'source-tags',
+        label: 'Tags',
+        tableName: 'tags',
+        fields: [field('tagId', 'number'), field('name'), field('weight', 'number')],
+        adapter: sharedAdapter,
+      },
+      'source-customer-tags': {
+        id: 'source-customer-tags',
+        label: 'Customer tags',
+        tableName: 'customer_tags',
+        fields: [field('cId', 'number'), field('tId', 'number'), field('assignedBy')],
+        adapter: options.junctionOnOtherEndpoint ? otherAdapter : sharedAdapter,
+      },
+    };
+    return createBatchingAdapter(endpoint, {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships: [options.relationship],
+    });
+  }
+
+  const completeRel: StudioRelationship = {
+    id: 'rel-customers-tags',
+    type: 'many-to-many',
+    sourceId: 'source-customers',
+    sourceField: 'id',
+    targetId: 'source-tags',
+    targetField: 'tagId',
+    junctionSourceId: 'source-customer-tags',
+    junctionSourceField: 'cId',
+    junctionTargetField: 'tId',
+  };
+
+  /** Runs a `tags` widget (the relationship's TARGET side) filtered on a `customers` field. */
+  async function tagsWidgetBody(
+    fetchFn: ReturnType<typeof makeOkFetch>,
+    adapter: ReturnType<typeof createBatchingAdapter>,
+    field_: string,
+    filterSourceId: string,
+  ) {
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-tags',
+        tableName: 'tags',
+        widgetId: 'w1',
+        select: ['weight'],
+        filter: {
+          type: 'leaf',
+          field: field_,
+          op: 'equals',
+          value: 42,
+          fieldType: 'number',
+          filterSourceId,
+        },
+      }),
+    );
+    return JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ semiJoins?: unknown; filters?: unknown }>;
+    };
+  }
+
+  it('orients the junction fields around the widget when it sits on the TARGET side', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeHarness(fetchFn, { relationship: completeRel });
+
+    const body = await tagsWidgetBody(fetchFn, adapter, 'lifetime_value', 'source-customers');
+
+    // The widget is `tags`, so the junction must be entered through `tId`/`targetField` and
+    // left through `cId`/`sourceField` — the mirror image of the customers-widget case. Swapping
+    // either pair produces a subquery that joins the junction on the wrong column and silently
+    // matches the wrong rows rather than failing.
+    expect(body.widgets[0].semiJoins).toEqual([
+      {
+        table: 'customer_tags',
+        column: 'tags.tagId',
+        foreignColumn: 'customer_tags.tId',
+        filters: [],
+        semiJoins: [
+          {
+            table: 'customers',
+            column: 'customer_tags.cId',
+            foreignColumn: 'customers.id',
+            filters: [{ column: 'customers.lifetime_value', operator: 'eq', value: 42 }],
+          },
+        ],
+      },
+    ]);
+  });
+
+  it('emits a ONE-hop semi-join on the junction from the TARGET side too', async () => {
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeHarness(fetchFn, { relationship: completeRel });
+
+    await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-tags',
+        tableName: 'tags',
+        widgetId: 'w1',
+        select: ['weight'],
+        filter: {
+          type: 'leaf',
+          field: 'assignedBy',
+          op: 'equals',
+          value: 'admin',
+          fieldType: 'string',
+          filterSourceId: 'source-customer-tags',
+        },
+      }),
+    );
+    const body = JSON.parse((fetchFn.mock.calls[0][1] as RequestInit).body as string) as {
+      widgets: Array<{ semiJoins?: unknown }>;
+    };
+    expect(body.widgets[0].semiJoins).toEqual([
+      {
+        table: 'customer_tags',
+        column: 'tags.tagId',
+        foreignColumn: 'customer_tags.tId',
+        filters: [{ column: 'customer_tags.assignedBy', operator: 'eq', value: 'admin' }],
+      },
+    ]);
+  });
+
+  it.each([
+    ['junctionSourceId', { junctionSourceId: undefined }],
+    ['junctionSourceField', { junctionSourceField: undefined }],
+    ['junctionTargetField', { junctionTargetField: undefined }],
+  ])('degrades visibly rather than emitting a subquery when %s is missing', async (_n, patch) => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeHarness(fetchFn, {
+      relationship: { ...completeRel, ...patch } as StudioRelationship,
+    });
+
+    const body = await tagsWidgetBody(fetchFn, adapter, 'lifetime_value', 'source-customers');
+
+    // An incomplete M:N config cannot name the junction columns, so accepting it would emit a
+    // subquery keyed on `undefined`. Matches `findJoinPath`'s own completeness check.
+    expect(body.widgets[0].semiJoins).toBeUndefined();
+    expect(body.widgets[0].filters).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+
+  it('degrades visibly when the JUNCTION table lives on a different endpoint', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
+    const adapter = makeHarness(fetchFn, {
+      relationship: completeRel,
+      junctionOnOtherEndpoint: true,
+    });
+
+    const body = await tagsWidgetBody(fetchFn, adapter, 'lifetime_value', 'source-customers');
+
+    // A subquery cannot span databases any more than a JOIN can — the same guard the remote
+    // endpoint already had, on the junction leg that had none.
+    expect(body.widgets[0].semiJoins).toBeUndefined();
+    expect(body.widgets[0].filters).toBeUndefined();
+    expect(warnSpy).toHaveBeenCalled();
+    warnSpy.mockRestore();
+  });
+});
+
+// ── The cross-endpoint FK scan for a join-expression field ───────────────────
+//
+// When a join expression's target lives on ANOTHER endpoint the field is skipped server-side and
+// resolved client-side, which needs `fkField`/`joinPkField` read off the relationship in the
+// right order. Only the forwards branch was exercised; the TARGET-side branch (which must invert
+// them) was not, and nothing checked that a `many-to-many` relationship is excluded from the scan.
+describe('createBatchingAdapter — cross-endpoint FK scan orientation', () => {
+  function buildHarness(options: {
+    primaryFetch: ReturnType<typeof makeOkFetch>;
+    remoteFetch: ReturnType<typeof makeOkFetch>;
+    relationships: StudioRelationship[];
+  }) {
+    const primaryEndpoint = uid();
+    const remoteEndpoint = uid();
+    const primaryAdapter = createBatchingAdapter(primaryEndpoint, {
+      fetchFn: options.primaryFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const remoteAdapter = createBatchingAdapter(remoteEndpoint, {
+      fetchFn: options.remoteFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+    });
+    const dataSources: Record<string, StudioDataSource> = {
+      'source-orders': {
+        id: 'source-orders',
+        label: 'Orders',
+        tableName: 'orders',
+        fields: [field('id', 'number'), field('total', 'number')],
+        adapter: primaryAdapter,
+      },
+      'source-invoices': {
+        id: 'source-invoices',
+        label: 'Invoices',
+        tableName: 'invoices',
+        fields: [field('invoiceId', 'number'), field('orderId', 'number'), field('status')],
+        adapter: remoteAdapter,
+      },
+    };
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const adapter = createBatchingAdapter(primaryEndpoint, {
+      fetchFn: options.primaryFetch as unknown as typeof fetch,
+      batchDelayMs: 0,
+      dataSources,
+      relationships: options.relationships,
+      expressionFields: [
+        {
+          id: 'expr-invoice-status',
+          label: 'Invoice status',
+          sourceId: 'source-orders',
+          type: 'string',
+          expression: { joinSourceId: 'source-invoices', fieldId: 'status' },
+        } as unknown as StudioExpressionField,
+      ],
+    });
+    warnSpy.mockRestore();
+    return adapter;
+  }
+
+  /** `invoices --one-to-one--> orders`: the widget (orders) is the relationship's TARGET. */
+  const targetSideRel: StudioRelationship = {
+    id: 'rel-invoices-orders',
+    type: 'one-to-one',
+    sourceId: 'source-invoices',
+    sourceField: 'orderId',
+    targetId: 'source-orders',
+    targetField: 'id',
+  };
+
+  it('inverts fkField/joinPkField when the widget sits on the relationship TARGET side', async () => {
+    const primaryFetch = makeOkFetch([
+      { id: 'w1', rows: [{ id: 101, total: 500 }, { id: 102, total: 300 }] },
+    ]);
+    const remoteFetch = makeOkFetch([
+      {
+        id: '_xjoin_source-invoices',
+        rows: [
+          { orderId: 101, status: 'paid' },
+          { orderId: 102, status: 'overdue' },
+        ],
+      },
+    ]);
+    const adapter = buildHarness({ primaryFetch, remoteFetch, relationships: [targetSideRel] });
+
+    const rows = await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'total', 'expr-invoice-status'],
+      }),
+    );
+
+    // `fkField` must be the key on the WIDGET's table (`id`) and `joinPkField` the matching
+    // column on the remote table (`orderId`) — the relationship's own field order reads the
+    // other way round here. Swapped, every lookup misses and every value comes back undefined,
+    // which is silent rather than loud.
+    expect(rows.rows).toEqual([
+      { id: 101, total: 500, 'expr-invoice-status': 'paid' },
+      { id: 102, total: 300, 'expr-invoice-status': 'overdue' },
+    ]);
+  });
+
+  it('does not use a many-to-many relationship to satisfy the cross-endpoint FK scan', async () => {
+    const primaryFetch = makeOkFetch([{ id: 'w1', rows: [{ id: 101, total: 500 }] }]);
+    const remoteFetch = makeOkFetch([{ id: '_xjoin_source-invoices', rows: [] }]);
+    const adapter = buildHarness({
+      primaryFetch,
+      remoteFetch,
+      relationships: [
+        {
+          ...targetSideRel,
+          type: 'many-to-many',
+          junctionSourceId: 'source-orders',
+          junctionSourceField: 'id',
+          junctionTargetField: 'orderId',
+        } as StudioRelationship,
+      ],
+    });
+
+    const rows = await adapter.getRows(
+      makeDescriptor({
+        sourceId: 'source-orders',
+        tableName: 'orders',
+        widgetId: 'w1',
+        select: ['id', 'total', 'expr-invoice-status'],
+      }),
+    );
+
+    // An M:N relationship has no single FK pair, so its `sourceField`/`targetField` are not a
+    // usable enrichment key: the field must stay unresolved rather than be enriched from a
+    // relationship that cannot express the hop. No second fetch is issued for the remote source.
+    expect(rows.rows).toEqual([{ id: 101, total: 500 }]);
+    expect(remoteFetch).not.toHaveBeenCalled();
+  });
+});

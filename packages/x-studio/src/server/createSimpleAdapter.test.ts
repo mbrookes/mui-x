@@ -323,3 +323,98 @@ describe('createSimpleAdapter — aggregation push-down ladder', () => {
     expect(aggregations).toEqual([{ field: 'amount', fn: 'sum', alias: 'amount' }]);
   });
 });
+
+// ── The half AFTER the `await` ───────────────────────────────────────────────
+//
+// Everything the adapter does BEFORE the fetch (relative-date resolution including nested
+// `between` bounds and `value2`, group recursion, the shared aggregation push-down ladder) was
+// pinned. The response-handling half was not: the `!response.ok` throw, the
+// `Array.isArray(json.rows)` throw and the documented `transformDescriptor` option could each
+// be removed with everything green.
+describe('createSimpleAdapter — response handling', () => {
+  it('throws with the endpoint and status when the response is not ok', async () => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      statusText: 'Internal Server Error',
+      // A server that returns an error page still has a parseable body. Without the guard the
+      // adapter parses it as if it were data, so a 500 becomes an empty/garbage result set
+      // shown as real data rather than a widget error.
+      json: () => Promise.resolve({ rows: [{ id: 'from-the-error-page' }] }),
+    });
+    const adapter = createSimpleAdapter('https://api.test/query', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    await expect(adapter.getRows(makeDescriptor())).rejects.toThrow(/500 Internal Server Error/);
+    await expect(adapter.getRows(makeDescriptor())).rejects.toThrow(/https:\/\/api\.test\/query/);
+  });
+
+  it.each([
+    ['null', null],
+    ['undefined', undefined],
+    ['an object', { 0: 'a' }],
+    ['a string', 'nope'],
+  ])('throws when the response "rows" is %s rather than an array', async (_name, rows) => {
+    const fetchFn = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ rows }),
+    });
+    const adapter = createSimpleAdapter('https://api.test/query', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    // Without the guard a non-array `rows` is handed straight to the pipeline, which then
+    // fails somewhere far from the cause.
+    await expect(adapter.getRows(makeDescriptor())).rejects.toThrow(/must have a "rows" array/);
+  });
+
+  it('returns the rows unchanged on a well-formed response', async () => {
+    const fetchFn = makeOkFetch([{ id: 1 }, { id: 2 }]);
+    const adapter = createSimpleAdapter('https://api.test/query', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    await expect(adapter.getRows(makeDescriptor())).resolves.toEqual({
+      rows: [{ id: 1 }, { id: 2 }],
+    });
+  });
+});
+
+// `transformDescriptor` is a documented public `SimpleAdapterOptions` field with a JSDoc
+// contract; ignoring it entirely was green.
+describe('createSimpleAdapter — transformDescriptor', () => {
+  it('POSTs the transformed body rather than the resolved descriptor', async () => {
+    const fetchFn = makeOkFetch([]);
+    const transformDescriptor = vi.fn().mockReturnValue({ query: 'SELECT 1', custom: true });
+    const adapter = createSimpleAdapter('https://api.test/query', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+      transformDescriptor,
+    });
+
+    await adapter.getRows(makeDescriptor({ select: ['id'] }));
+
+    expect(transformDescriptor).toHaveBeenCalledTimes(1);
+    // It receives the RESOLVED descriptor (post relative-date resolution / aggregation ladder),
+    // not the raw one the caller passed.
+    expect(transformDescriptor.mock.calls[0][0]).toMatchObject({
+      sourceId: 'orders',
+      widgetId: 'w1',
+      select: ['id'],
+    });
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ query: 'SELECT 1', custom: true });
+  });
+
+  it('POSTs the resolved descriptor when no transform is supplied', async () => {
+    const fetchFn = makeOkFetch([]);
+    const adapter = createSimpleAdapter('https://api.test/query', {
+      fetchFn: fetchFn as unknown as typeof fetch,
+    });
+
+    await adapter.getRows(makeDescriptor({ select: ['id'] }));
+
+    const [, init] = fetchFn.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ sourceId: 'orders', select: ['id'] });
+  });
+});

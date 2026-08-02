@@ -86,6 +86,16 @@ function getCells(container: HTMLElement) {
   };
 }
 
+/** The grid's root element, read from an already-rendered container. */
+function getGridRoot(container: HTMLElement) {
+  return container.querySelector('.MuiDataGrid-root') as HTMLElement | null;
+}
+
+/** The first data row, read from an already-rendered container. */
+function getFirstRow(container: HTMLElement) {
+  return container.querySelector('[data-id="r1"]');
+}
+
 /** The `amount` cell of the bottom-pinned footer summary row, if one is rendered. */
 function getSummaryCell(container: HTMLElement) {
   return container.querySelector('[data-id="__summary__"] [data-field="amount"]');
@@ -171,5 +181,93 @@ describe('StudioGridWidget conditional formats skip the footer summary row', () 
     expect(summary).not.toBe(null);
     expect(summary!.className).not.toContain('StudioGrid-cf-');
     expect(getComputedStyle(summary as Element).backgroundColor).not.toBe('rgb(255, 0, 0)');
+  });
+});
+
+// Finding 1 (the CALL SITE, not the sanitizer): `sanitizeCssColor` itself is thoroughly tested
+// in `cssValueValidation.test.ts`, but nothing asserted that the grid still CALLS it on the two
+// conditional-format style properties — deleting both calls was green across the whole project,
+// while the `sanitizeCssIdentifierToken` call ten lines above it (same threat model, same file)
+// was pinned. `gridConditionalFormats` arrives from a persisted doc or an AI `update_widget`
+// call, and Emotion does not escape interpolated `sx` property values.
+describe('StudioGridWidget conditional-format color sanitization call sites (finding 1)', () => {
+  it('drops a CSS-injecting backgroundColor instead of interpolating it into sx', () => {
+    const payload = 'red; } .evil-bg{background:url(https://evil/leak)';
+    const { container } = setup('grid-bg-injection', { backgroundColor: payload });
+    const { matchingCell, nonMatchingCell } = getCells(container);
+
+    expect(matchingCell).not.toBe(null);
+    // Falls back to unset — the same computed background as a cell with no rule applied.
+    expect(getComputedStyle(matchingCell as Element).backgroundColor).toBe(
+      getComputedStyle(nonMatchingCell as Element).backgroundColor,
+    );
+    expect(document.documentElement.outerHTML).not.toContain('.evil-bg{background:url');
+  });
+
+  it('drops a CSS-injecting color instead of interpolating it into sx', () => {
+    const payload = 'blue; } .evil-fg{background:url(https://evil/leak)';
+    const { container } = setup('grid-fg-injection', { color: payload });
+    const { matchingCell, nonMatchingCell } = getCells(container);
+
+    expect(matchingCell).not.toBe(null);
+    expect(getComputedStyle(matchingCell as Element).color).toBe(
+      getComputedStyle(nonMatchingCell as Element).color,
+    );
+    expect(document.documentElement.outerHTML).not.toContain('.evil-fg{background:url');
+  });
+
+  it('still applies a valid backgroundColor and color', () => {
+    // The negative direction: sanitizing must not break the feature.
+    const { container } = setup('grid-colors-valid', {
+      backgroundColor: '#ff0000',
+      color: '#0000ff',
+    });
+    const { matchingCell } = getCells(container);
+    expect(getComputedStyle(matchingCell as Element).backgroundColor).toBe('rgb(255, 0, 0)');
+    expect(getComputedStyle(matchingCell as Element).color).toBe('rgb(0, 0, 255)');
+  });
+});
+
+// The same shape for `config.gridHeight`, which is interpolated into the grid's own `sx.height`.
+describe('StudioGridWidget gridHeight sanitization call site', () => {
+  it('falls back to the default height for a CSS-injecting gridHeight', () => {
+    const payload = '400px; } .evil-h{background:url(https://evil/leak)';
+    const { container } = setup(
+      'grid-height-injection',
+      { backgroundColor: '#ff0000' },
+      { gridHeight: payload as unknown as number },
+    );
+
+    expect(getFirstRow(container)).not.toBe(null);
+    expect(document.documentElement.outerHTML).not.toContain('.evil-h{background:url');
+    expect(document.documentElement.outerHTML).not.toContain(payload);
+  });
+
+  it.each([
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['zero', 0],
+    ['negative', -100],
+  ])('falls back to the default height for a %s gridHeight', (_name, value) => {
+    // `sanitizeFiniteNumber(value, 1)` rejects non-finite values and anything below the
+    // minimum, so each of these must resolve to the 400px default rather than reaching `sx`.
+    const { container } = setup(
+      `grid-height-${String(_name)}`,
+      { backgroundColor: '#ff0000' },
+      { gridHeight: value },
+    );
+    const root = getGridRoot(container);
+    expect(root).not.toBe(null);
+    expect(getComputedStyle(root as Element).height).toBe('400px');
+  });
+
+  it('applies a valid numeric gridHeight', () => {
+    const { container } = setup(
+      'grid-height-valid',
+      { backgroundColor: '#ff0000' },
+      { gridHeight: 555 },
+    );
+    const root = getGridRoot(container);
+    expect(getComputedStyle(root as Element).height).toBe('555px');
   });
 });

@@ -2363,6 +2363,72 @@ describe('StudioController expression fields', () => {
     expect(controller.getState().doc.expressionFields[0].label).toBe('Margin');
   });
 
+  // Cycle guard (2.8) on the ADD path. `updateExpressionField`'s twin is pinned by
+  // `StudioExpressionFieldDialog.test.tsx`, which saves an EXISTING field; nothing exercised
+  // the add path's rejection, and `deserializeState` does NOT run `hasExpressionCycle` (see
+  // `expressionEvaluator.test.ts`) — so this is the only gate between a host call, an AI tool
+  // call or a replayed persisted doc and a cyclic expression graph in `doc`.
+  it('addExpressionField rejects a self-referencing field instead of committing it', () => {
+    const controller = new StudioController();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = controller.addExpressionField({
+      ...ef,
+      id: 'ef-self',
+      expression: { operator: 'add' as const, inputs: [{ id: 'revenue' }, { id: 'ef-self' }] },
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'cycle' });
+    expect(controller.getState().doc.expressionFields).toHaveLength(0);
+    // The dev warning is the only signal on the host/persisted-doc paths, which do not
+    // inspect the returned result.
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'circular dependency',
+    );
+    warnSpy.mockRestore();
+  });
+
+  it('addExpressionField rejects a field that closes a MUTUAL cycle with an existing one', () => {
+    // `ef-a` already references `ef-b`; adding `ef-b` referencing `ef-a` closes the loop. The
+    // added field is not itself self-referencing, so only a guard that considers the whole
+    // resulting field set catches it.
+    const controller = new StudioController({
+      doc: {
+        expressionFields: [
+          {
+            ...ef,
+            id: 'ef-a',
+            expression: { operator: 'add' as const, inputs: [{ id: 'revenue' }, { id: 'ef-b' }] },
+          },
+        ],
+      },
+    });
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const result = controller.addExpressionField({
+      ...ef,
+      id: 'ef-b',
+      expression: { operator: 'add' as const, inputs: [{ id: 'cost' }, { id: 'ef-a' }] },
+    });
+
+    expect(result).toEqual({ ok: false, reason: 'cycle' });
+    expect(controller.getState().doc.expressionFields.map((f) => f.id)).toEqual(['ef-a']);
+    warnSpy.mockRestore();
+  });
+
+  it('addExpressionField still accepts an acyclic field that references another one', () => {
+    // The negative direction: the guard must not reject an ordinary chained reference.
+    const controller = new StudioController({ doc: { expressionFields: [ef] } });
+    const result = controller.addExpressionField({
+      ...ef,
+      id: 'ef2',
+      expression: { operator: 'add' as const, inputs: [{ id: 'ef1' }, { id: 'cost' }] },
+    });
+
+    expect(result).toEqual({ ok: true, committed: true });
+    expect(controller.getState().doc.expressionFields.map((f) => f.id)).toEqual(['ef1', 'ef2']);
+  });
+
   it('updateExpressionField merges partial changes', () => {
     const controller = new StudioController({ doc: { expressionFields: [ef] } });
     controller.updateExpressionField('ef1', { label: 'Profit Margin' });

@@ -258,6 +258,69 @@ describe('StudioTextWidget CSS value validation (finding 1)', () => {
     expect(document.documentElement.outerHTML).not.toContain(fontSizeInjectionPayload);
     expect(document.documentElement.outerHTML).not.toContain('.MuiCard-root{background:url');
   });
+
+  // The SUBTITLE twins of the two tests above. `resolveTextFontFamily(config.textSubtitleFontFamily)`
+  // and `sanitizeFontSize(config.textSubtitleFontSize)` are byte-identical to the body lines ten
+  // lines below them in `StudioTextWidget.tsx`'s `sx` objects, and only the body pair was pinned:
+  // deleting either subtitle sanitizer left the whole project green, while `isSafeTextAlign` on the
+  // very same two `sx` blocks was killed at both — so the gap was in the tests, not in what the
+  // suite can reach. Each test drives ONE subtitle field and leaves its body sibling unset, so the
+  // assertion cannot be satisfied by the body site's sanitizer instead.
+  it('drops a CSS-injecting textSubtitleFontFamily instead of interpolating it verbatim', () => {
+    render(
+      <StudioTextWidget
+        widget={makeWidget({
+          textSubtitle: 'Heading',
+          textSubtitleFontFamily: cssInjectionPayload,
+        })}
+        pageId="page-1"
+      />,
+    );
+    expect(screen.getByText('Heading')).not.toBe(null);
+    expect(document.documentElement.outerHTML).not.toContain(cssInjectionPayload);
+    expect(document.documentElement.outerHTML).not.toContain('.MuiCard-root{background:url');
+  });
+
+  it('accepts a valid literal textSubtitleFontFamily stack', () => {
+    render(
+      <StudioTextWidget
+        widget={makeWidget({
+          textSubtitle: 'Heading',
+          textSubtitleFontFamily: 'Fraunces, "Inter Tight", serif',
+        })}
+        pageId="page-1"
+      />,
+    );
+    expect(document.documentElement.outerHTML).toContain('Fraunces');
+  });
+
+  it('drops a CSS-injecting textSubtitleFontSize instead of interpolating it verbatim', () => {
+    const fontSizeInjectionPayload = '12px;} .MuiCard-root{background:url(https://evil/leak)';
+    render(
+      <StudioTextWidget
+        widget={
+          makeWidget({
+            textSubtitle: 'Heading',
+            textSubtitleFontSize: fontSizeInjectionPayload as unknown as number,
+          }) as ReturnType<typeof makeWidget>
+        }
+        pageId="page-1"
+      />,
+    );
+    expect(screen.getByText('Heading')).not.toBe(null);
+    expect(document.documentElement.outerHTML).not.toContain(fontSizeInjectionPayload);
+    expect(document.documentElement.outerHTML).not.toContain('.MuiCard-root{background:url');
+  });
+
+  it('applies a valid numeric textSubtitleFontSize', () => {
+    render(
+      <StudioTextWidget
+        widget={makeWidget({ textSubtitle: 'Heading', textSubtitleFontSize: 27 })}
+        pageId="page-1"
+      />,
+    );
+    expect(getComputedStyle(screen.getByText('Heading')).fontSize).toBe('27px');
+  });
 });
 
 // Finding 3: `config.textSubtitleAlign` / `config.textBodyAlign` used to be interpolated

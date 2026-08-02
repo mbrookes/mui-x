@@ -143,4 +143,38 @@ describe('StudioWidgetCard pageTheme + title sanitization call sites', () => {
     const title = setup({ textBody: 'x', titleFontSize: 27 } as unknown as StudioWidgetConfig);
     expect(getComputedStyle(title).fontSize).toBe('27px');
   });
+
+  // `textTitleFontSize` and `textTitleFontFamily` — the two sanitizer call sites in this file
+  // that the block above names nowhere. They sit inside the SAME title `sx` object as
+  // `textTitleColor`/`titleFontSize`/`textTitleFontWeight`/`textTitleAlign`, all of which were
+  // pinned; deleting either of these two left the whole project green. `textTitleFontSize` is the
+  // `sanitizeFontSize` twin of the pinned `titleFontSize` five lines above it in the source, and
+  // `textTitleFontFamily` is the `resolveTextFontFamily` twin of the text widget's pinned body
+  // font-family — the guard whose own docblock names the exfiltration payload it stops.
+  it('drops a CSS-injecting textTitleFontSize instead of interpolating it', () => {
+    const payload = '12px; } .evil-card{background:url(https://evil/leak)';
+    renderCard({ textBody: 'x', textTitleFontSize: payload } as unknown as StudioWidgetConfig);
+    expect(document.documentElement.outerHTML).not.toContain('.evil-card{background:url');
+    expect(document.documentElement.outerHTML).not.toContain(payload);
+  });
+
+  it('applies a valid textTitleFontSize', () => {
+    const title = setup({ textBody: 'x', textTitleFontSize: 29 } as unknown as StudioWidgetConfig);
+    expect(getComputedStyle(title).fontSize).toBe('29px');
+  });
+
+  it('drops a CSS-injecting textTitleFontFamily instead of interpolating it', () => {
+    const payload = 'serif;} .evil-card{background:url(https://evil/leak)';
+    renderCard({ textBody: 'x', textTitleFontFamily: payload } as unknown as StudioWidgetConfig);
+    expect(document.documentElement.outerHTML).not.toContain('.evil-card{background:url');
+    expect(document.documentElement.outerHTML).not.toContain(payload);
+  });
+
+  it('applies a valid textTitleFontFamily stack', () => {
+    renderCard({
+      textBody: 'x',
+      textTitleFontFamily: 'Fraunces, "Inter Tight", serif',
+    } as unknown as StudioWidgetConfig);
+    expect(document.documentElement.outerHTML).toContain('Fraunces');
+  });
 });

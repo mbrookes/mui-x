@@ -18,6 +18,14 @@ import { expectClauseIsolated } from 'test/utils/clauseIsolation';
  *  - the SSE replay fixture, where the duplicate envelope carries a stale `sequence`, so the
  *    ordering guard drops it before the eventId dedup the test is named for ever runs.
  *
+ * …and, since round 15, a THIRD fixture the helper itself could not see: a payload whose
+ * clause set is accurately transcribed and whose target really does reject it, where a bound
+ * in ANOTHER function produces the identical observable and the clause is dead anyway. That
+ * one is not caught by asking "which of these predicates rejects?" — no list transcribed
+ * beside one guard contains a bound 1400 lines away — so it is caught by the only local
+ * property that distinguishes the sound fixture from the broken one: the violating payload
+ * must be the MINIMAL violation. See `MASKED` below.
+ *
  * It also lives in this package because `x-studio-schema` is the fastest node project in the
  * repo; nothing here is schema-specific.
  */
@@ -59,6 +67,8 @@ describe('expectClauseIsolated', () => {
   it('passes when the payload reaches the clause it is named for', () => {
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'finiteness is not a measurable dimension.',
         guard: 'extractSecurityClaims.ts (fixture)',
         clauses: EXP_CLAUSES,
         target: '!Number.isFinite(payload.exp)',
@@ -77,6 +87,8 @@ describe('expectClauseIsolated', () => {
     expect(throughJsonEncoding({ exp: NaN })).toBe(null);
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'finiteness is not a measurable dimension.',
         guard: 'extractSecurityClaims.ts (fixture)',
         clauses: EXP_CLAUSES,
         target: '!Number.isFinite(payload.exp)',
@@ -92,6 +104,8 @@ describe('expectClauseIsolated', () => {
     // dropped the duplicate.
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'set membership is not a bound.',
         guard: 'processStream.ts (fixture)',
         clauses: REPLAY_CLAUSES,
         target: 'seenEventIds.has(value.eventId)',
@@ -108,6 +122,8 @@ describe('expectClauseIsolated', () => {
   it('passes for the same replay once the duplicate carries a fresh sequence', () => {
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'set membership is not a bound.',
         guard: 'processStream.ts (fixture)',
         clauses: REPLAY_CLAUSES,
         target: 'seenEventIds.has(value.eventId)',
@@ -124,6 +140,8 @@ describe('expectClauseIsolated', () => {
   it('fails when NO clause rejects — a fixture that reaches nothing at all', () => {
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'finiteness is not a measurable dimension.',
         guard: 'extractSecurityClaims.ts (fixture)',
         clauses: EXP_CLAUSES,
         target: '!Number.isFinite(payload.exp)',
@@ -139,6 +157,8 @@ describe('expectClauseIsolated', () => {
     // two-direction rule elsewhere in this suite exists to prevent.
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'a synthetic always-true predicate has no dimension.',
         guard: 'fixture',
         clauses: { 'always rejects': () => true },
         target: 'always rejects',
@@ -151,6 +171,8 @@ describe('expectClauseIsolated', () => {
   it('refuses a target that is not one of the clauses it was given', () => {
     expect(() =>
       expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: 'not reached — the target check throws first.',
         guard: 'fixture',
         clauses: EXP_CLAUSES,
         target: 'a clause that does not exist',
@@ -158,5 +180,123 @@ describe('expectClauseIsolated', () => {
         observed: 2,
       }),
     ).toThrow(/is not one of/);
+  });
+
+  // ── The masked-clause fixture: what the first three assertions cannot see ────────
+  //
+  // Round-15 finding F2, in miniature. `MASKED` is a guard with a per-string cap, and a
+  // SECOND bound in a different function that produces the identical outcome once the whole
+  // payload is large enough. Transcribing the first guard's clauses accurately — which is
+  // what an author does — leaves the second one out, because it is not one of that guard's
+  // clauses and no amount of reading the guard reveals it.
+  //
+  // This reproduces the measured shape of `isWithinApprovalListLimits#2` +
+  // `MAX_TURN_APPROVAL_SIZE`, with the two thresholds in the same 1:4 ratio.
+
+  const ITEM_CAP = 100;
+  const TOTAL_BUDGET = 400;
+
+  /** The clause the fixture is named for, and its `||` sibling — as an author would list them. */
+  const MASKED = {
+    'entry.id.length > ITEM_CAP': (e: { id: string; title: string }) => e.id.length > ITEM_CAP,
+    'entry.title.length > ITEM_CAP': (e: { id: string; title: string }) =>
+      e.title.length > ITEM_CAP,
+  };
+
+  /** The bound nobody transcribed: a whole-payload budget, elsewhere, same observable. */
+  const withheldByBudget = (e: { id: string; title: string }) =>
+    e.id.length + e.title.length > TOTAL_BUDGET;
+
+  it('passes the minimal violation, where the unlisted budget provably cannot be answering', () => {
+    const control = { id: 'i'.repeat(ITEM_CAP), title: 'ok' };
+    const observed = { id: 'i'.repeat(ITEM_CAP + 1), title: 'ok' };
+    // Stated rather than assumed: at one character over, the second bound is nowhere near.
+    expect(withheldByBudget(observed)).toBe(false);
+
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'bound',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        measure: (e) => e.id.length,
+        control,
+        observed,
+      }),
+    ).not.toThrow();
+  });
+
+  it('fails the obviously-over-cap fixture that the first three assertions accept', () => {
+    const control = { id: 'i'.repeat(ITEM_CAP), title: 'ok' };
+    // The payload an author reaches for when they want "definitely over the limit".
+    const observed = { id: 'i'.repeat(6 * ITEM_CAP), title: 'ok' };
+
+    // Exactly one LISTED clause rejects it, and the control is admitted — so assertions
+    // (1) (2) and (3) are all satisfied. Nothing about the listed clauses is wrong.
+    expect(Object.values(MASKED).filter((c) => c(observed))).toHaveLength(1);
+    expect(Object.values(MASKED).some((c) => c(control))).toBe(false);
+    // …and yet the unlisted budget rejects it too, with the same outcome, so deleting the
+    // clause this fixture names would change nothing observable.
+    expect(withheldByBudget(observed)).toBe(true);
+
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'bound',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        measure: (e) => e.id.length,
+        control,
+        observed,
+      }),
+    ).toThrow(/not the MINIMAL violation/);
+  });
+
+  it('reports the window width, so the failure says how much room a masking bound had', () => {
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'bound',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        measure: (e) => e.id.length,
+        control: { id: 'i'.repeat(ITEM_CAP), title: 'ok' },
+        observed: { id: 'i'.repeat(6 * ITEM_CAP), title: 'ok' },
+      }),
+    ).toThrow(/500 units wide/);
+  });
+
+  it('refuses a `bound` fixture whose measure reads the wrong field', () => {
+    // The minimality check is self-checking in a way a transcribed predicate is not: a
+    // `measure` that measures something other than what the clause bounds is evaluated on
+    // both payloads, so it fails the `+1` assertion instead of quietly agreeing with itself.
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'bound',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        measure: (e) => e.title.length,
+        control: { id: 'i'.repeat(ITEM_CAP), title: 'ok' },
+        observed: { id: 'i'.repeat(ITEM_CAP + 1), title: 'ok' },
+      }),
+    ).toThrow(/not the MINIMAL violation/);
+  });
+
+  it("refuses a kind: 'shape' fixture that gives no reason for skipping minimality", () => {
+    // The escape hatch is a claim, not a silence — the same rule `SizeCapEntry.why` follows.
+    // Without this, `kind: 'shape'` is a one-word way to opt out of the check that catches
+    // a masking bound.
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'shape',
+        whyNotMinimal: '   ',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        control: { id: 'i'.repeat(ITEM_CAP), title: 'ok' },
+        observed: { id: 'i'.repeat(6 * ITEM_CAP), title: 'ok' },
+      }),
+    ).toThrow(/no `whyNotMinimal`/);
   });
 });

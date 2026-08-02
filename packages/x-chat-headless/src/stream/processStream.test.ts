@@ -688,6 +688,11 @@ describe('processStream', () => {
     it('shows the older fixture reaching the ordering guard rather than the dedup', () => {
       expect(() =>
         expectClauseIsolated({
+          kind: 'shape',
+          whyNotMinimal:
+            'id membership in `seenEventIds` is a set test, not a bound: an id is present ' +
+            'or it is not, so there is no dimension on which a violating envelope could be ' +
+            'one unit past the control.',
           guard: 'processStream.ts:processIncoming',
           clauses: REPLAY_CLAUSES,
           target: 'seenEventIds.has(value.eventId)',
@@ -713,6 +718,11 @@ describe('processStream', () => {
       (_label, sequence, expectedSequence) => {
         expect(() =>
           expectClauseIsolated({
+            kind: 'shape',
+            whyNotMinimal:
+              'id membership in `seenEventIds` is a set test, not a bound: an id is present ' +
+              'or it is not, so there is no dimension on which a violating envelope could ' +
+              'be one unit past the control.',
             guard: 'processStream.ts:processIncoming',
             clauses: REPLAY_CLAUSES,
             target: 'seenEventIds.has(value.eventId)',

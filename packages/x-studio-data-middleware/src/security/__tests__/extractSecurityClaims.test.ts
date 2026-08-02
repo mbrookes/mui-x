@@ -211,6 +211,11 @@ describe('extractSecurityClaims — payload-shape edge cases', () => {
       // is the only place the encoding's effect is visible.
       expect(() =>
         expectClauseIsolated({
+          kind: 'shape',
+          whyNotMinimal:
+            'finiteness is not a measurable dimension: there is no value one unit short of ' +
+            'Infinity that this clause admits, so there is no minimal violation to supply. ' +
+            '`1e999` is the only non-finite number JSON can carry at all.',
           guard: 'extractSecurityClaims.ts:extractSecurityClaims (exp)',
           clauses: {
             "typeof payload.exp !== 'number'": (exp: unknown) => typeof exp !== 'number',

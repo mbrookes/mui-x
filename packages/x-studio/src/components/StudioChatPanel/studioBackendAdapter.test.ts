@@ -797,6 +797,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       expect(() =>
         expectClauseIsolated({
           kind: 'bound',
+          serializedWindow: 1,
           guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
           clauses: ENTRY_CLAUSES,
           target: 'entry.id.length > MAX_STRING_LENGTH',
@@ -816,6 +817,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       expect(() =>
         expectClauseIsolated({
           kind: 'bound',
+          serializedWindow: 50000,
           guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
           clauses: ENTRY_CLAUSES,
           target: 'entry.id.length > MAX_STRING_LENGTH',
@@ -849,6 +851,7 @@ describe('createBackendChatAdapter: tool-approval-request', () => {
       expect(() =>
         expectClauseIsolated({
           kind: 'bound',
+          serializedWindow: 1,
           guard: 'studioBackendAdapter.ts:isWithinApprovalListLimits',
           clauses: ENTRY_CLAUSES,
           target: 'entry.title.length > MAX_STRING_LENGTH',

@@ -216,6 +216,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'bound',
+        serializedWindow: 1,
         guard: 'fixture:isWithinItemLimits',
         clauses: MASKED,
         target: 'entry.id.length > ITEM_CAP',
@@ -242,6 +243,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'bound',
+        serializedWindow: 500,
         guard: 'fixture:isWithinItemLimits',
         clauses: MASKED,
         target: 'entry.id.length > ITEM_CAP',
@@ -256,6 +258,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'bound',
+        serializedWindow: 500,
         guard: 'fixture:isWithinItemLimits',
         clauses: MASKED,
         target: 'entry.id.length > ITEM_CAP',
@@ -273,6 +276,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'bound',
+        serializedWindow: 1,
         guard: 'fixture:isWithinItemLimits',
         clauses: MASKED,
         target: 'entry.id.length > ITEM_CAP',
@@ -281,6 +285,92 @@ describe('expectClauseIsolated', () => {
         observed: { id: 'i'.repeat(ITEM_CAP + 1), title: 'ok' },
       }),
     ).toThrow(/not the MINIMAL violation/);
+  });
+
+  // ── The one-DIMENSION fixture: what minimality itself cannot see ─────────────────
+  //
+  // Round-16 finding F2, in miniature, and the reason `serializedWindow` exists. The
+  // minimality check above constrains the window on the dimension `measure` NAMES. When one
+  // unit of that dimension costs one character — an `id`'s length — the two windows are the
+  // same number and the check does everything the docblock claimed. When one unit is a LIST
+  // ENTRY, one unit is however many characters an entry happens to be, and the sibling
+  // clause of the very fixture the check was written for is a list cap.
+  //
+  // Measured on the real guard: control 500 entities / 27 413 JSON characters, observed 501
+  // with one 20 000-character entity / 47 434 characters. `kind: 'bound'`, `measure` exactly
+  // the dimension the clause bounds, window one ENTRY wide, every assertion green, both
+  // directions of the two-direction pin green — and byte-identical output with the clause
+  // dead, because MAX_TURN_APPROVAL_SIZE = 40 000 sits inside that 20 021-character window.
+
+  /** A guard whose first clause bounds a LIST, with the same unlisted whole-payload budget. */
+  const LIST_CAP = 5;
+  const LIST_CLAUSES = {
+    'list.length > LIST_CAP': (v: { list: { id: string; title: string }[] }) =>
+      v.list.length > LIST_CAP,
+  };
+  const entity = (i: number) => ({ id: `w${i}`, title: `Widget ${i}` });
+  const listControl = { list: Array.from({ length: LIST_CAP }, (_unused, i) => entity(i)) };
+  // Every field of this entity is exactly AT the per-string cap, so it is a legal entry — it
+  // is only the LIST cap it violates. That is what makes it the dangerous payload: nothing
+  // about it looks over-sized to the clause the fixture names.
+  const BIG_ENTITY = { id: 'i'.repeat(ITEM_CAP), title: 'T'.repeat(ITEM_CAP) };
+  const listObserved = { list: [...listControl.list, BIG_ENTITY] };
+
+  it('records how many CHARACTERS a one-unit window is, when the unit is not a character', () => {
+    // Minimal on its own dimension: exactly one entry over the cap.
+    expect(listObserved.list.length).toBe(listControl.list.length + 1);
+
+    const window = JSON.stringify(listObserved).length - JSON.stringify(listControl).length;
+    // …and hundreds of characters wide on the dimension a whole-payload budget uses. The
+    // conversion factor is a property of the payload's shape — one entry, here 221
+    // characters — not of anything this helper can infer. A budget anywhere in the range
+    // below rejects `observed`, admits `control`, and produces the identical observable with
+    // the clause under test dead; that is the measured 20 021-character case in miniature.
+    const LIST_BUDGET = JSON.stringify(listControl).length + 10;
+    expect(JSON.stringify(listControl).length).toBeLessThanOrEqual(LIST_BUDGET);
+    expect(JSON.stringify(listObserved).length).toBeGreaterThan(LIST_BUDGET);
+    expect(window).toBeGreaterThan(1);
+
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'bound',
+        serializedWindow: window,
+        guard: 'fixture:isWithinListLimits',
+        clauses: LIST_CLAUSES,
+        target: 'list.length > LIST_CAP',
+        measure: (v) => v.list.length,
+        control: listControl,
+        observed: listObserved,
+      }),
+    ).not.toThrow();
+  });
+
+  it('refuses the same fixture when the second window is claimed to be one unit too', () => {
+    // The sentence the docblock used to end on — "a bound 40 000 characters away cannot hide
+    // in a window one character wide" — reads as if the two windows were the same one. They
+    // are the same number only when the conversion factor is 1. Writing `1` here is exactly
+    // that assumption, and it is now a failing test rather than a paragraph.
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'bound',
+        serializedWindow: 1,
+        guard: 'fixture:isWithinListLimits',
+        clauses: LIST_CLAUSES,
+        target: 'list.length > LIST_CAP',
+        measure: (v) => v.list.length,
+        control: listControl,
+        observed: listObserved,
+      }),
+    ).toThrow(/declares serializedWindow: 1, but `observed` is actually \d+ JSON characters/);
+  });
+
+  it('is satisfied by one character for the per-string clause, where the factor IS 1', () => {
+    // The other half of the same statement, so the two ratios sit side by side: on `#2` the
+    // round-15 fix works precisely because one unit of `id.length` is one JSON character.
+    expect(
+      JSON.stringify({ id: 'i'.repeat(ITEM_CAP + 1), title: 'ok' }).length -
+        JSON.stringify({ id: 'i'.repeat(ITEM_CAP), title: 'ok' }).length,
+    ).toBe(1);
   });
 
   it("refuses a kind: 'shape' fixture that gives no reason for skipping minimality", () => {

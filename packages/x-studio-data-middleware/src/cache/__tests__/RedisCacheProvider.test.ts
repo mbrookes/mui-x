@@ -186,10 +186,16 @@ function makeNodeRedisV4Client() {
  * guarantee even as the caller deletes each page), so a test can observe that
  * deletion is interleaved with scanning rather than deferred to one final call.
  */
-function makeArgCountingRedisClient(options: { delArgLimit: number; scanPageSize: number }) {
+function makeArgCountingRedisClient(options: {
+  delArgLimit: number;
+  scanPageSize: number;
+  /** When set, `sadd` throws past this many members — the ioredis variadic arm's ceiling. */
+  saddArgLimit?: number;
+}) {
   const store = new Map<string, { value: string; expiresAt: number }>();
   const sets = new Map<string, Set<string>>();
   const delCallSizes: number[] = [];
+  const saddCallSizes: number[] = [];
   const ops: string[] = [];
   let snapshot: string[] = [];
 
@@ -197,11 +203,13 @@ function makeArgCountingRedisClient(options: { delArgLimit: number; scanPageSize
     store: typeof store;
     sets: typeof sets;
     delCallSizes: number[];
+    saddCallSizes: number[];
     ops: string[];
   } = {
     store,
     sets,
     delCallSizes,
+    saddCallSizes,
     ops,
     async get(key: string) {
       const entry = store.get(key);
@@ -228,6 +236,12 @@ function makeArgCountingRedisClient(options: { delArgLimit: number; scanPageSize
     },
     async expire() {},
     async sadd(key: string, ...members: string[]) {
+      saddCallSizes.push(members.length);
+      if (options.saddArgLimit !== undefined && members.length > options.saddArgLimit) {
+        // Exactly how an unbatched `sadd(key, ...members)` spread fails: thrown by the
+        // ENGINE before Redis is contacted, so the reverse index is never written.
+        throw new RangeError('Maximum call stack size exceeded');
+      }
       let set = sets.get(key);
       if (!set) {
         set = new Set<string>();
@@ -868,5 +882,58 @@ describe('RedisCacheProvider', () => {
         expect(await provider.get(tier)).toEqual(entry);
       }
     });
+  });
+});
+
+// ── Batched SADD (finding M1's sibling site) ────────────────────────────────
+//
+// `sAdd`'s member batching was added "for the same reason `delKeys` batches (finding M1,
+// sibling site)": the ioredis arm spreads members into a variadic call with an engine argument
+// ceiling. The PRIMARY site (`delKeys`) is pinned by the two tests above; this sibling was not
+// — collapsing the loop into a single unbounded chunk was green.
+//
+// The write path carrying many members is the REVERSE index: `set(key, entry, { tags })`
+// issues one `sAdd(keyTagsKey, tags)` with the whole tag list.
+describe('large tag lists (finding M1 sibling site)', () => {
+  const TAG_COUNT = 1_300;
+  const manyTags = Array.from({ length: TAG_COUNT }, (_, i) => `t${i}`);
+
+  it('writes a tag list far larger than one variadic SADD can carry', async () => {
+    const redis = makeArgCountingRedisClient({
+      delArgLimit: 600,
+      scanPageSize: 100,
+      saddArgLimit: 600,
+    });
+    const provider = new RedisCacheProvider(redis);
+
+    // Unbatched, this rejects with RangeError before Redis is contacted.
+    await provider.set('k1', ENTRY, { tags: manyTags });
+
+    expect(Math.max(...redis.saddCallSizes)).toBeLessThanOrEqual(500);
+    // …and functionally complete: every tag landed in the reverse index.
+    expect(redis.sets.get('__ktag__:k1')?.size).toBe(TAG_COUNT);
+  });
+
+  it('splits at the batch boundary (one member over the batch size becomes two calls)', async () => {
+    const redis = makeArgCountingRedisClient({ delArgLimit: 600, scanPageSize: 100 });
+    const provider = new RedisCacheProvider(redis);
+    const tags = Array.from({ length: 501 }, (_, i) => `t${i}`);
+
+    await provider.set('k1', ENTRY, { tags });
+
+    // The reverse-index write is the FIRST sadd (500 + 1); the per-tag forward-index writes
+    // that follow carry one member each.
+    expect(redis.saddCallSizes.slice(0, 2)).toEqual([500, 1]);
+    expect(redis.sets.get('__ktag__:k1')?.size).toBe(501);
+  });
+
+  it('issues a single call for a tag list that fits in one batch', async () => {
+    const redis = makeArgCountingRedisClient({ delArgLimit: 600, scanPageSize: 100 });
+    const provider = new RedisCacheProvider(redis);
+
+    await provider.set('k1', ENTRY, { tags: ['orders', 'customers'] });
+
+    expect(redis.saddCallSizes[0]).toBe(2);
+    expect(redis.sets.get('__ktag__:k1')?.size).toBe(2);
   });
 });

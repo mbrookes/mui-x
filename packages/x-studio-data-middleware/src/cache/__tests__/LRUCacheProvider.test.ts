@@ -456,3 +456,59 @@ describe('LRUCacheProvider', () => {
     });
   });
 });
+
+// ── `maxEntryBytes` ──────────────────────────────────────────────────────────
+//
+// A documented public constructor option (a 20-line docblock, and `ARCHITECTURE.md` names it
+// as the supported way for a host to stop "one very large result occupying most of
+// `maxSizeBytes` and evicting everything else on the way in"). It is forwarded to
+// `lru-cache`'s `maxEntrySize`, and making it a silent no-op (`maxEntrySize: undefined`) was
+// green across the whole package — the identifier appeared in no test file at all. A refactor,
+// or an `lru-cache` major renaming `maxEntrySize`, would drop the eviction-storm protection a
+// host explicitly opted into without a single failing test.
+describe('LRUCacheProvider maxEntryBytes', () => {
+  /** ~200 rows carrying a large-ish payload each, comfortably over a 1 KiB per-entry cap. */
+  function bigEntry(): CacheEntry {
+    const rows = Array.from({ length: 200 }, (_, i) => ({ id: i, blob: 'x'.repeat(64) }));
+    return { rows, cachedAt: 0 };
+  }
+
+  it('refuses to store an entry larger than maxEntryBytes', async () => {
+    const cache = new LRUCacheProvider({ maxSizeBytes: 8 * 1024 * 1024, maxEntryBytes: 1024 });
+
+    await cache.set('big', bigEntry());
+
+    // Not stored at all — `lru-cache` rejects the insert rather than admitting and
+    // immediately evicting it.
+    expect(await cache.get('big')).toBeUndefined();
+  });
+
+  it('stores that SAME entry when maxEntryBytes is not configured', async () => {
+    // The control that makes the case above a statement about the option rather than about
+    // the entry: identical payload, identical `maxSizeBytes`, option absent.
+    const cache = new LRUCacheProvider({ maxSizeBytes: 8 * 1024 * 1024 });
+
+    await cache.set('big', bigEntry());
+
+    expect((await cache.get('big'))?.rows).toHaveLength(200);
+  });
+
+  it('still stores an entry comfortably under the cap', async () => {
+    const cache = new LRUCacheProvider({ maxSizeBytes: 8 * 1024 * 1024, maxEntryBytes: 64 * 1024 });
+
+    await cache.set('small', entry([{ v: 1 }]));
+
+    expect((await cache.get('small'))?.rows).toEqual([{ v: 1 }]);
+  });
+
+  it('does not evict entries already resident when an over-cap entry is rejected', async () => {
+    // The point of the option: one huge result must not push everything else out on its way in.
+    const cache = new LRUCacheProvider({ maxSizeBytes: 8 * 1024 * 1024, maxEntryBytes: 1024 });
+    await cache.set('keep-me', entry([{ v: 1 }]));
+
+    await cache.set('big', bigEntry());
+
+    expect((await cache.get('keep-me'))?.rows).toEqual([{ v: 1 }]);
+    expect(await cache.get('big')).toBeUndefined();
+  });
+});

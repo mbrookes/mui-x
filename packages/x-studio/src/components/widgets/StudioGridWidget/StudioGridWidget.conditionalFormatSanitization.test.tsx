@@ -86,6 +86,16 @@ function getCells(container: HTMLElement) {
   };
 }
 
+/** The grid's root element, read from an already-rendered container. */
+function getGridRoot(container: HTMLElement) {
+  return container.querySelector('.MuiDataGrid-root') as HTMLElement | null;
+}
+
+/** The first data row, read from an already-rendered container. */
+function getFirstRow(container: HTMLElement) {
+  return container.querySelector('[data-id="r1"]');
+}
+
 /** The `amount` cell of the bottom-pinned footer summary row, if one is rendered. */
 function getSummaryCell(container: HTMLElement) {
   return container.querySelector('[data-id="__summary__"] [data-field="amount"]');
@@ -228,7 +238,7 @@ describe('StudioGridWidget gridHeight sanitization call site', () => {
       { gridHeight: payload as unknown as number },
     );
 
-    expect(container.querySelector('[data-id="r1"]')).not.toBe(null);
+    expect(getFirstRow(container)).not.toBe(null);
     expect(document.documentElement.outerHTML).not.toContain('.evil-h{background:url');
     expect(document.documentElement.outerHTML).not.toContain(payload);
   });
@@ -246,7 +256,7 @@ describe('StudioGridWidget gridHeight sanitization call site', () => {
       { backgroundColor: '#ff0000' },
       { gridHeight: value },
     );
-    const root = container.querySelector('.MuiDataGrid-root') as HTMLElement | null;
+    const root = getGridRoot(container);
     expect(root).not.toBe(null);
     expect(getComputedStyle(root as Element).height).toBe('400px');
   });
@@ -257,7 +267,7 @@ describe('StudioGridWidget gridHeight sanitization call site', () => {
       { backgroundColor: '#ff0000' },
       { gridHeight: 555 },
     );
-    const root = container.querySelector('.MuiDataGrid-root') as HTMLElement | null;
+    const root = getGridRoot(container);
     expect(getComputedStyle(root as Element).height).toBe('555px');
   });
 });

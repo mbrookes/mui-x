@@ -16,7 +16,7 @@ const { render } = createRenderer();
 // `useTextWidgetAI.test.tsx` reaches that branch. A mutant replacing the whole render with
 // `<Markdown>{''}</Markdown>` — i.e. the module emitting nothing at all — passed the full
 // project. These tests call the exported function directly so the boundary is executed.
-function renderMd(markdown: string) {
+function mountMarkdown(markdown: string) {
   return render(<div data-testid="md">{renderMarkdown(markdown)}</div>).container
     .firstElementChild as HTMLElement;
 }
@@ -28,7 +28,7 @@ describe('renderMarkdown', () => {
   // five sanitizer assertions are only meaningful if something is actually being rendered,
   // and without this test they would all pass against an empty render.
   it('renders the markdown as elements (fails if the module renders nothing at all)', () => {
-    const host = renderMd('# Title\n\nSome **bold** copy.\n\n- one\n- two\n');
+    const host = mountMarkdown('# Title\n\nSome **bold** copy.\n\n- one\n- two\n');
 
     expect(host.textContent).toContain('Title');
     expect(host.textContent).toContain('Some bold copy.');
@@ -42,7 +42,7 @@ describe('renderMarkdown', () => {
   // ── Remote images: blocked (W1) ─────────────────────────────────────────────
   describe('remote image blocking', () => {
     it('strips the src of a remote markdown image so no request is issued', () => {
-      const host = renderMd('![x](https://attacker.example/pixel.png)');
+      const host = mountMarkdown('![x](https://attacker.example/pixel.png)');
 
       const img = host.querySelector('img');
       // The <img> element itself is still emitted (alt text survives) — what must not
@@ -54,12 +54,12 @@ describe('renderMarkdown', () => {
     });
 
     it('strips the src of an http image and of a same-looking relative image', () => {
-      const remote = renderMd('![a](http://attacker.example/p.gif)');
+      const remote = mountMarkdown('![a](http://attacker.example/p.gif)');
       expect(remote.querySelector('img')!.getAttribute('src')).toBe(null);
 
       // Images are blocked unconditionally — the guard keys on tag/attribute before it ever
       // looks at the protocol, so even a relative image src is dropped.
-      const relative = renderMd('![b](/local/pixel.png)');
+      const relative = mountMarkdown('![b](/local/pixel.png)');
       expect(relative.querySelector('img')!.getAttribute('src')).toBe(null);
     });
   });
@@ -67,17 +67,20 @@ describe('renderMarkdown', () => {
   // ── Link protocol allowlist (W2) ────────────────────────────────────────────
   describe('link protocol allowlist', () => {
     it('strips a javascript: href', () => {
-      const host = renderMd('[click](javascript:alert(1))');
+      const host = mountMarkdown('[click](javascript:alert(1))');
 
       const anchor = host.querySelector('a');
       expect(anchor).not.toBe(null);
       expect(anchor!.textContent).toBe('click');
       expect(anchor!.getAttribute('href')).toBe(null);
+      // eslint-disable-next-line no-script-url
       expect(host.innerHTML).not.toContain('javascript:');
     });
 
     it('strips a data: href', () => {
-      const host = renderMd('[click](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)');
+      const host = mountMarkdown(
+        '[click](data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==)',
+      );
 
       const anchor = host.querySelector('a');
       expect(anchor).not.toBe(null);
@@ -86,13 +89,13 @@ describe('renderMarkdown', () => {
     });
 
     it('keeps http, https and mailto hrefs — the allowlist is not a blanket rejection', () => {
-      const https = renderMd('[ok](https://example.com/page)');
+      const https = mountMarkdown('[ok](https://example.com/page)');
       expect(https.querySelector('a')!.getAttribute('href')).toBe('https://example.com/page');
 
-      const http = renderMd('[ok](http://example.com/page)');
+      const http = mountMarkdown('[ok](http://example.com/page)');
       expect(http.querySelector('a')!.getAttribute('href')).toBe('http://example.com/page');
 
-      const mail = renderMd('[mail](mailto:someone@example.com)');
+      const mail = mountMarkdown('[mail](mailto:someone@example.com)');
       expect(mail.querySelector('a')!.getAttribute('href')).toBe('mailto:someone@example.com');
     });
   });
@@ -100,7 +103,7 @@ describe('renderMarkdown', () => {
   // ── Protocol-relative rejection in the relative-URL fallback (W3) ───────────
   describe('relative URL fallback', () => {
     it('rejects a protocol-relative //host href', () => {
-      const host = renderMd('[click](//attacker.example/path)');
+      const host = mountMarkdown('[click](//attacker.example/path)');
 
       const anchor = host.querySelector('a');
       expect(anchor).not.toBe(null);
@@ -111,21 +114,21 @@ describe('renderMarkdown', () => {
     it('rejects the mixed slash-backslash /\\host protocol-relative variant', () => {
       // Browsers treat `/\host` as protocol-relative just like `//host`, which is why the
       // guard is a `[/\\]{2}` character class rather than a literal `//` check.
-      const host = renderMd('[click](/\\attacker.example/path)');
+      const host = mountMarkdown('[click](/\\attacker.example/path)');
 
       expect(host.querySelector('a')!.getAttribute('href')).toBe(null);
       expect(host.innerHTML).not.toContain('attacker.example');
     });
 
     it('keeps an ordinary relative href', () => {
-      const host = renderMd('[docs](/docs/getting-started)');
+      const host = mountMarkdown('[docs](/docs/getting-started)');
       expect(host.querySelector('a')!.getAttribute('href')).toBe('/docs/getting-started');
     });
 
     it('rejects an unparseable value that still carries a colon', () => {
       // Falls into the `catch` (not an absolute URL) but contains `:` — a scheme-ish value
       // that the allowlist above never got to see must not be let through by the fallback.
-      const host = renderMd('[click](vbscript:msgbox(1))');
+      const host = mountMarkdown('[click](vbscript:msgbox(1))');
       expect(host.querySelector('a')!.getAttribute('href')).toBe(null);
     });
   });
@@ -133,7 +136,7 @@ describe('renderMarkdown', () => {
   // ── Raw HTML parsing disabled (W4) ──────────────────────────────────────────
   describe('raw HTML', () => {
     it('escapes raw HTML instead of parsing it into elements', () => {
-      const host = renderMd('<img src="x" onerror="alert(1)"><b>bold</b>');
+      const host = mountMarkdown('<img src="x" onerror="alert(1)"><b>bold</b>');
 
       // No element is produced from the raw markup...
       expect(host.querySelector('img')).toBe(null);
@@ -147,7 +150,7 @@ describe('renderMarkdown', () => {
     });
 
     it('escapes a raw <script> block instead of parsing it', () => {
-      const host = renderMd('<script>alert(1)</script>');
+      const host = mountMarkdown('<script>alert(1)</script>');
 
       expect(host.querySelector('script')).toBe(null);
       expect(host.textContent).toContain('<script>alert(1)</script>');

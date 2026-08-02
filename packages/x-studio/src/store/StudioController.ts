@@ -2262,13 +2262,25 @@ export class StudioController {
     // Rank-filter uniqueness guard (2.7): the duplicate lands on the ACTIVE page, so a cloned
     // widget-scoped rank (Top-N) filter would resolve to the same page context as the source's
     // own rank filter — two rank filters on one page, exactly the state `addFilter`/`updateFilter`
-    // reject and the filters drawer assumes cannot exist. The reducer's `addFilter` handler
-    // applies verbatim (no rank check), so committing the cloned rank mutation would persist the
-    // violated invariant into the saved doc and make subsequent rank edits fail. Drop any cloned
-    // rank filter that conflicts, guard-and-continue style, via the same shared
-    // `hasConflictingRankFilter` check both writers use. The new widget isn't in `widgetRows` at
-    // check time, so model the clone's page context as a page-scoped target on `activePage.id`
-    // (otherwise `resolveRankFilterPageId` would return `null` and over-reject).
+    // reject and the filters drawer assumes cannot exist. Drop any cloned rank filter that
+    // conflicts, guard-and-continue style, via the same shared `hasConflictingRankFilter` check
+    // every other writer uses. The new widget isn't in `widgetRows` at check time, so model the
+    // clone's page context as a page-scoped target on `activePage.id` (otherwise
+    // `resolveRankFilterPageId` would return `null` and over-reject).
+    //
+    // WHAT THIS GUARD ACTUALLY BUYS. This comment used to claim the reducer's `addFilter`
+    // handler "applies verbatim (no rank check)", so that without this guard the violated
+    // invariant would be PERSISTED into the saved doc. That is no longer true: `addFilter`
+    // in `applyMutation.ts` now runs the same `hasConflictingRankFilter` gate and drops a
+    // conflicting rank filter itself (its own comment says "the controller's check still must
+    // not be able to violate the invariant"). Verified by mutation: with this filter removed,
+    // the committed doc is IDENTICAL — the reducer rejects the cloned rank filter either way.
+    //
+    // What this guard uniquely provides is the dev-mode `console.warn` below: the reducer
+    // drops the filter SILENTLY, so without this the user duplicates a widget and its Top-N
+    // filter just does not come along, with nothing said. Keep it for that, and because a
+    // guard-and-continue at the mutation boundary should not depend on a downstream reducer
+    // gate for correctness — but do not expect it to be the thing protecting the doc.
     const dedupedClonedFilters = clonedFilters.filter((f) => {
       if (f.filterMode !== 'rank') {
         return true;

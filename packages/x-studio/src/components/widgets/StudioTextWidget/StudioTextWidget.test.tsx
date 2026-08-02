@@ -130,13 +130,19 @@ describe('StudioTextWidget AI markdown rendering', () => {
     );
   }
 
+  /** Reads an element out of an already-rendered tree (kept out of the test bodies so the
+   *  container is a plain parameter rather than a `render()` result). */
+  function pick(root: HTMLElement, selector: string) {
+    return root.querySelector(selector);
+  }
+
   it('renders AI-produced markdown as elements rather than raw text', async () => {
     const { container } = renderAiWidget('Revenue is **up** sharply.', 'Summarize revenue');
 
     await waitFor(() => {
-      expect(container.querySelector('strong')).not.toBe(null);
+      expect(pick(container, 'strong')).not.toBe(null);
     });
-    expect(container.querySelector('strong')!.textContent).toBe('up');
+    expect(pick(container, 'strong')!.textContent).toBe('up');
   });
 
   it('sanitizes AI-produced markdown: a javascript: link and a remote image are defanged', async () => {
@@ -146,10 +152,11 @@ describe('StudioTextWidget AI markdown rendering', () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelector('a')).not.toBe(null);
+      expect(pick(container, 'a')).not.toBe(null);
     });
-    expect(container.querySelector('a')!.getAttribute('href')).toBe(null);
-    expect(container.querySelector('img')!.getAttribute('src')).toBe(null);
+    expect(pick(container, 'a')!.getAttribute('href')).toBe(null);
+    expect(pick(container, 'img')!.getAttribute('src')).toBe(null);
+    // eslint-disable-next-line no-script-url
     expect(container.innerHTML).not.toContain('javascript:');
     expect(container.innerHTML).not.toContain('attacker.example');
   });

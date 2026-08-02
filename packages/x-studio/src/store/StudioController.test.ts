@@ -2192,11 +2192,15 @@ describe('StudioController.moveWidgetToPage — same-page move is a no-op', () =
   });
 });
 
-// The `duplicateWidget` half of the one-rank-filter-per-page invariant (2.7). Seven other
-// enforcement points of `hasConflictingRankFilter` had tests; this one — the only one that
-// PERSISTS the violated invariant into the saved doc, because the reducer's `addFilter`
-// handler applies the cloned mutation verbatim with no rank check — did not.
-describe('StudioController.duplicateWidget — rank-filter uniqueness (2.7)', () => {
+// The `duplicateWidget` call site of `hasConflictingRankFilter`. There IS a describe block
+// further down asserting this behaviour, but it does not DISCRIMINATE: with the controller's
+// filter removed, its assertions still pass, because the reducer's `addFilter` handler runs
+// the same rank gate and drops the cloned filter itself. So the committed doc is identical
+// either way, and the guard's unique observable effect is the dev warning — which is what the
+// first test below pins. (The guard's own comment used to claim the reducer "applies verbatim
+// (no rank check)" and that the violated invariant would be persisted; that is stale, and the
+// comment in `StudioController.ts` has been corrected.)
+describe('StudioController.duplicateWidget — rank guard warning (2.7)', () => {
   function rankController() {
     return new StudioController({
       doc: {
@@ -2230,6 +2234,9 @@ describe('StudioController.duplicateWidget — rank-filter uniqueness (2.7)', ()
       'w1-rank',
     ]);
     expect(state.doc.filters.some((f) => f.id === `${copyId}-w1-rank`)).toBe(false);
+    // The discriminating assertion. The doc assertions above hold with or without the
+    // controller-side guard (the reducer drops the clone regardless); the WARNING is the only
+    // thing that tells the user their Top-N filter did not come along with the copy.
     expect(warnSpy).toHaveBeenCalledOnce();
     warnSpy.mockRestore();
   });
@@ -2240,9 +2247,7 @@ describe('StudioController.duplicateWidget — rank-filter uniqueness (2.7)', ()
         dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
         pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
         widgets: { w1: makeWidget('w1') },
-        filters: [
-          makeFilter({ id: 'w1-status', scope: { kind: 'widget', widgetId: 'w1' } }),
-        ],
+        filters: [makeFilter({ id: 'w1-status', scope: { kind: 'widget', widgetId: 'w1' } })],
       },
     });
 
@@ -2609,9 +2614,7 @@ describe('StudioController expression fields', () => {
     expect(controller.getState().doc.expressionFields).toHaveLength(0);
     // The dev warning is the only signal on the host/persisted-doc paths, which do not
     // inspect the returned result.
-    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
-      'circular dependency',
-    );
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('circular dependency');
     warnSpy.mockRestore();
   });
 

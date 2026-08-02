@@ -88,6 +88,18 @@ describe('renderMarkdown', () => {
       expect(host.innerHTML).not.toContain('data:text/html');
     });
 
+    it('strips a vbscript: href', () => {
+      // `new URL('vbscript:msgbox(1)')` does NOT throw — it parses, with
+      // `protocol === 'vbscript:'` — so this value never reaches the `catch` fallback below.
+      // It is rejected here, by the protocol allow-list, and this test belongs in this block.
+      // (It sat under "relative URL fallback" with a comment claiming it exercised the
+      // fallback's `includes(':')` clause; that claim was false and the clause it named went
+      // on being untested. See the reaching-input test at the end of that block.)
+      const host = mountMarkdown('[click](vbscript:msgbox(1))');
+      expect(host.querySelector('a')!.getAttribute('href')).toBe(null);
+      expect(host.innerHTML).not.toContain('vbscript:');
+    });
+
     it('keeps http, https and mailto hrefs — the allowlist is not a blanket rejection', () => {
       const https = mountMarkdown('[ok](https://example.com/page)');
       expect(https.querySelector('a')!.getAttribute('href')).toBe('https://example.com/page');
@@ -125,12 +137,31 @@ describe('renderMarkdown', () => {
       expect(host.querySelector('a')!.getAttribute('href')).toBe('/docs/getting-started');
     });
 
-    it('rejects an unparseable value that still carries a colon', () => {
-      // Falls into the `catch` (not an absolute URL) but contains `:` — a scheme-ish value
-      // that the allowlist above never got to see must not be let through by the fallback.
-      const host = mountMarkdown('[click](vbscript:msgbox(1))');
-      expect(host.querySelector('a')!.getAttribute('href')).toBe(null);
-    });
+    // The fallback's `!value.includes(':')` clause, pinned by inputs that actually reach it.
+    //
+    // Reaching it requires a value that makes `new URL(value)` THROW while still carrying a
+    // colon — i.e. one the WHATWG parser rejects outright, so the protocol allow-list above
+    // never sees it. Both inputs below were measured to throw:
+    //
+    //   `1foo:bar`  — scheme-shaped but not a valid scheme (a scheme must start with an
+    //                 ASCII letter), so it is neither absolute nor, to `new URL`, parseable.
+    //   `http://[`  — a malformed absolute URL: an unterminated IPv6 host.
+    //
+    // Neither matches the `^[/\\]{2}` protocol-relative test beside it, so this clause is the
+    // only thing that rejects them. Stated narrowly and honestly: this clause is
+    // defence-in-depth, not a live hole plug. A browser resolving these as `href` uses the
+    // same WHATWG parser, so a throw here means the browser also treats the value as a
+    // relative reference — no escalation past the clause could be constructed. What the
+    // clause buys is that a colon-bearing value the allow-list never got to inspect is
+    // rejected rather than emitted verbatim, and these tests are what make its removal
+    // observable at all.
+    it.each(['1foo:bar', 'http://['])(
+      'rejects %s — a colon-bearing value that `new URL` rejects, so the allowlist never saw it',
+      (value) => {
+        const host = mountMarkdown(`[click](${value})`);
+        expect(host.querySelector('a')!.getAttribute('href')).toBe(null);
+      },
+    );
   });
 
   // ── Raw HTML parsing disabled (W4) ──────────────────────────────────────────

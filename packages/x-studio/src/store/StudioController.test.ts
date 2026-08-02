@@ -2027,6 +2027,68 @@ describe('StudioController.moveWidget', () => {
 });
 
 // ─── 2.2: cross-page widget move must not land TWO rank filters on one page ────
+// The `duplicateWidget` half of the one-rank-filter-per-page invariant (2.7). Seven other
+// enforcement points of `hasConflictingRankFilter` had tests; this one — the only one that
+// PERSISTS the violated invariant into the saved doc, because the reducer's `addFilter`
+// handler applies the cloned mutation verbatim with no rank check — did not.
+describe('StudioController.duplicateWidget — rank-filter uniqueness (2.7)', () => {
+  function rankController() {
+    return new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: makeWidget('w1') },
+        filters: [
+          makeFilter({
+            id: 'w1-rank',
+            filterMode: 'rank',
+            rankDirection: 'top',
+            value: 5,
+            scope: { kind: 'widget', widgetId: 'w1' },
+          }),
+        ],
+      },
+    });
+  }
+
+  it('drops the cloned rank filter when the SOURCE widget rank filter already occupies the page', () => {
+    // No other rank filter is present: the source widget's own rank filter resolves to the
+    // active page, and the clone lands on that same page, so the clone is the conflict.
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const controller = rankController();
+
+    controller.duplicateWidget('w1');
+
+    const state = controller.getState();
+    const copyId = Object.keys(state.doc.widgets).find((id) => id !== 'w1')!;
+    expect(state.doc.filters.filter((f) => f.filterMode === 'rank').map((f) => f.id)).toEqual([
+      'w1-rank',
+    ]);
+    expect(state.doc.filters.some((f) => f.id === `${copyId}-w1-rank`)).toBe(false);
+    expect(warnSpy).toHaveBeenCalledOnce();
+    warnSpy.mockRestore();
+  });
+
+  it('still clones a NON-rank widget filter (the guard drops only conflicting rank filters)', () => {
+    const controller = new StudioController({
+      doc: {
+        dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: makeWidget('w1') },
+        filters: [
+          makeFilter({ id: 'w1-status', scope: { kind: 'widget', widgetId: 'w1' } }),
+        ],
+      },
+    });
+
+    controller.duplicateWidget('w1');
+
+    const state = controller.getState();
+    const copyId = Object.keys(state.doc.widgets).find((id) => id !== 'w1')!;
+    expect(state.doc.filters.some((f) => f.id === `${copyId}-w1-status`)).toBe(true);
+  });
+});
+
 // Sibling of the iter-9 `duplicateWidget` rank-uniqueness fix, missed on the move paths.
 // Moving a widget carrying a widget-scoped rank (Top-N) filter onto a page whose context
 // already holds a rank filter would otherwise produce the forbidden "two rank filters on

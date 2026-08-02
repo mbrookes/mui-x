@@ -615,6 +615,94 @@ describe('<StudioFiltersDrawer /> rank-conflict page index (finding R4 F8)', () 
   });
 });
 
+// The `WidgetFilterRow` twin of the two tests below. Its `disableRankMode` line is
+// BYTE-IDENTICAL to `PageFilterRow`'s, and only the page row's was observed: the widget row
+// could offer Rank on a row that already conflicts with everything green. Both rows are the
+// UI half of the same one-rank-filter-per-page invariant the controller enforces.
+describe('<StudioFiltersDrawer /> widget-row rank toggle matches the un-indexed predicate', () => {
+  const PAGES: Record<string, StudioPage> = {
+    'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [['chart-1']] },
+    'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [['chart-2']] },
+  };
+
+  /** Puts the conflicting PAGE-scoped rank filter on `pageId` and selects `chart-1`. */
+  function renderWithRankFilterOnPage(pageId: string) {
+    // Field-less widget filter → the phase that always renders the mode toggle.
+    const widgetFilter: StudioFilterState = {
+      id: 'wf-1',
+      field: '',
+      operator: 'equals',
+      value: '',
+      scope: { kind: 'widget', widgetId: 'chart-1' },
+    };
+    const rankFilter: StudioFilterState = {
+      id: 'rank-1',
+      field: 'region',
+      fieldType: 'string',
+      operator: 'equals',
+      value: 5,
+      filterMode: 'rank',
+      rankDirection: 'top',
+      scope: { kind: 'page', pageId },
+    };
+    const filters = [widgetFilter, rankFilter];
+    const { wrapper } = createStudioHarness({
+      initialState: {
+        doc: {
+          pages: PAGES,
+          widgets: {
+            'chart-1': {
+              id: 'chart-1',
+              kind: 'chart',
+              title: 'A',
+              sourceId: 'src',
+              config: { chartType: 'bar', xField: 'region' },
+            },
+            'chart-2': {
+              id: 'chart-2',
+              kind: 'chart',
+              title: 'B',
+              sourceId: 'src',
+              config: { chartType: 'bar', xField: 'region' },
+            },
+          },
+          filters,
+        },
+        runtime: { dataSources: { src: SOURCE } },
+        session: {
+          shell: {
+            openDrawers: { data: false, compose: false, filters: true },
+            selectedWidgetId: 'chart-1',
+            selectedFieldId: null,
+            selectedSourceId: null,
+          },
+        },
+      },
+      providerProps: { featureFlags: { savedFilterViews: false } },
+    });
+    render(<StudioFiltersDrawer />, { wrapper });
+    const rankToggle = screen.getByRole('button', {
+      name: DEFAULT_STUDIO_LOCALE_TEXT.filterModeRank,
+    });
+    return {
+      renderedDisabled: (rankToggle as HTMLButtonElement).disabled,
+      unindexed: hasConflictingRankFilter(widgetFilter.id, widgetFilter, filters, PAGES),
+    };
+  }
+
+  it('disables Rank on a widget row when the conflicting rank filter is on the widget page', () => {
+    const { renderedDisabled, unindexed } = renderWithRankFilterOnPage('page-1');
+    expect(unindexed).toBe(true);
+    expect(renderedDisabled).toBe(unindexed);
+  });
+
+  it('leaves Rank enabled on a widget row when that rank filter is on another page', () => {
+    const { renderedDisabled, unindexed } = renderWithRankFilterOnPage('page-2');
+    expect(unindexed).toBe(false);
+    expect(renderedDisabled).toBe(unindexed);
+  });
+});
+
 // The indexed path must answer EXACTLY what the un-indexed walk answers — the schema package
 // pins this on the helper (`hasConflictingRankFilter agrees with and without an index`), and
 // these two pin it on what the user actually sees: the drawer's Rank toggle.

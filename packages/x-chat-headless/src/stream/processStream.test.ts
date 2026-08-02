@@ -689,6 +689,8 @@ describe('processStream', () => {
       expect(() =>
         expectClauseIsolated({
           kind: 'shape',
+          // The replay adds one id to `seen` and changes no other field's width.
+          serializedWindow: 7,
           whyNotMinimal:
             'id membership in `seenEventIds` is a set test, not a bound: an id is present ' +
             'or it is not, so there is no dimension on which a violating envelope could be ' +
@@ -719,6 +721,8 @@ describe('processStream', () => {
         expect(() =>
           expectClauseIsolated({
             kind: 'shape',
+            // The replay adds one id to `seen` and changes no other field's width.
+            serializedWindow: 7,
             whyNotMinimal:
               'id membership in `seenEventIds` is a set test, not a bound: an id is present ' +
               'or it is not, so there is no dimension on which a violating envelope could ' +

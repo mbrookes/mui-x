@@ -68,6 +68,10 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        // `Infinity` serialises as `null`, so the payload SHRINKS: a fixture that makes the
+        // payload smaller cannot be answered by a size budget at all, which is exactly the
+        // kind of thing this number is here to make visible.
+        serializedWindow: -6,
         whyNotMinimal: 'finiteness is not a measurable dimension.',
         guard: 'extractSecurityClaims.ts (fixture)',
         clauses: EXP_CLAUSES,
@@ -88,6 +92,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 0,
         whyNotMinimal: 'finiteness is not a measurable dimension.',
         guard: 'extractSecurityClaims.ts (fixture)',
         clauses: EXP_CLAUSES,
@@ -105,6 +110,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 0,
         whyNotMinimal: 'set membership is not a bound.',
         guard: 'processStream.ts (fixture)',
         clauses: REPLAY_CLAUSES,
@@ -123,6 +129,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 7,
         whyNotMinimal: 'set membership is not a bound.',
         guard: 'processStream.ts (fixture)',
         clauses: REPLAY_CLAUSES,
@@ -141,6 +148,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 0,
         whyNotMinimal: 'finiteness is not a measurable dimension.',
         guard: 'extractSecurityClaims.ts (fixture)',
         clauses: EXP_CLAUSES,
@@ -158,6 +166,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 0,
         whyNotMinimal: 'a synthetic always-true predicate has no dimension.',
         guard: 'fixture',
         clauses: { 'always rejects': () => true },
@@ -172,6 +181,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 0,
         whyNotMinimal: 'not reached — the target check throws first.',
         guard: 'fixture',
         clauses: EXP_CLAUSES,
@@ -380,6 +390,7 @@ describe('expectClauseIsolated', () => {
     expect(() =>
       expectClauseIsolated({
         kind: 'shape',
+        serializedWindow: 0,
         whyNotMinimal: '   ',
         guard: 'fixture:isWithinItemLimits',
         clauses: MASKED,
@@ -388,5 +399,56 @@ describe('expectClauseIsolated', () => {
         observed: { id: 'i'.repeat(6 * ITEM_CAP), title: 'ok' },
       }),
     ).toThrow(/no `whyNotMinimal`/);
+  });
+
+  // ── The relabelled bound: `kind: 'shape'` is no longer an opt-out of EVERYTHING ─────
+  //
+  // `expectClauseIsolated` throws only when `whyNotMinimal` is blank, and nothing checks that
+  // the clause is not in fact a bound. So a `bound` clause declared `kind: 'shape'` with any
+  // plausible sentence used to reinstate the round-15 counter-example verbatim: it skipped
+  // the minimality check, which was the only assertion constraining masking. The helper's own
+  // error text says "if the clause does bound a measurable dimension, use kind: 'bound'" —
+  // which is an instruction to the author, not a check.
+  //
+  // Deciding which kind a clause really is needs a claim about the clause, and this helper
+  // only has predicates. What it can do is make the declaration cost something: the SECOND
+  // masking constraint is on the base type, so relabelling still has to write the payload
+  // growth down and still has it checked.
+
+  it("still checks the serialized window on a bound relabelled kind: 'shape'", () => {
+    const control = { id: 'i'.repeat(ITEM_CAP), title: 'ok' };
+    const observed = { id: 'i'.repeat(6 * ITEM_CAP), title: 'ok' };
+    // The relabelling itself is accepted — nothing here can tell that this clause is a bound.
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'shape',
+        serializedWindow: 500,
+        whyNotMinimal: 'an id is a name, not a measurable dimension.',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        control,
+        observed,
+      }),
+    ).not.toThrow();
+
+    // …but the 500 is not free. It is the width of the window the unlisted budget hides in —
+    // `withheldByBudget` rejects `observed` and admits `control` — and it is now a checked
+    // number sitting beside a stated reason that says the clause has no dimension. Declaring
+    // the harmless-looking `0` a `shape` fixture would otherwise default to is refused.
+    expect(withheldByBudget(observed)).toBe(true);
+    expect(withheldByBudget(control)).toBe(false);
+    expect(() =>
+      expectClauseIsolated({
+        kind: 'shape',
+        serializedWindow: 0,
+        whyNotMinimal: 'an id is a name, not a measurable dimension.',
+        guard: 'fixture:isWithinItemLimits',
+        clauses: MASKED,
+        target: 'entry.id.length > ITEM_CAP',
+        control,
+        observed,
+      }),
+    ).toThrow(/declares serializedWindow: 0, but `observed` is actually 500 JSON characters/);
   });
 });

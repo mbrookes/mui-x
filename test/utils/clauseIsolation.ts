@@ -38,10 +38,14 @@ import { expect } from 'vitest';
  *  2. `target` rejects `observed` — so the payload does reach the clause;
  *  3. no OTHER LISTED predicate rejects `observed`;
  *  4. for a {@link BoundIsolation}, `observed` is the MINIMAL violation — exactly one unit
- *     past `control` on the dimension the clause bounds.
+ *     past `control` on the dimension the clause bounds;
+ *  5. for EVERY fixture, the window `observed` opens on the payload's SERIALIZED size is
+ *     exactly the number the author wrote in {@link ClauseIsolationBase.serializedWindow}.
  *
  * (2) catches the `exp: NaN` fixture on the spot, naming `typeof number` as the clause that
- * really rejects. (4) is what catches a masking bound the author never listed; see below.
+ * really rejects. (4) is what catches a masking bound the author never listed; (5) is what
+ * (4) cannot see, because (4) constrains one dimension and a budget usually uses another.
+ * See below.
  *
  * ── What it does NOT establish, and why no transcription could ──
  *
@@ -96,9 +100,11 @@ import { expect } from 'vitest';
  * is the unit every whole-payload budget on these wire boundaries is denominated in
  * (`MAX_TURN_APPROVAL_SIZE`, `MAX_TURN_METADATA_SIZE`, `MAX_TURN_TOOL_INPUT_SIZE` are all
  * JSON characters). So the helper measures that window itself and requires
- * {@link BoundIsolation.serializedWindow} to say what it is. The number is CHECKED, not
+ * {@link ClauseIsolationBase.serializedWindow} to say what it is. The number is CHECKED, not
  * trusted — a wrong one fails, exactly as a `measure` that reads the wrong field fails — so
- * it cannot quietly agree with itself, and it cannot be omitted. It does not REFUSE a wide
+ * it cannot quietly agree with itself, and it cannot be omitted. It is on the BASE type, not
+ * on {@link BoundIsolation}, so `kind: 'shape'` no longer opts out of every masking
+ * constraint at once: relabelling a bound as a shape still has to declare the width. It does not REFUSE a wide
  * window: there is no principled threshold, since one entry legitimately costs many
  * characters. What it does is make the width of the second window impossible to write a
  * fixture without looking at, on the page, in review, in the same units the budgets use.
@@ -144,6 +150,23 @@ interface ClauseIsolationBase<TObserved> {
    * is `null`.
    */
   observed: TObserved;
+  /**
+   * How much wider `observed` is than `control` once SERIALIZED — in JSON characters, signed.
+   *
+   * Required on EVERY fixture, and checked against the value this helper computes, for the
+   * same reason {@link BoundIsolation.measure} is evaluated rather than believed. It is here because "one unit past the
+   * cap" is a statement about `measure`'s unit alone, and a masking budget is usually
+   * denominated in characters: measured, a one-ENTRY window on a list cap was a
+   * 20 021-CHARACTER window on the budget that masked the clause, with every assertion green.
+   *
+   * Writing it down does not make a wide window illegal — one list entry legitimately costs
+   * many characters, and there is no threshold that is not arbitrary. It makes the width
+   * visible at the fixture, in the unit the budgets on this path use, so that "a bound 40 000
+   * characters away cannot hide in a window one character wide" is a sentence a reviewer can
+   * check against a number instead of a sentence that quietly assumes both windows are the
+   * same one.
+   */
+  serializedWindow: number;
 }
 
 /**
@@ -166,36 +189,31 @@ export interface BoundIsolation<TObserved> extends ClauseIsolationBase<TObserved
    * not enough.
    */
   measure: (observed: TObserved) => number;
-  /**
-   * How much wider `observed` is than `control` once SERIALIZED — in JSON characters, signed.
-   *
-   * Required, and checked against the value this helper computes, for the same reason
-   * {@link measure} is evaluated rather than believed. It is here because "one unit past the
-   * cap" is a statement about `measure`'s unit alone, and a masking budget is usually
-   * denominated in characters: measured, a one-ENTRY window on a list cap was a
-   * 20 021-CHARACTER window on the budget that masked the clause, with every assertion green.
-   *
-   * Writing it down does not make a wide window illegal — one list entry legitimately costs
-   * many characters, and there is no threshold that is not arbitrary. It makes the width
-   * visible at the fixture, in the unit the budgets on this path use, so that "a bound 40 000
-   * characters away cannot hide in a window one character wide" is a sentence a reviewer can
-   * check against a number instead of a sentence that quietly assumes both windows are the
-   * same one.
-   */
-  serializedWindow: number;
 }
 
 /**
  * A clause whose violation is a SHAPE, not a size — `typeof x !== 'number'`,
  * `seen.has(id)`, `!Number.isFinite(x)`. There is no dimension to be one unit past, so
  * minimality does not apply and the author says so in writing.
+ *
+ * `kind: 'shape'` used to skip EVERY assertion that constrains masking, on a free-text
+ * reason, with nothing checking the clause is not in fact a bound: a `bound` clause declared
+ * `kind: 'shape'` with any non-blank sentence reinstated the round-15 counter-example
+ * verbatim, and the helper's own error text saying "if the clause does bound a measurable
+ * dimension, use kind: 'bound'" is an instruction to the author rather than a check. It now
+ * skips exactly ONE of the two — {@link ClauseIsolationBase.serializedWindow} lives on the
+ * base and applies here too — so relabelling a bound as a shape still has to write down, and
+ * have checked, how many characters the fixture grew the payload by. A 50 000 on a fixture
+ * whose stated reason is "this clause has no measurable dimension" is a contradiction a
+ * reviewer can see. Nothing here can decide which kind a clause really is; what it can do is
+ * stop the declaration from being free.
  */
 export interface ShapeIsolation<TObserved> extends ClauseIsolationBase<TObserved> {
   kind: 'shape';
   /**
    * Why there is no minimal violation to supply. A claim a reader can check, in the same
    * spirit as `SizeCapEntry.why` — "this clause is not a bound" is exactly the sentence a
-   * `bound` fixture would use to skip the one check that catches a masking bound, so it is
+   * `bound` fixture would use to skip the check that catches a masking bound, so it is
    * required rather than inferred.
    */
   whyNotMinimal: string;
@@ -282,26 +300,26 @@ export function expectClauseIsolated<T>(isolation: ClauseIsolation<T>): void {
           controlSize + 1
         }).`,
     ).toBe(controlSize + 1);
-
-    // The SECOND dimension, and the reason the first is not enough. `measure` says how wide the
-    // window is in its own unit; this says how wide the same window is in JSON characters, which
-    // is the unit every whole-payload budget on these boundaries is charged in. The two are only
-    // the same number when one unit of `measure` costs one character.
-    const actualSerializedWindow = serializedSize(observed) - serializedSize(control);
-    expect(
-      actualSerializedWindow,
-      `${guard}: the fixture for ${target} declares serializedWindow: ` +
-        `${isolation.serializedWindow}, but \`observed\` is actually ${actualSerializedWindow} ` +
-        'JSON characters wider than `control`. This number is checked rather than trusted for ' +
-        'the same reason `measure` is evaluated on both payloads: a claim about the payload ' +
-        'that nothing re-derives is a claim that can quietly stop being true. Any bound ' +
-        'denominated in characters — a per-turn budget, a persisted-document size — whose ' +
-        'threshold falls inside a window this wide rejects this payload too, produces the same ' +
-        'observable, and keeps the test green with the clause under test dead. Measured ' +
-        'instance: a one-ENTRY window on a list cap was a 20 021-CHARACTER window on ' +
-        'MAX_TURN_APPROVAL_SIZE, with all four assertions and both pin directions green. If ' +
-        'this number is large, that is not automatically wrong — one list entry costs many ' +
-        'characters — but it is the number to look at before believing the clause is pinned.',
-    ).toBe(isolation.serializedWindow);
   }
+
+  // The SECOND dimension, and the reason the first is not enough. `measure` says how wide the
+  // window is in its own unit; this says how wide the same window is in JSON characters, which
+  // is the unit every whole-payload budget on these boundaries is charged in. The two are only
+  // the same number when one unit of `measure` costs one character.
+  const actualSerializedWindow = serializedSize(observed) - serializedSize(control);
+  expect(
+    actualSerializedWindow,
+    `${guard}: the fixture for ${target} declares serializedWindow: ` +
+      `${isolation.serializedWindow}, but \`observed\` is actually ${actualSerializedWindow} ` +
+      'JSON characters wider than `control`. This number is checked rather than trusted for ' +
+      'the same reason `measure` is evaluated on both payloads: a claim about the payload ' +
+      'that nothing re-derives is a claim that can quietly stop being true. Any bound ' +
+      'denominated in characters — a per-turn budget, a persisted-document size — whose ' +
+      'threshold falls inside a window this wide rejects this payload too, produces the same ' +
+      'observable, and keeps the test green with the clause under test dead. Measured ' +
+      'instance: a one-ENTRY window on a list cap was a 20 021-CHARACTER window on ' +
+      'MAX_TURN_APPROVAL_SIZE, with all four assertions and both pin directions green. If ' +
+      'this number is large, that is not automatically wrong — one list entry costs many ' +
+      'characters — but it is the number to look at before believing the clause is pinned.',
+  ).toBe(isolation.serializedWindow);
 }

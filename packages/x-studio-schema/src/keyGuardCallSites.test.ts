@@ -90,7 +90,7 @@ const KEY_GUARD_INVENTORY: KeyGuardEntry[] = [
   // ── The four sites spelled `isSafeKey` at the call — the ones the old sweep counted ──
   {
     site: `${P}docScreening.ts:isSafeKey(id)#0`,
-    what: '`screenWidgets` — drops a widget whose MAP KEY is a prototype-hazard id, at both the factory and the persistence load boundary. This is why no hazard id can ever be a live widget, which is what makes four of the rows below unpinnable',
+    what: '`screenWidgets` — drops a widget whose MAP KEY is a prototype-hazard id, at both the factory and the persistence load boundary. This is why no hazard id can ever be a live widget, which is what puts four of the rows below out of reach of any REACHABLE input — three are pinned by tests that fabricate the pre-state this screen prevents',
     pinnedBy: {
       file: `${P}statePersistence.test.ts`,
       test: 'drops a persisted "__proto__" widget key from the widgets map (finding 1.2)',

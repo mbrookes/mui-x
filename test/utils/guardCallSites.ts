@@ -312,40 +312,39 @@ function expandModules(
   const modules = new Set(family.modules);
   const files = candidateFiles(family, repoRoot, guards);
   for (let pass = 0; pass < 4; pass += 1) {
-    let grew = false;
+    const before = modules.size;
     for (const full of files) {
       const file = toRepoRelative(full, repoRoot);
       if (modules.has(file)) {
         continue;
       }
       const source = parse(full, readFileSync(full, 'utf8'));
-      source.forEachChild((node) => {
+      for (const node of source.statements) {
         if (
           !ts.isExportDeclaration(node) ||
           !node.moduleSpecifier ||
           !ts.isStringLiteral(node.moduleSpecifier)
         ) {
-          return;
+          continue;
         }
         const target = resolveSpecifier(full, node.moduleSpecifier.text, repoRoot, aliases);
         if (!target || !modules.has(target)) {
-          return;
+          continue;
         }
         // A renaming re-export is reported, not followed — see `findGuardReExports`.
         const clause = node.exportClause;
         if (clause && ts.isNamedExports(clause)) {
           const carriesGuardVerbatim = clause.elements.some(
-            (e) => !e.propertyName && guards.includes(e.name.text),
+            (element) => !element.propertyName && guards.includes(element.name.text),
           );
           if (!carriesGuardVerbatim) {
-            return;
+            continue;
           }
         }
         modules.add(file);
-        grew = true;
-      });
+      }
     }
-    if (!grew) {
+    if (modules.size === before) {
       break;
     }
   }

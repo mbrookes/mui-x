@@ -428,7 +428,7 @@ describe("the scan's own identity function — resolved, reported, and missed", 
     rmSync(root, { recursive: true, force: true });
   });
 
-  describe('resolved — the site is found, under the guard’s real name', () => {
+  describe('resolved — the site is found, under the real guard name', () => {
     it('CONTROL: an ordinary direct call', () => {
       write('packages/app/a.ts', [
         "import { sanitizeFontSize } from '../guards/cssValueValidation';",
@@ -591,7 +591,7 @@ describe("the scan's own identity function — resolved, reported, and missed", 
       expect(findIndirectGuardReferences(family, root)).toEqual([]);
     });
 
-    it('does NOT see a call in a file outside the family’s roots', () => {
+    it('does NOT see a call in a file outside the roots of the family', () => {
       write('docs/demo.ts', [
         "import { sanitizeFontSize } from '../packages/guards/cssValueValidation';",
         'export const a = sanitizeFontSize(config.size);',

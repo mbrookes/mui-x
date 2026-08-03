@@ -342,6 +342,14 @@ function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
     // tool result. A 5 MB `type` therefore became a 5 MB conversation message.
     // Coercing + capping it here bounds that message and keeps every untrusted
     // field validated at one place.
+    //
+    // This is the ONLY call that bounds `type`. The error message used to re-apply
+    // `sanitizeText` to the already-sanitized value, and because `sanitizeText` is
+    // idempotent the two calls MASKED each other: either one could be deleted with
+    // the whole project green, because whichever survived capped the value on its
+    // own. Measured — each call survived alone at 1658/1658 tests, and only deleting
+    // BOTH was caught. The duplicate is gone, so deleting this line now fails
+    // "bounds the unknown `type` interpolated into the thrown error".
     type: sanitizeText(input.type) as ChartRendererInput['type'],
     title: sanitizeOptionalText(input.title),
     width: sanitizeDimension(input.width, DEFAULT_WIDTH),
@@ -1115,6 +1123,14 @@ export function renderChartSvg(rawInput: ChartRendererInput): string {
     default: {
       // `input.type` is already coerced + capped by `sanitizeInput` (finding L6), so
       // this message is bounded even for a multi-megabyte model-supplied `type`.
+      //
+      // Deliberately NOT re-wrapped in `sanitizeText` here. It used to be, and that
+      // second call was not belt-and-braces: `sanitizeText` is idempotent, so the two
+      // calls masked each other and NEITHER could be pinned by a test — each survived
+      // alone. The cap now has exactly one call site (`sanitizeInput`, above), which a
+      // test can and does pin. `sanitizeForPromptLine` is a DIFFERENT guard doing
+      // different work (line/quote neutralization, not length), so it is not a second
+      // copy of this one and is pinned by its own test.
       const never: never = input.type;
       // SANITIZED as well as capped, and BRANDED (finding M2). `type` is model-supplied
       // and this message is relayed to the model as a tool result, so a `type` carrying
@@ -1124,7 +1140,7 @@ export function renderChartSvg(rawInput: ChartRendererInput): string {
       // brand that makes `mcp/utilityTools.ts` relay it verbatim.
       throw markPackageAuthored(
         new Error(
-          `MUI X Studio: Unknown chart type "${sanitizeForPromptLine(sanitizeText(never))}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
+          `MUI X Studio: Unknown chart type "${sanitizeForPromptLine(never)}". Supported types: bar, line, pie, scatter, donut, stacked_bar.`,
         ),
       );
     }

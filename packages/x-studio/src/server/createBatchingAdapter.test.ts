@@ -4222,37 +4222,44 @@ describe('createBatchingAdapter — two-hop expression chain', () => {
   // wrong number — the semi-join form plus a spurious divergence warning where a plain two-hop
   // LEFT JOIN is correct and exact — but that is a real, silent degradation of both the query
   // and the console, and the two tests below cost one relationship fixture each.
+  //
+  // `StudioRelationship['type']` is `'many-to-one' | 'one-to-one' | 'many-to-many'`, and both
+  // hop loops `continue` on `many-to-many` before reaching either branch. So `one-to-one` is
+  // the ONLY other type that can reach these assignments, and the two tests below are the whole
+  // negative direction rather than a sample of it.
 
   /**
-   * `orders --one-to-many--> order_items`. Reached FROM `order_items` this takes hop 1's
-   * backwards branch, but each line item still has exactly ONE order, so it must not fan out.
+   * A `one-to-one` link declared `orders -> order_items` (one line item per order in this
+   * fixture). Reached FROM `order_items` it takes hop 1's backwards branch, and a 1:1 traversal
+   * multiplies nothing, so it must NOT fan out. Its ON pair is the same
+   * `[order_items.orderId, orders.id]` the forward `many-to-one` fixture produces.
    */
-  const ordersToItems: StudioRelationship = {
-    id: 'rel-orders-items',
-    type: 'one-to-many',
+  const ordersToItemsOneToOne: StudioRelationship = {
+    id: 'rel-orders-items-1-1',
+    type: 'one-to-one',
     sourceId: 'source-orders',
     sourceField: 'id',
     targetId: 'source-order-items',
     targetField: 'orderId',
   };
   /**
-   * `customers --one-to-many--> orders`. Reached FROM `orders` this takes hop 2's backwards
-   * branch, and again each order has exactly ONE customer, so it must not fan out either.
+   * A `one-to-one` link declared `customers -> orders`. Reached FROM `orders` it takes hop 2's
+   * backwards branch, and again must not fan out.
    */
-  const customersToOrders: StudioRelationship = {
-    id: 'rel-customers-orders',
-    type: 'one-to-many',
+  const customersToOrdersOneToOne: StudioRelationship = {
+    id: 'rel-customers-orders-1-1',
+    type: 'one-to-one',
     sourceId: 'source-customers',
     sourceField: 'id',
     targetId: 'source-orders',
     targetField: 'customerId',
   };
 
-  it('keeps the join form when HOP 1 is backwards but NOT many-to-one', async () => {
+  it('keeps the join form when HOP 1 is backwards and one-to-one (the only other reachable type)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapter = makeChainHarness(fetchFn, {
-      relationships: [ordersToItems, ordersToCustomers],
+      relationships: [ordersToItemsOneToOne, ordersToCustomers],
       expressionFields: [
         exprField('expr-order-country', 'source-orders', 'source-customers', 'country'),
       ],
@@ -4274,11 +4281,11 @@ describe('createBatchingAdapter — two-hop expression chain', () => {
     warnSpy.mockRestore();
   });
 
-  it('keeps the join form when HOP 2 is backwards but NOT many-to-one', async () => {
+  it('keeps the join form when HOP 2 is backwards and one-to-one (the only other reachable type)', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const fetchFn = makeOkFetch([{ id: 'w1', rows: [] }]);
     const adapter = makeChainHarness(fetchFn, {
-      relationships: [itemsToOrders, customersToOrders],
+      relationships: [itemsToOrders, customersToOrdersOneToOne],
       expressionFields: [
         exprField('expr-order-country', 'source-orders', 'source-customers', 'country'),
       ],

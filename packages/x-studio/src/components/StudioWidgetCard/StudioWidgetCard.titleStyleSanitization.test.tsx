@@ -60,13 +60,20 @@ describe('StudioWidgetCard title fontWeight/align sanitization (finding 2)', () 
   });
 });
 
-// The SAME finding-1/2 threat model, at the seven sanitizer call sites in this file that the
-// block above does not reach. `pageTheme` is doc-authored (`StudioPage.theme`) and
-// `widget.config.textTitleColor` / `titleFontSize` arrive from a persisted doc or the AI
-// `update_widget` tool call; all seven are interpolated into Emotion `sx` property values,
-// which Emotion does not escape. Each of them could be replaced by the raw value with the
-// whole `StudioWidgetCard` suite green — while `sanitizeFontWeight` beside them was killed,
-// which is what shows the suite does reach this file.
+// The SAME finding-1/2 threat model, at the sanitizer call sites in this file that the block
+// above does not reach. `pageTheme` is doc-authored (`StudioPage.theme`) and the
+// `widget.config.*` title fields arrive from a persisted doc or the AI `update_widget` tool
+// call; all are interpolated into Emotion `sx` property values, which Emotion does not escape.
+// Each could be replaced by the raw value with the whole `StudioWidgetCard` suite green —
+// while `sanitizeFontWeight` beside them was killed, which is what shows the suite reaches
+// this file.
+//
+// This comment used to say "the seven sanitizer call sites in this file", which read as a
+// completeness claim and was not one: this file has eleven, and the two the sentence left out
+// (`textTitleFontSize`, `textTitleFontFamily`, covered at the bottom of this block) were both
+// unpinned at the time it was written. No count is stated here now, because a count in a
+// comment is exactly the thing that goes stale — `internals/cssGuardCallSites.test.ts` derives
+// the list from the AST and fails if a site is added without a row.
 describe('StudioWidgetCard pageTheme + title sanitization call sites', () => {
   const CSS_PAYLOAD = 'red; } .evil-card{background:url(https://evil/leak)';
 

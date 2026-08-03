@@ -6986,3 +6986,160 @@ describe('applyBulkUpdate installs pruned spans through withSpans (R3-F5)', () =
     expect(next.pages.p2).toBe(doc.pages.p2);
   });
 });
+
+// ── The `isSafePatchKey` alias sites ──────────────────────────────────────────
+//
+// `applyMutation.ts:100` aliases the shared `isSafeKey` guard as `isSafePatchKey`, and that
+// one-line rebinding gives the guard FOURTEEN call sites in this file that no scan keyed on
+// the name `isSafeKey` at the call can see. Eight of the fourteen were unpinned; the block
+// below is what closed the half of that gap a test can close, and records — measured, not
+// argued — why the other half cannot be closed by a test.
+//
+// The reachable producer of a prototype-hazard span KEY is named in `removeSpanEntries`'
+// own doc: the public `Studio initialState` prop. `createDefaultStudioState` runs
+// `screenDoc`, whose `screenPagesShape` screens page KEYS and page record-ness only — "a
+// `pages` override's `widgetRows`/`widgetColSpans`/`title`/`id` remain unswept — a
+// documented gap" (`factories.ts`). So a `widgetColSpans` carrying `constructor` is a state
+// the reducer really can be handed, and the fixtures here build it exactly that way rather
+// than by hand-forging a doc the screens would never emit.
+describe('span rebuilds screen prototype-hazard keys (the isSafePatchKey alias sites)', () => {
+  // `'constructor'`, not `'__proto__'`: assigning a NUMBER to `__proto__` on a plain object
+  // invokes the inherited setter and is silently discarded, so the guarded and unguarded
+  // paths agree on it and nothing is observable. `'constructor'` creates a real own key —
+  // the same reason `setWidgetColSpan`'s prototype-member tests above chose it.
+  const hazardSpans = () => ({ w1: 12, constructor: 12 }) as Record<string, number>;
+
+  it('removeWidget drops an unsafe key from every page it rebuilds spans for', () => {
+    // `removeSpanEntries` (`applyMutation.ts:775`). The removed widget is on NO page, so the
+    // ONLY thing that can mark this page's span map as changed is the unsafe-key screen —
+    // without it the function short-circuits on `changed === false` and hands the ORIGINAL
+    // map straight back, `constructor` own key and all.
+    const doc = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1']],
+          widgetColSpans: hazardSpans(),
+        },
+      },
+      widgets: {
+        w1: chartWidget('w1'),
+        // Placed on no page, so removing it touches no row and no legitimate span.
+        w9: chartWidget('w9'),
+      },
+    });
+    expect(Object.hasOwn(doc.pages['page-1'].widgetColSpans!, 'constructor')).toBe(true);
+
+    const next = applyDocMutation(doc, { type: 'removeWidget', args: { widgetId: 'w9' } });
+
+    const spans = next.pages['page-1'].widgetColSpans!;
+    expect(Object.hasOwn(spans, 'constructor')).toBe(false);
+    expect(spans).toEqual({ w1: 12 });
+  });
+
+  it('applyBulkUpdate drops an unsafe key when pruning a removed widget span', () => {
+    // The same `removeSpanEntries` site reached through `applyBulkUpdate`'s pre-strip
+    // (`applyMutation.ts:2381`) rather than through `removeWidget`. Both callers are covered
+    // because the guard lives in the shared helper, and a caller-specific test would not have
+    // told us that.
+    const doc = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': {
+          id: 'page-1',
+          title: 'P1',
+          widgetRows: [['w1', 'w2']],
+          widgetColSpans: { ...hazardSpans(), w2: 12 },
+        },
+      },
+      widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+    });
+
+    const next = applyDocMutation(doc, {
+      type: 'applyBulkUpdate',
+      args: { removedWidgetIds: ['w2'], activePageId: 'page-1' },
+    } as unknown as StateMutation);
+
+    const spans = next.pages['page-1'].widgetColSpans ?? {};
+    expect(Object.hasOwn(spans, 'constructor')).toBe(false);
+  });
+});
+
+// The other three unpinned alias sites — `applyMutation.ts:1865` (`setWidgetColSpan`'s
+// widgetId screen), `:2476` (`applyBulkUpdate`'s `clampedSpans` rebuild) and `:2517` (the
+// merge-branch rebalance's `canWriteSpan`) — are NOT closed above, and deliberately so.
+// Each needs a prototype-hazard id that has already been admitted as a real widget, and no
+// producer of live state can supply one: `screenWidgets` (`docScreening.ts:559`) drops an
+// unsafe widget KEY at both the factory and the load boundary, `addWidget` (`:1333`) and
+// `isInsertableAddedWidget` (`:495`) screen the two live insert paths, and all three of
+// those ARE pinned. So:
+//
+//  - `:1865` is subsumed by the `Object.hasOwn(state.widgets, widgetId)` check seven lines
+//    below it — the case that check covers is the one this block DOES pin ("a row id that is
+//    not a real widget", below), which was itself unobserved.
+//  - `:2517`'s BOTH conjuncts are unreachable at that caller: `rowIds` there is
+//    `sanitizedRows`, already filtered by `validRowIds`, and `anchorIds` is
+//    `keys(clampedSpans)`, already filtered by `isSafePatchKey`. The absorber write the
+//    `rebalanceRowSpans` docblock calls "load-bearing and pinned" is load-bearing at the
+//    OTHER caller (`setWidgetColSpan`, whose rows are the page's own and unfiltered).
+//  - `:2476`'s key is dropped a few lines later anyway, as an orphan span, by
+//    `enforceLayoutColSpans` — pinned below by mutating BOTH, which is the only honest way
+//    to observe a layered guard.
+//
+// Recorded here rather than acted on, for the reason `rebalanceRowSpans`' own docblock
+// gives: unreachable-at-today's-callers is a fact about the callers, not about the guard.
+describe('the span guards a test cannot pin, and the layer that covers each', () => {
+  it('no-ops a set_widget_width for a row id that is not a real widget', () => {
+    // The `Object.hasOwn(state.widgets, widgetId)` guard that subsumes `:1865`. `ghost`
+    // shares a row with w1 — so the row-membership check passes — but is no widget, and a
+    // span written for it is an orphan that serializes and renders nothing. Unobserved
+    // before this test: the guard could be deleted with the whole project green.
+    const base = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: {
+        'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1', 'ghost']] },
+      },
+      widgets: { w1: chartWidget('w1') },
+    });
+    // makeDoc auto-registers any id named in a row, so strip `ghost` back out.
+    const state: StudioDoc = { ...base, widgets: { w1: base.widgets.w1 } };
+
+    const next = applyDocMutation(state, {
+      type: 'setWidgetColSpan',
+      args: { widgetId: 'ghost', columns: 12, rowWidgetIds: ['w1', 'ghost'], pageId: 'page-1' },
+    });
+
+    expect(next).toBe(state);
+    expect(next.pages['page-1'].widgetColSpans).toBeUndefined();
+  });
+
+  it('never lets a wire-supplied unsafe span key survive an applyBulkUpdate', () => {
+    // The OUTCOME `:2476` defends, asserted against the pair of layers that deliver it
+    // (`:2476`'s key screen and `enforceLayoutColSpans`' orphan prune). Green with either
+    // one alone — which is exactly why `:2476` alone cannot be pinned — and RED with both
+    // gone, so the protection as a whole is observed even though neither half is.
+    const doc = makeDoc({
+      dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+      pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+      widgets: { w1: chartWidget('w1') },
+    });
+
+    const next = applyDocMutation(doc, {
+      type: 'applyBulkUpdate',
+      args: {
+        activePageId: 'page-1',
+        widgetRows: [['w1']],
+        // A server-built bulk (`executeToolOnState` bypasses the parser) naming a
+        // prototype-hazard span key alongside a legitimate one.
+        widgetColSpans: { w1: 12, constructor: 12, prototype: 12 },
+      },
+    } as unknown as StateMutation);
+
+    const spans = next.pages['page-1'].widgetColSpans ?? {};
+    expect(Object.hasOwn(spans, 'constructor')).toBe(false);
+    expect(Object.hasOwn(spans, 'prototype')).toBe(false);
+    expect(spans).toEqual({ w1: 12 });
+  });
+});

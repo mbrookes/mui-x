@@ -266,6 +266,9 @@ function readPathAliases(repoRoot: string): Array<[string, string]> {
   return pairs.sort((a, b) => b[0].length - a[0].length);
 }
 
+/** Membership test over a set of strings — family module paths, or guard names. */
+type NamePredicate = (value: string) => boolean;
+
 /**
  * Named imports of a family guard in one file: local name -> the guard and the module it came
  * from. Used to decide what a `from`-less `export { … }` re-exports, which needs the file's own
@@ -277,8 +280,8 @@ function localGuardImports(
   full: string,
   repoRoot: string,
   aliases: Array<[string, string]>,
-  isFamilyModule: (target: string) => boolean,
-  isGuard: (name: string) => boolean,
+  isFamilyModule: NamePredicate,
+  isGuard: NamePredicate,
 ): Map<string, { guard: string; target: string }> {
   const imported = new Map<string, { guard: string; target: string }>();
   source.forEachChild((node) => {

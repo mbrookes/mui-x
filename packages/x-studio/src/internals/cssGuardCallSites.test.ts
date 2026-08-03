@@ -530,6 +530,39 @@ describe("the scan's own identity function — resolved, reported, and missed", 
       ]);
       expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
     });
+
+    it('a VERBATIM re-export with no `from` — the escape inside the guarantee itself', () => {
+      // `export { sanitizeFontSize };` over an imported binding. No alias, no rename: the
+      // consumer imports the guard's real name from a module that re-exports it verbatim,
+      // which is word for word what the header's guarantee promised to produce a row for. It
+      // produced none, and silently: `expandModules` and `findGuardReExports` both required a
+      // `moduleSpecifier`, and `findIndirectGuardReferences` returns early on every
+      // `ExportDeclaration` and treats an export specifier as benign, so all three mechanisms
+      // were quiet at once.
+      write('packages/guards/reexport.ts', [
+        "import { sanitizeFontSize } from './cssValueValidation';",
+        'export { sanitizeFontSize };',
+      ]);
+      write('packages/app/a.ts', [
+        "import { sanitizeFontSize } from '../guards/reexport';",
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
+      expect(findIndirectGuardReferences(family, root)).toEqual([]);
+      expect(findGuardReExports(family, root)).toEqual([]);
+    });
+
+    it('a call in a `.mts` file under the roots', () => {
+      // `isSourceFile` matched `/\.tsx?$/`, so every `.mts`/`.cts`/`.js` file under the roots
+      // was skipped — measured with a guard call added to
+      // `packages/x-studio-schema/vitest.config.node.mts`, which produced no row. The
+      // blind-spot list said only that files OUTSIDE the roots are missed.
+      write('packages/app/a.mts', [
+        "import { sanitizeFontSize } from '../guards/cssValueValidation';",
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.mts:sanitizeFontSize(config.size)#0');
+    });
   });
 
   describe('reported — not resolved, but it fails a test rather than subtracting a row', () => {
@@ -582,6 +615,24 @@ describe("the scan's own identity function — resolved, reported, and missed", 
       expect(sites()).toEqual([]);
       expect(findGuardReExports(family, root)).toEqual([
         'packages/guards/index.ts -> packages/guards/cssValueValidation.ts renames sanitizeFontSize to sanitizeSize',
+      ]);
+    });
+
+    it('a RENAMING re-export with no `from` is reported too', () => {
+      // The sibling of the verbatim `from`-less case above. That one is resolved; this one
+      // cannot be — the consumer spells `sanitizeSize`, a name the family does not contain — so
+      // it is made loud instead. Both were silent while only `export … from` was examined.
+      write('packages/guards/reexport.ts', [
+        "import { sanitizeFontSize } from './cssValueValidation';",
+        'export { sanitizeFontSize as sanitizeSize };',
+      ]);
+      write('packages/app/a.ts', [
+        "import { sanitizeSize } from '../guards/reexport';",
+        'export const a = sanitizeSize(config.size);',
+      ]);
+      expect(sites()).toEqual([]);
+      expect(findGuardReExports(family, root)).toEqual([
+        'packages/guards/reexport.ts -> packages/guards/cssValueValidation.ts renames sanitizeFontSize to sanitizeSize',
       ]);
     });
   });

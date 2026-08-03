@@ -35,15 +35,31 @@ import {
  *
  * Every row is one call site, derived from the AST. `pinnedBy` names the test measured to
  * fail when that call is replaced by a pass-through that always returns `true` — measured, one
- * site at a time, at project `x-studio-schema` (1123 tests). Eleven rows carry one.
+ * site at a time, at project `x-studio-schema`. Fourteen rows carry one.
  *
- * The other seven carry `unpinnable` instead, and that is the deliberate part. Each is a real
- * guard that NO test can pin, because a neighbouring guard already rejects every input that
+ * The other four carry `unpinnable` instead, and that is the deliberate part. Each is a real
+ * guard that no test can pin, because a neighbouring guard already rejects every input that
  * would reach it — measured by mutating the neighbour, not argued from reading. Recording them
  * as rows, with the neighbour named, is what stops the next round from either (a) reporting
  * them as missing protection or (b) deleting them because "nothing failed". Both have happened
  * in this codebase; `rebalanceRowSpans`' docblock records the first, and the second is why a
  * live budget guard was lost a round earlier.
+ *
+ * ── Why there were seven and are now four ──
+ *
+ * `unpinnable` claims *no test can pin this*. For three of the seven that was too strong: what
+ * was measured is that no REACHABLE input pins them, because no producer in this package can
+ * put a prototype-hazard own key into `state.widgets` (six producers x three hazard keys,
+ * 18/18 clean). A test that FABRICATES that pre-state with one `Object.defineProperty` makes
+ * each guard's removal observable with its named neighbour fully intact, and those three rows
+ * now carry a `pinnedBy` and a `note` saying the pre-state is unreachable. The distinction is
+ * not pedantic: the label exists to stop a future round deleting these calls on the strength
+ * of their silence, and a live discriminating test is a strictly stronger stop than a
+ * paragraph of prose.
+ *
+ * One of the three also had the WRONG REASON, which is the more useful correction — a label
+ * whose whole job is to be a claim a reader can check had a claim that does not check out. See
+ * the `note` on `isSafeKey(widget.id)#2`.
  *
  * A row's `site` id is `<file>:<guard>(<first argument>)#<n>`, where `#n` disambiguates calls
  * whose text is identical. Several `isSafeKey(key)` calls in one file therefore have ordinals
@@ -56,6 +72,12 @@ type KeyGuardEntry = {
   site: string;
   /** Which call this is — the enclosing handler, and what the key would otherwise do. */
   what: string;
+  /**
+   * Optional standing caveat about the row itself — what the pinning test had to fabricate,
+   * or what a previous version of this row claimed and measurement refuted. Not a substitute
+   * for `pinnedBy`/`unpinnable`; both of those stay mandatory.
+   */
+  note?: string;
 } & (
   | { pinnedBy: { file: string; test: string }; unpinnable?: never }
   /** The neighbouring guard that already rejects everything reaching this one, measured. */
@@ -165,20 +187,27 @@ const KEY_GUARD_INVENTORY: KeyGuardEntry[] = [
   {
     site: `${P}applyMutation.ts:isSafeKey(widgetId)#0`,
     what: '`setWidgetColSpan` — the widget id before the `newSpans[widgetId] = clamped` write',
-    unpinnable:
-      'subsumed by `Object.hasOwn(state.widgets, widgetId)` a few lines below: reaching this guard needs a hazard id already admitted as a real widget, which `screenWidgets`/`addWidget`/`isInsertableAddedWidget` all prevent. That neighbour was ITSELF unobserved and is now pinned by "no-ops a set_widget_width for a row id that is not a real widget"',
+    note: 'Was `unpinnable`. Reaching this guard needs a hazard id already admitted as a real widget, which `screenWidgets`/`addWidget`/`isInsertableAddedWidget` all prevent — so NO REACHABLE input pins it, and the pinning test fabricates that pre-state with `Object.defineProperty`. Its named neighbour `Object.hasOwn(state.widgets, widgetId)` is intact in that test and passes, so only this guard stops the write. The neighbour is separately pinned by "no-ops a set_widget_width for a row id that is not a real widget"',
+    pinnedBy: {
+      file: `${P}applyMutation.test.ts`,
+      test: 'setWidgetColSpan refuses a widget id that is a prototype-hazard own key of state.widgets',
+    },
   },
   {
     site: `${P}applyMutation.ts:isSafeKey(id)#1`,
     what: "`setWidgetColSpan`'s `canWriteSpan` — the row-mate a rebalance may write a span for",
+    note: 'The one row of the seven that is neither falsified nor positively verified. A differential hazard probe reached this rebalance with a hazard row-mate and produced NO behaviour difference with either conjunct neutralised, or both — so unlike its three neighbours it could not be converted to a `pinnedBy`, and unlike them nothing contradicts its stated reason either. The measurement below is all the evidence there is; deliberately not upgraded on reasoning alone',
     unpinnable:
       'subsumed by the `Object.hasOwn(state.widgets, id)` conjunct it is ANDed with, in the same predicate. Measured: this conjunct alone SURVIVES, the `hasOwn` conjunct alone is KILLED by "does not rebalance a span onto a phantom row-mate sharing the row"',
   },
   {
     site: `${P}applyMutation.ts:isSafeKey(widget.id)#2`,
     what: "`applyBulkUpdate`'s re-added-id set — an id named by both `removedWidgetIds` and `addedWidgets`",
-    unpinnable:
-      'subsumed by the `removedWidgetIdSet.has(widget.id)` conjunct beside it: `removedWidgetIds` is already `isSafeId`-screened at the wire and hazard-free in practice, so nothing hazardous is ever in that set. Measured: this conjunct alone SURVIVES, the `has` conjunct alone is KILLED by 1 test',
+    note: 'Was `unpinnable` FOR A REASON THAT IS MEASURABLY WRONG. The row used to say the `removedWidgetIdSet.has(widget.id)` conjunct beside it subsumes this guard, because `removedWidgetIds` is `isSafeId`-screened at the wire. Both halves fail: a server-built bulk (`executeToolOnState` bypasses the parser — the reducer guards mutations the server builds WITHOUT it, so leaning on the wire screen is circular here) puts a hazard id straight into the set and `has` returns TRUE, and with that neighbour neutralised the pinning test below still passes while a hazard-free idempotent-add test fails. So the neighbour is load-bearing for the replace semantics and screens no hazard at all. What actually keeps this site inert on reachable input is the `screenWidgets`/`isInsertableAddedWidget` chain that stops a hazard id being a live widget; the pinning test fabricates that pre-state instead',
+    pinnedBy: {
+      file: `${P}applyMutation.test.ts`,
+      test: 'applyBulkUpdate does not count a prototype-hazard id as a re-added widget',
+    },
   },
   {
     site: `${P}applyMutation.ts:isSafeKey(key)#4`,
@@ -195,8 +224,11 @@ const KEY_GUARD_INVENTORY: KeyGuardEntry[] = [
   {
     site: `${P}applyMutation.ts:isSafeKey(update.widgetId)#0`,
     what: "`applyBulkUpdate`'s `updatedWidgets` loop — the id of a widget being merged",
-    unpinnable:
-      "subsumed by the `Object.hasOwn(nextWidgets, update.widgetId)` existence check just below, as that site's own comment already says. Measured: this guard alone SURVIVES, the `hasOwn` check alone is KILLED by 1 test",
+    note: "Was `unpinnable`, subsumed by the `Object.hasOwn(nextWidgets, update.widgetId)` existence check just below, as that site's own comment says. True of every REACHABLE input — no hazard id can be an own key of the widgets map — so the pinning test fabricates one; the `hasOwn` neighbour is intact in that test and passes",
+    pinnedBy: {
+      file: `${P}applyMutation.test.ts`,
+      test: 'applyBulkUpdate.updatedWidgets refuses a prototype-hazard widget id',
+    },
   },
 ];
 
@@ -249,10 +281,13 @@ describe('isSafeKey — call-site inventory', () => {
     // neighbouring guard and the measurement — not a shrug.
     const unaccounted = KEY_GUARD_INVENTORY.filter((row) => !row.pinnedBy && !row.unpinnable);
     expect(unaccounted).toEqual([]);
-    // Stated as a ratio rather than left implicit: this family is 61% pinned, and the rest is
+    // Stated as a ratio rather than left implicit: this family is 78% pinned, and the rest is
     // defence-in-depth that is subsumed by something that IS pinned. The previous enumeration
-    // reported "4 sites, 4/4 KILLED", which reads as 100%.
-    expect(KEY_GUARD_INVENTORY.filter((row) => row.pinnedBy)).toHaveLength(11);
-    expect(KEY_GUARD_INVENTORY.filter((row) => row.unpinnable)).toHaveLength(7);
+    // reported "4 sites, 4/4 KILLED", which reads as 100%. Three of the seven rows that once
+    // said `unpinnable` are pinned by tests that fabricate an unreachable pre-state; each of
+    // those carries a `note` saying so, because "pinned" and "pinned only from a state no
+    // producer can build" are different claims.
+    expect(KEY_GUARD_INVENTORY.filter((row) => row.pinnedBy)).toHaveLength(14);
+    expect(KEY_GUARD_INVENTORY.filter((row) => row.unpinnable)).toHaveLength(4);
   });
 });

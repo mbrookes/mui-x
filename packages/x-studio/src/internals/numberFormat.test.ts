@@ -174,6 +174,89 @@ describe('formatNumber — default format (no format argument)', () => {
   });
 });
 
+// ─── hostile `precision` ──────────────────────────────────────────────────────
+//
+// `precision?: number` is a plain, unvalidated field on `StudioDataField`/
+// `StudioExpressionField`. `x-studio-schema` never screens it — `precision` appears in that
+// package only in the two type declarations — so any value a persisted doc or a host
+// `dataSources` field carries reaches `formatNumber`'s 5th parameter, and
+// `new Intl.NumberFormat(l, { minimumFractionDigits: p })` throws a `RangeError` for `p`
+// outside [0, 100], for `NaN` and for `Infinity`. `normalizePrecision` is what stops that
+// from crashing the widget/tooltip/grid cell that rendered the field.
+//
+// These tests exist because the guard was UNPINNED: replacing its whole body with
+// `return precision;` left the entire x-studio suite green, so nothing distinguished a
+// clamped precision from an unclamped one. They also discriminate its two call sites —
+// see the "applied TWICE, deliberately" note on `normalizePrecision`.
+
+describe('formatNumber — a hostile persisted `precision` cannot crash a render', () => {
+  // Every one of these throws out of `Intl.NumberFormat` when passed through unclamped
+  // (measured on Node 22): out of range in both directions, non-finite, and a value large
+  // enough that the argument is not an integer at all.
+  const hostile: Array<[string, number]> = [
+    ['1e9', 1e9],
+    ['-1', -1],
+    ['NaN', NaN],
+    ['Infinity', Infinity],
+    ['101', 101],
+    ['1e21', 1e21],
+  ];
+
+  it.each(hostile)(
+    'clamps a hostile persisted `precision` (%s) on the plain/decimal path',
+    (_label, precision) => {
+      // Reaches `getPrecisionFormat`, which does NOT normalize — so this path observes only
+      // `formatNumber`'s own call.
+      expect(() => formatNumber(1234.5, 'decimal', undefined, false, precision)).not.toThrow();
+    },
+  );
+
+  it.each(hostile)(
+    'clamps a hostile persisted `precision` (%s) on the percent path',
+    (_label, precision) => {
+      expect(() => formatNumber(42, 'percent', undefined, false, precision)).not.toThrow();
+    },
+  );
+
+  it.each(hostile)(
+    'clamps a hostile persisted `precision` (%s) on the currency path',
+    (_label, precision) => {
+      // The one path covered by BOTH calls: `formatNumber`'s and `getCurrencyFormat`'s. It
+      // stays green when either single call is removed and fails when the guard body is
+      // neutered, which is what identifies it as the overlap.
+      expect(() => formatNumber(42, 'currency', 'EUR', false, precision)).not.toThrow();
+    },
+  );
+
+  it('clamps an over-range precision to 10 fraction digits rather than honouring it', () => {
+    // Not merely "does not throw": the clamp is the documented upper bound, so assert the
+    // output is the 10-digit one. A guard that swallowed the value into `undefined` would
+    // pass the no-throw tests above and fail this.
+    expect(formatNumber(1.5, 'decimal', undefined, false, 1e9)).toBe(
+      new Intl.NumberFormat(undefined, {
+        minimumFractionDigits: 10,
+        maximumFractionDigits: 10,
+      }).format(1.5),
+    );
+  });
+
+  it('routes a hostile `precision` from a field descriptor through the same clamp', () => {
+    // `formatFieldValue` is the call shape the widgets actually use, with the field read
+    // straight off the doc.
+    expect(() =>
+      formatFieldValue(12.3456, { type: 'number', format: 'decimal', precision: 1e9 }),
+    ).not.toThrow();
+    expect(() =>
+      formatFieldValue(12.3456, {
+        type: 'number',
+        format: 'currency',
+        currencyCode: 'EUR',
+        precision: -1,
+      }),
+    ).not.toThrow();
+  });
+});
+
 // ─── formatFieldValue ─────────────────────────────────────────────────────────
 
 describe('formatFieldValue', () => {

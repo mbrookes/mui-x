@@ -7201,7 +7201,12 @@ describe('prototype-hazard key guards observable only from a fabricated pre-stat
 
       const next = applyDocMutation(doc, {
         type: 'setWidgetColSpan',
-        args: { widgetId: hazard, columns: 4, pageId: 'page-1' },
+        args: {
+          widgetId: hazard,
+          columns: 4,
+          rowWidgetIds: ['w1', 'w2', hazard],
+          pageId: 'page-1',
+        },
       });
 
       const spans = next.pages['page-1'].widgetColSpans ?? {};

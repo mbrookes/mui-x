@@ -116,6 +116,15 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
     return null;
   }
 
+  // Hoisted rather than called twice inside each `sx` below (once in the spread's condition and
+  // again for its value). Two identical guard calls covering one property is not belt-and-braces:
+  // it is a pair in which EITHER call can be deleted with the whole project still green, because
+  // whichever one survives rejects the value on its own. Measured on both fields — each of the
+  // four calls survived individually. One call, one local, one observable site; the same shape
+  // `StudioWidgetCard` already uses for its title font size.
+  const subtitleFontSize = sanitizeFontSize(config.textSubtitleFontSize);
+  const bodyFontSize = sanitizeFontSize(config.textBodyFontSize);
+
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
       {subtitle ? (
@@ -130,8 +139,8 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
             ...(config.textSubtitleFontFamily && {
               fontFamily: resolveTextFontFamily(config.textSubtitleFontFamily),
             }),
-            ...(sanitizeFontSize(config.textSubtitleFontSize) && {
-              fontSize: sanitizeFontSize(config.textSubtitleFontSize),
+            ...(subtitleFontSize !== undefined && {
+              fontSize: subtitleFontSize,
             }),
             ...(isSafeTextAlign(config.textSubtitleAlign) && {
               textAlign: config.textSubtitleAlign,
@@ -150,8 +159,8 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
             ...(config.textBodyFontFamily && {
               fontFamily: resolveTextFontFamily(config.textBodyFontFamily),
             }),
-            ...(sanitizeFontSize(config.textBodyFontSize) && {
-              fontSize: sanitizeFontSize(config.textBodyFontSize),
+            ...(bodyFontSize !== undefined && {
+              fontSize: bodyFontSize,
             }),
             ...(isSafeTextAlign(config.textBodyAlign) && {
               textAlign: config.textBodyAlign,

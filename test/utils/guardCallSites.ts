@@ -40,17 +40,31 @@ import ts from 'typescript';
  *    resolved through `tsconfig.json`'s `paths`, not just relative ones;
  *  - guards declared as exported arrow consts, not only as `export function`.
  *
- * ── What this does NOT catch, stated because each line is a TEST ──
+ * ── What this does NOT catch — the escapes MEASURED so far, not the escapes that EXIST ──
  *
- * The first version of this file had a section headed "The one blind spot, made loud rather
- * than left silent". It had at least five, and machine-checked one. The second version put
- * four in this list — and a later sweep measured SEVEN, with one of the three new ones sitting
- * in the paragraph below claiming to be REPORTED, and a fourth entry filed under REPORTING
- * that is in fact resolved. Every entry now corresponds to a fixture in
- * `cssGuardCallSites.test.ts`'s `the scan's own identity function` block — asserted MISSED or
- * asserted REPORTED against a control proving the canonical spelling of the same call IS
- * caught. Nothing in this section is asserted only in prose, because prose is what was wrong
- * three times.
+ * Read the heading literally. The first version of this file had a section headed "The one
+ * blind spot, made loud rather than left silent"; it had at least five and machine-checked one.
+ * The second put four here. Successive sweeps measured seven, then nine. Every one of those
+ * revisions was written by someone who believed the previous list was complete, so the only
+ * safe reading of this one is "these are the spellings somebody has actually run through the
+ * scan", and the honest count of the rest is unknown.
+ *
+ * Two of the nine are closed as of this revision (a `from`-less verbatim re-export, and a call
+ * in a `.mts`/`.cts`/`.js` file under the roots) and one is now REPORTED rather than silent (a
+ * `from`-less renaming re-export). That is the fourth time closing measured escapes has been
+ * the outcome of measuring, which is the argument for the standing instruction below rather
+ * than for trusting the shortened list.
+ *
+ * **Standing instruction: re-measure before relying on any line of this.** The recipe is the
+ * one that found the last three — write the spelling into a shipped file, run
+ * {@link findGuardSites}/{@link findIndirectGuardReferences}/{@link findGuardReExports} before
+ * and after, and classify it CAUGHT / REPORTED / ESCAPED by the deltas. Anything that comes
+ * back ESCAPED belongs in the list below with a fixture, or in the code as a fix.
+ *
+ * Every entry below corresponds to a fixture in `cssGuardCallSites.test.ts`'s `the scan's own
+ * identity function` block — asserted MISSED or asserted REPORTED against a control proving the
+ * canonical spelling of the same call IS caught. Nothing here is asserted only in prose,
+ * because prose is what was wrong four times.
  *
  * Escapes closed by REPORTING rather than by resolving — {@link findIndirectGuardReferences}
  * returns them and the inventory test asserts it empty, so they fail loudly instead of
@@ -59,17 +73,24 @@ import ts from 'typescript';
  *  - a guard passed as a value rather than called: `[x].map(sanitizeFontSize)`, a default
  *    parameter, an object-literal property, a `useMemo` dependency;
  *  - a rebinding inside a FUNCTION BODY, which is a scope analysis this scan does not do;
- *  - a barrel re-export of a guard module ({@link findGuardReExports}, unchanged).
+ *  - a RENAMING re-export of a guard, whether or not it has a `from`
+ *    ({@link findGuardReExports}). The `from`-less spelling `export { isSafeKey as safeKey };`
+ *    used to be silent, since both that function and {@link expandModules} required a
+ *    `moduleSpecifier`.
  *
  * A module-scope `let`/`var` rebinding is RESOLVED, not reported — the rebinding loop tests
  * `ts.isVariableStatement`, which covers all three declaration kinds. That is the safe
  * direction and it is pinned by a fixture, but it is unsound in principle: `let g = guard; …
  * g = () => true;` would keep producing rows attributed to the guard.
  *
- * Genuinely NOT seen, and not reported either — SEVEN, each a fixture:
+ * Genuinely NOT seen, and not reported either — the ones measured, each a fixture:
  *
  *  - a call in a file outside the family's `roots` (today: `packages`, and there are no guard
- *    calls in `docs`/`examples`/`scripts`/`test` — grepped, and re-grepped by a test);
+ *    calls in `docs`/`examples`/`scripts`/`test` — grepped, and re-grepped by a test). This
+ *    line used to be the whole of what was claimed about which files are walked, while
+ *    {@link isSourceFile} silently skipped every `.mts`/`.cts`/`.js` file INSIDE the roots — a
+ *    guard call in `packages/x-studio-schema/vitest.config.node.mts` escaped. That is fixed,
+ *    so this entry is now only about location, which is what it always said;
  *  - a namespace member read through a COMPUTED access (`css['sanitizeCssColor'](x)`);
  *  - a guard reached through a dynamic `import()`;
  *  - a guard re-implemented inline rather than called, which is a semantic question no
@@ -91,16 +112,31 @@ import ts from 'typescript';
  *    `ts.isIdentifier(decl.name)`, so an `ObjectBindingPattern` is skipped, and the identifier
  *    in the `BindingElement` is only examined when `bindings` already has it.
  *
- * **The honest claim:** a guard call is guaranteed to produce an inventory row when its callee
- * resolves to a guard NAME through a static import of a family module — a declaring module or
- * a barrel that re-exports it verbatim — through a namespace import of one of those, or
- * through a module-scope rebinding of either, in a file under the family's roots. Every other
- * spelling is either REPORTED by
- * {@link findIndirectGuardReferences}/{@link findGuardReExports} or one of the seven above. In
- * particular the guarantee does NOT extend to every direct call through a static import: an
- * import of an alias re-exported by a non-family module is exactly that shape and is invisible.
- * It has never been "no guard call can ship unlisted", and the list of exceptions has grown
- * every time someone measured it instead of reading it.
+ * ── What is pinned, stated as a list of measurements rather than as a guarantee ──
+ *
+ * This paragraph used to open "**The honest claim:** a guard call is GUARANTEED to produce an
+ * inventory row when …", and the escape found next sat inside its own wording: it promised a
+ * row for a callee reached through "a barrel that re-exports it verbatim", and
+ * `export { isSafeKey };` — a verbatim re-export, no `from` — produced none. A guarantee stated
+ * in prose is a claim about code nobody re-ran; so it is replaced by the list of spellings that
+ * have been measured to produce a row, each pinned by a fixture in the identity-function block:
+ *
+ *  - a named import of a guard, aliased or not, from a declaring module;
+ *  - a named import through a barrel that re-exports the guard verbatim, with `from`
+ *    (`export { isSafeKey } from './unsafeKeys'`) or without it (`import { isSafeKey } …;
+ *    export { isSafeKey };`);
+ *  - the repo's own package specifiers, resolved through `tsconfig.json`'s `paths`;
+ *  - a namespace import of either, called as `ns.guard(x)`;
+ *  - a module-scope `const`/`let`/`var` rebinding of either, to a fixed point;
+ *  - any of the above in a `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs` or `.jsx` file
+ *    under the family's roots.
+ *
+ * Everything else is either REPORTED by
+ * {@link findIndirectGuardReferences}/{@link findGuardReExports}, or one of the measured misses
+ * above, or — the case this file keeps rediscovering — a spelling nobody has run yet. In
+ * particular a row is NOT implied by "it is a direct call through a static import": an import
+ * of an alias re-exported by a non-family module is exactly that shape and is invisible. It has
+ * never been "no guard call can ship unlisted".
  */
 
 /** Same derivation `sizeCapInventory.ts` uses; `import.meta.url` is a file URL here. */
@@ -161,8 +197,20 @@ export interface GuardSite {
   arg: string;
 }
 
+/**
+ * Every module extension, not just `.ts`/`.tsx`.
+ *
+ * This was `/\.tsx?$/`, which meant a guard call in a `.mts`, `.cts` or `.js` file UNDER the
+ * family's roots was never walked and never counted — measured with a call added to
+ * `packages/x-studio-schema/vitest.config.node.mts`. The blind-spot list said only that files
+ * OUTSIDE the roots are missed, so the limit was real and the statement of it was wrong.
+ */
 function isSourceFile(name: string): boolean {
-  return /\.tsx?$/.test(name) && !/\.(test|spec)\.tsx?$/.test(name) && !name.endsWith('.d.ts');
+  return (
+    /\.[cm]?[jt]sx?$/.test(name) &&
+    !/\.(test|spec)\.[cm]?[jt]sx?$/.test(name) &&
+    !/\.d\.[cm]?ts$/.test(name)
+  );
 }
 
 function walk(dir: string, acc: string[] = []): string[] {
@@ -216,6 +264,50 @@ function readPathAliases(repoRoot: string): Array<[string, string]> {
   }
   // Longest prefix first, so `@mui/x-studio/` wins over a hypothetical `@mui/`.
   return pairs.sort((a, b) => b[0].length - a[0].length);
+}
+
+/** Membership test over a set of strings — family module paths, or guard names. */
+type NamePredicate = (value: string) => boolean;
+
+/**
+ * Named imports of a family guard in one file: local name -> the guard and the module it came
+ * from. Used to decide what a `from`-less `export { … }` re-exports, which needs the file's own
+ * imports to say anything at all: `export { isSafeKey };` names a local binding, and whether
+ * that binding is the family's guard or an unrelated same-named local is only answerable here.
+ */
+function localGuardImports(
+  source: ts.SourceFile,
+  full: string,
+  repoRoot: string,
+  aliases: Array<[string, string]>,
+  isFamilyModule: NamePredicate,
+  isGuard: NamePredicate,
+): Map<string, { guard: string; target: string }> {
+  const imported = new Map<string, { guard: string; target: string }>();
+  source.forEachChild((node) => {
+    if (
+      !ts.isImportDeclaration(node) ||
+      !ts.isStringLiteral(node.moduleSpecifier) ||
+      !node.importClause
+    ) {
+      return;
+    }
+    const target = resolveSpecifier(full, node.moduleSpecifier.text, repoRoot, aliases);
+    if (!target || !isFamilyModule(target)) {
+      return;
+    }
+    const named = node.importClause.namedBindings;
+    if (!named || !ts.isNamedImports(named)) {
+      return;
+    }
+    for (const element of named.elements) {
+      const guard = (element.propertyName ?? element.name).text;
+      if (isGuard(guard)) {
+        imported.set(element.name.text, { guard, target });
+      }
+    }
+  });
+  return imported;
 }
 
 /** Resolve an import specifier to a repo-relative file path, or `null`. */
@@ -294,7 +386,7 @@ export function readGuardNames(
  * a real call site". That is true only when the import TARGET is a declaring or re-exporting
  * module. A module that merely holds a value alias (`export const safeKey = isSafeKey;`) is
  * neither, and a consumer importing `safeKey` from it contains neither token — so the filter
- * drops it, silently. Measured, with a fixture; it is one of the seven escapes in this file's
+ * drops it, silently. Measured, with a fixture; it is one of the escapes listed in this file's
  * header. Widening the tokens is not a fix (the alias can be spelled anything), which is why
  * the limit is recorded and asserted rather than patched over.
  */
@@ -332,10 +424,13 @@ function candidateFiles(family: GuardFamily, repoRoot: string, guards: string[])
  * asserting it away was never going to work for a family registered later. Following the chain
  * is cheaper than forbidding it: a module reachable by `export … from` is an equally valid
  * import target for the same guard, so it joins the family's module set and imports through it
- * resolve like any other.
+ * resolve like any other. A `from`-less `export { isSafeKey };` over an imported binding is the
+ * same thing for a consumer and is followed the same way — it was not, and being a "barrel that
+ * re-exports it verbatim" is precisely what the guarantee in this file's header promised to
+ * catch.
  *
- * What this still cannot follow is a RENAMING re-export (`export { isSafeKey as safeKey }`),
- * because the consumer then spells a name the family does not contain.
+ * What this still cannot follow is a RENAMING re-export (`export { isSafeKey as safeKey }`,
+ * with `from` or without), because the consumer then spells a name the family does not contain.
  * {@link findGuardReExports} returns exactly those, and the inventory test asserts none exist.
  */
 function expandModules(
@@ -355,11 +450,41 @@ function expandModules(
       }
       const source = parse(full, readFileSync(full, 'utf8'));
       for (const node of source.statements) {
-        if (
-          !ts.isExportDeclaration(node) ||
-          !node.moduleSpecifier ||
-          !ts.isStringLiteral(node.moduleSpecifier)
-        ) {
+        if (!ts.isExportDeclaration(node)) {
+          continue;
+        }
+        if (!node.moduleSpecifier) {
+          // `import { isSafeKey } from './unsafeKeys'; export { isSafeKey };` — a re-export with
+          // no `from`. For a consumer this module is an import target for the guard under its
+          // real name, exactly like `export … from`, so it joins the family. It did not, and
+          // the resulting escape sat INSIDE the guarantee below: "a barrel that re-exports it
+          // verbatim" is what this is. All three mechanisms were silent at once — this loop and
+          // `findGuardReExports` both required `moduleSpecifier`, and
+          // `findIndirectGuardReferences` returns early on every `ExportDeclaration`.
+          const localExports = node.exportClause;
+          if (!localExports || !ts.isNamedExports(localExports)) {
+            continue;
+          }
+          const imported = localGuardImports(
+            source,
+            full,
+            repoRoot,
+            aliases,
+            (target) => modules.has(target),
+            (name) => guards.includes(name),
+          );
+          const reExportsGuardVerbatim = localExports.elements.some((element) => {
+            const local = (element.propertyName ?? element.name).text;
+            // Verbatim means the name the consumer imports IS the guard's name; anything else
+            // is a rename, reported by `findGuardReExports` rather than followed.
+            return imported.get(local)?.guard === element.name.text;
+          });
+          if (reExportsGuardVerbatim) {
+            modules.add(file);
+          }
+          continue;
+        }
+        if (!ts.isStringLiteral(node.moduleSpecifier)) {
           continue;
         }
         const target = resolveSpecifier(full, node.moduleSpecifier.text, repoRoot, aliases);
@@ -498,10 +623,11 @@ function collectBindings(
 }
 
 /**
- * Any RENAMING re-export of a guard (`export { isSafeKey as safeKey } from './unsafeKeys'`).
- * Must stay empty: a consumer importing through it spells a name the family does not contain,
- * so every call in that consumer vanishes — and vanishes by making the site count DROP, which
- * is the direction that looks like success.
+ * Any RENAMING re-export of a guard (`export { isSafeKey as safeKey } from './unsafeKeys'`), in
+ * either spelling: with a `from`, or over a local import (`import { isSafeKey } from
+ * './unsafeKeys'; export { isSafeKey as safeKey };`). Must stay empty: a consumer importing
+ * through it spells a name the family does not contain, so every call in that consumer vanishes
+ * — and vanishes by making the site count DROP, which is the direction that looks like success.
  *
  * A PLAIN re-export is no longer reported here. It used to be, with the assertion "must stay
  * empty", and one exists (`x-studio-schema/src/index.ts`) — the previous version simply never
@@ -517,11 +643,37 @@ export function findGuardReExports(
   for (const full of ctx.files) {
     const source = parse(full, readFileSync(full, 'utf8'));
     source.forEachChild((node) => {
-      if (
-        !ts.isExportDeclaration(node) ||
-        !node.moduleSpecifier ||
-        !ts.isStringLiteral(node.moduleSpecifier)
-      ) {
+      if (!ts.isExportDeclaration(node)) {
+        return;
+      }
+      if (!node.moduleSpecifier) {
+        // `export { isSafeKey as safeKey };` with no `from`. The verbatim form of this is
+        // FOLLOWED (see `expandModules`); a renaming one is reported, on the same grounds as
+        // its `export … from` twin — the consumer spells a name the family does not contain,
+        // so every call in it vanishes by making the site count DROP.
+        const localExports = node.exportClause;
+        if (!localExports || !ts.isNamedExports(localExports)) {
+          return;
+        }
+        const imported = localGuardImports(
+          source,
+          full,
+          repoRoot,
+          ctx.aliases,
+          (target) => ctx.modules.includes(target),
+          (name) => ctx.guards.has(name),
+        );
+        for (const element of localExports.elements) {
+          const hit = imported.get((element.propertyName ?? element.name).text);
+          if (hit && hit.guard !== element.name.text) {
+            found.push(
+              `${toRepoRelative(full, repoRoot)} -> ${hit.target} renames ${hit.guard} to ${element.name.text}`,
+            );
+          }
+        }
+        return;
+      }
+      if (!ts.isStringLiteral(node.moduleSpecifier)) {
         return;
       }
       const target = resolveSpecifier(full, node.moduleSpecifier.text, repoRoot, ctx.aliases);

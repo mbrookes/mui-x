@@ -12,7 +12,11 @@
  *   L5b – aggregateByTwoFields
  *   L5c – aggregateMultipleSeries
  *
- * Run:  pnpm bench  (from packages/x-studio)
+ * Run:  pnpm bench:vitest  (from packages/x-studio)
+ *
+ * `pnpm bench` is a DIFFERENT thing — `tsx src/benchmarks/run.ts`, a standalone runner with its
+ * own timing loop that never loads this file or `vitest.config.bench.mts`. This file's header
+ * said `pnpm bench` and was wrong about which command runs it.
  *
  * Data is built once per describe block in beforeAll (outside the timed loop).
  * Cache-hit benches prime the cache with a single cold call before benchmarking
@@ -37,31 +41,38 @@ import { StudioRequestCache } from '../internals/StudioRequestCache';
 import { buildScenario } from './syntheticData';
 import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models';
 
-// ─── Sampling parameters ─────────────────────────────────────────────────────
-
-/**
- * tinybench sampling parameters, applied to every bench in this file.
- *
- * These were written in `vitest.config.bench.mts` as `benchmark.warmupIterations` /
- * `benchmark.iterations`, each with a comment stating what it did. `BenchmarkUserOptions`
- * declares neither — they were excess properties, silently dropped, so every number this
- * suite has ever produced was sampled at tinybench's defaults (`warmupIterations: 5`,
- * `iterations: 10`) rather than at these. Vitest takes them as the THIRD argument of
- * `bench()`, which is the only place they take effect.
- *
- * `iterations` is a MINIMUM run count, not a sample count: tinybench runs a task until both
- * `time` (500 ms by default) and `iterations` are satisfied, so raising it lengthens a run
- * rather than fixing the sample size.
- */
-const BENCH_SAMPLING = { warmupIterations: 3, iterations: 10 } as const;
-
-/**
- * `bench()` with {@link BENCH_SAMPLING} applied. Every measurement in this file goes through
- * it, so the parameters cannot drift back to being declared somewhere that ignores them.
- */
-function sampledBench(name: string, fn: () => void): void {
-  bench(name, fn, BENCH_SAMPLING);
-}
+// ─── Sampling: tinybench's defaults, deliberately ─────────────────────────────
+//
+// No bench in this file passes sampling options, and that is a decision rather than an
+// omission. Two earlier attempts to set them are worth not repeating:
+//
+//  1. `vitest.config.bench.mts` carried `benchmark.warmupIterations: 3` /
+//     `benchmark.iterations: 10`. `BenchmarkUserOptions` declares neither — excess properties,
+//     dropped at runtime.
+//  2. They were then moved here, into a `BENCH_SAMPLING` const passed as `bench()`'s third
+//     argument, where the API does accept them — and a docblock said they "take effect".
+//     Measured with a probe bench under this package's real bench config, they do not:
+//
+//       { warmupIterations: 3, iterations: 10 }      -> sampleCount 3,898,013
+//       { warmupIterations: 3, iterations: 10 }      -> sampleCount 3,549,751   (repeat run)
+//       { warmupIterations: 3, iterations: 100_000 } -> sampleCount 3,529,590
+//
+//     Two runs at a FIXED knob differ by 1.10x; a 10,000x knob change moves the count by
+//     0.91x — inside the noise. tinybench treats `iterations` as a MINIMUM and keeps sampling
+//     until `time` (500 ms by default) has elapsed, and 10 is already tinybench's default
+//     minimum, so the pair changed nothing but the warmup floor.
+//
+// `iterations` binds only alongside `time: 0`, and then it binds exactly:
+//
+//       { warmupIterations: 3, iterations: 10,  time: 0, warmupTime: 0 } -> sampleCount 10, 10
+//       { warmupIterations: 3, iterations: 500, time: 0, warmupTime: 0 } -> sampleCount 500
+//
+// That is not wanted here. The same probe reported hz 484,707 at 10 samples and 7,796,025 at
+// 3.5 M samples — a 16x difference in the measured throughput of an identical task, because ten
+// samples of a sub-microsecond body measure harness overhead and an un-warmed JIT. The
+// cache-hit benches below are exactly that shape. So: sample at tinybench's defaults, and if a
+// future run needs a bounded, deterministic sample count, pass `time: 0` WITH `iterations` and
+// expect the absolute numbers to move.
 
 // ─── Shared bench helper ──────────────────────────────────────────────────────
 
@@ -84,7 +95,7 @@ function layerBench(
           scenario = buildScenario(orderCount);
         });
 
-        sampledBench(layerName, () => {
+        bench(layerName, () => {
           fn(scenario, orderCount);
         });
       });
@@ -117,7 +128,7 @@ describe('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
         getCachedNormalizedDataSource(scenario.dataSources.orders);
       });
 
-      sampledBench('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
+      bench('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
         // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
         getCachedNormalizedDataSource(scenario.dataSources.orders);
       });
@@ -162,7 +173,7 @@ describe('L2-cache getCachedEnrichedRows (warm hit)', () => {
         );
       });
 
-      sampledBench('L2-cache getCachedEnrichedRows (warm hit)', () => {
+      bench('L2-cache getCachedEnrichedRows (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
         // Same rows/expressionFields/dataSources refs → cache hit, no recompute.
         getCachedEnrichedRows(
@@ -236,7 +247,7 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
         );
       });
 
-      sampledBench('L3-cache resolveRowsCached (warm hit)', () => {
+      bench('L3-cache resolveRowsCached (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
         // Same widgetRows WeakMap key + same filterKey → O(1) cache hit
         resolveRowsCached(
@@ -295,7 +306,7 @@ describe('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
         );
       });
 
-      sampledBench('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
+      bench('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
         resolveChartRowsForAggregation(
           scenario.dataSources.customers.rows!,
           'customers',
@@ -377,16 +388,16 @@ function makePageFilter(id: string): StudioFilterState {
 describe('A1 buildQueryDescriptor', () => {
   const widget = makeKpiWidget();
 
-  sampledBench('A1 buildQueryDescriptor (1 filter)', () => {
+  bench('A1 buildQueryDescriptor (1 filter)', () => {
     buildQueryDescriptor(widget, [makePageFilter('f1')], 'page-1');
   });
 
-  sampledBench('A1 buildQueryDescriptor (10 filters)', () => {
+  bench('A1 buildQueryDescriptor (10 filters)', () => {
     const filters = Array.from({ length: 10 }, (_, i) => makePageFilter(`f${i}`));
     buildQueryDescriptor(widget, filters, 'page-1');
   });
 
-  sampledBench('A1 buildQueryDescriptor (50 filters)', () => {
+  bench('A1 buildQueryDescriptor (50 filters)', () => {
     const filters = Array.from({ length: 50 }, (_, i) => makePageFilter(`f${i}`));
     buildQueryDescriptor(widget, filters, 'page-1');
   });
@@ -405,11 +416,11 @@ describe('A2 StudioRequestCache.get (warm hit)', () => {
     cache.set(cacheKey, { rows: [{ id: 1 }] });
   });
 
-  sampledBench('A2 cache.get (hit)', () => {
+  bench('A2 cache.get (hit)', () => {
     cache.get(cacheKey);
   });
 
-  sampledBench('A2 cache.get (miss)', () => {
+  bench('A2 cache.get (miss)', () => {
     cache.get('nonexistent-key');
   });
 });
@@ -438,7 +449,7 @@ describe('A3 StudioRequestCache set+get round-trip', () => {
   });
 
   let i = 0;
-  sampledBench('A3 set+get (rotating keys)', () => {
+  bench('A3 set+get (rotating keys)', () => {
     const key = keys[i % keys.length];
     cache.set(key, { rows: [{ id: i }] });
     cache.get(key);
@@ -460,7 +471,7 @@ describe('A4 StudioRequestCache.invalidateSource', () => {
         cache = new StudioRequestCache();
       });
 
-      sampledBench(`A4 invalidateSource (${entryCount} entries)`, () => {
+      bench(`A4 invalidateSource (${entryCount} entries)`, () => {
         // Repopulate so each iteration exercises the same scan length.
         for (let i = 0; i < entryCount; i += 1) {
           const f: StudioFilterState = {

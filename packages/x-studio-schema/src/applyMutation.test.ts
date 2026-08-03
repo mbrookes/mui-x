@@ -7274,4 +7274,58 @@ describe('prototype-hazard key guards observable only from a fabricated pre-stat
       expect(entry?.title, `${hazard} was merged into`).not.toBe('CHANGED');
     }
   });
+
+  it('setWidgetColSpan does not rebalance a span onto a prototype-hazard row-mate', () => {
+    // `applyMutation.ts:isSafeKey(id)#1` — the `canWriteSpan` predicate `rebalanceRowSpans`
+    // consults before writing an absorber's new span.
+    //
+    // The input has to be built precisely, which is why two earlier rounds recorded this site
+    // as unpinnable: the hazard must be the SOLE absorber of the row, so that the rebalance
+    // takes its single-absorber branch and the only write it attempts is the guarded one.
+    // `currentRow` is exactly `['w1', hazard]`, so `absorberIds` is `[hazard]`; the anchor asks
+    // for 8 of the 24 columns, leaving 16 (>= MIN_SPAN), and the hazard's own span of 20 makes
+    // the row overflow (8 + 20 = 28 > 24) so the branch is entered at all.
+    //
+    // Both conjuncts of the predicate are live here and they are NOT interchangeable:
+    // `Object.hasOwn(state.widgets, hazard)` is TRUE in this fabricated doc, so it screens
+    // nothing, and neutralising it alone leaves the hazard's span at 20. Neutralising this
+    // guard alone drops it to 16 — the assertion below.
+    for (const hazard of HAZARD_KEYS) {
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const widgets = { ...base.widgets } as Record<string, unknown>;
+      defineOwn(widgets, hazard, chartWidget(hazard));
+      // Spans, like the widgets map, need `defineOwn`: `{ __proto__: 20 }` sets the prototype.
+      const spans: Record<string, number> = {};
+      defineOwn(spans, 'w1', 6);
+      defineOwn(spans, hazard, 20);
+      const doc: StudioDoc = {
+        ...base,
+        widgets: widgets as StudioDoc['widgets'],
+        pages: {
+          'page-1': {
+            ...base.pages['page-1'],
+            widgetRows: [['w1', hazard]],
+            widgetColSpans: spans,
+          },
+        },
+      };
+
+      const next = applyDocMutation(doc, {
+        type: 'setWidgetColSpan',
+        args: { widgetId: 'w1', columns: 8, rowWidgetIds: ['w1', hazard], pageId: 'page-1' },
+      });
+
+      const nextSpans = (next.pages['page-1'].widgetColSpans ?? {}) as Record<string, number>;
+      expect(
+        Object.getOwnPropertyDescriptor(nextSpans, hazard)?.value,
+        `${hazard} absorbed the rebalance`,
+      ).toBe(20);
+      // The anchor's own write is unaffected — the guard blocks the absorber write only.
+      expect(Object.getOwnPropertyDescriptor(nextSpans, 'w1')?.value).toBe(8);
+    }
+  });
 });

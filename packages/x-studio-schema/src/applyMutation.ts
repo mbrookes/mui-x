@@ -832,9 +832,15 @@ type CanWriteSpan = (id: string) => boolean;
  * and saying which is the point of this paragraph — an audit read the sentence as a claim
  * about two live guards and filed the quiet one as missing protection.
  *
- *  - The ABSORBER write is load-bearing and pinned ("does not rebalance a span onto a
- *    phantom row-mate sharing the row"): `absorberIds` is every row member the mutation did
- *    NOT name, so it can hold an id no filter upstream has vetted.
+ *  - The ABSORBER write is load-bearing and pinned: `absorberIds` is every row member the
+ *    mutation did NOT name, so it can hold an id no filter upstream has vetted. Both
+ *    conjuncts of `setWidgetColSpan`'s `canWriteSpan` are pinned there, by DIFFERENT tests —
+ *    neutralise `Object.hasOwn(state.widgets, id)` and "does not rebalance a span onto a
+ *    phantom row-mate sharing the row" fails; neutralise `isSafePatchKey(id)` and
+ *    "setWidgetColSpan does not rebalance a span onto a prototype-hazard row-mate" fails.
+ *    Each kills exactly one, which is why the inventory row for the second no longer claims
+ *    it is subsumed by the first: on an input where the hazard IS an own key of
+ *    `state.widgets`, `hasOwn` is true and screens nothing.
  *  - The ANCHOR-overflow write cannot currently reject anything, at either caller.
  *    `setWidgetColSpan` passes a single anchor whose span is `clampSpan`ed to at most
  *    `GRID_COLS`, so `anchorTotal > GRID_COLS` is never even entered. `applyBulkUpdate`

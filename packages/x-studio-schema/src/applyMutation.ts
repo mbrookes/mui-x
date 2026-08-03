@@ -96,6 +96,19 @@ function clampSpan(span: number): number {
  * wire boundary (`parseStateMutation`) rejects these too — this is the defense-in-depth
  * copy for mutations the server constructs WITHOUT the parser (`executeToolOnState`
  * builds them straight from LLM tool arguments).
+ *
+ * THIS ALIAS IS AN ENUMERATION HAZARD, and it has already cost one round. A sweep that
+ * enumerated `isSafeKey` by its spelling AT THE CALL found four sites repo-wide and reported
+ * the family swept clean; this one line gives the same function FOURTEEN more, all in this
+ * file, and eight of those were unpinned at the time — 78% of the family, invisible. Two
+ * consequences worth keeping:
+ *
+ *  - Any sweep of this guard must resolve module-local re-bindings rather than grep for the
+ *    imported name. `test/utils/guardCallSites.ts` does, and `unsafeKeys.ts` is one of the
+ *    modules it covers, so the count is machine-checked rather than remembered.
+ *  - Renaming this alias, or adding another, changes nothing about which sites exist — which
+ *    is the point. Prefer using it (the local name documents WHY the guard is here) over
+ *    importing `isSafeKey` a second time under a second name.
  */
 const isSafePatchKey = isSafeKey;
 
@@ -1862,6 +1875,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `Object.hasOwn(state.widgets, widgetId)` check below already rejects a
       // `'__proto__'` id in practice (no widget carries such an own key past the
       // `addWidget` screen); this keeps the intent local to the write.
+      //
+      // "In practice" is now measured rather than asserted, because an audit read this
+      // guard's survival as missing protection. It is UNPINNABLE, not untested: reaching it
+      // needs a hazard id already admitted as a real widget, and every producer of live
+      // state screens that — `screenWidgets` (`docScreening.ts`) at both the factory and the
+      // load boundary, `addWidget` below, `isInsertableAddedWidget` for the bulk insert path
+      // — and all three of those screens are themselves pinned. The subsuming
+      // `Object.hasOwn` check IS pinned now ("no-ops a set_widget_width for a row id that is
+      // not a real widget"); it was not, which is what made the pair look unobserved.
       if (!isSafePatchKey(widgetId)) {
         return state;
       }
@@ -2472,6 +2494,15 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         const spansProvided = isPlainRecord(widgetColSpans);
         const safeSpans: Record<string, number> = spansProvided ? widgetColSpans : {};
         const clampedSpans: Record<string, number> = {};
+        // The key screen here is SUBSUMED by `enforceLayoutColSpans`' orphan prune a few
+        // lines below: a hazard key can never name a row member (rows are filtered against
+        // `validRowIds`, and no hazard id survives `screenWidgets`/`isInsertableAddedWidget`
+        // to get into that set), so the prune deletes it either way. Measured — with this
+        // screen alone disabled the whole schema suite stays green, with the prune alone
+        // disabled five tests fail, and with BOTH disabled six do. That sixth is "never lets
+        // a wire-supplied unsafe span key survive an applyBulkUpdate", written specifically
+        // to observe the pair, since neither half is observable on its own. Kept because it
+        // is a precondition of this rebuild, not of the prune's current behaviour.
         for (const key of Object.keys(safeSpans)) {
           if (!isSafePatchKey(key)) {
             continue;
@@ -2510,6 +2541,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
           const anchorIds = new Set(Object.keys(clampedSpans));
           for (const row of sanitizedRows) {
             if (row.some((id) => anchorIds.has(id))) {
+              // BOTH conjuncts of this `canWriteSpan` are unreachable AT THIS CALLER, and
+              // saying so here is what stops the next audit filing them as missing
+              // protection. `rowIds` is `sanitizedRows`, already filtered by `validRowIds`;
+              // `anchorIds` is `keys(clampedSpans)`, already filtered by `isSafePatchKey`.
+              // So every id `rebalanceRowSpans` can pass here is accepted by construction —
+              // the same fact that docblock records for its ANCHOR write, extended to the
+              // ABSORBER write, which IS load-bearing at the other caller
+              // (`setWidgetColSpan`, whose rows are the page's own and unfiltered).
+              // Measured: disabling either conjunct, or both, leaves the schema suite green.
+              // It stays for the reason given there — unreachable-at-today's-callers is a
+              // fact about the callers, and the predicate is the CONTRACT's, not theirs.
               rebalanceRowSpans(
                 spansToEnforce,
                 row,

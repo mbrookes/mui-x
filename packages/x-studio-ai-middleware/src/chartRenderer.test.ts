@@ -815,6 +815,26 @@ describe('renderChartSvg — unknown chart type message (finding L6)', () => {
     expect(caught!.message.length).toBeLessThan(600);
   });
 
+  it('caps the interpolated `type` at exactly MAX_CHART_TEXT_LENGTH, at the one site that caps it', () => {
+    // The cap used to be applied TWICE to the same value on the same path — once in
+    // `sanitizeInput` and once more inside the throw — and `sanitizeText` is idempotent,
+    // so each call masked the other: either could be deleted with all 1658 tests green.
+    // Only `sanitizeInput` caps it now, so this test pins that one call.
+    //
+    // Asserted as an exact length rather than "< 600" so a re-introduced second copy of
+    // the cap (at any other bound) is visible here instead of hiding behind the slack.
+    let caught: Error | undefined;
+    try {
+      renderChartSvg({ type: 'q'.repeat(5_000) } as never);
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).toBeDefined();
+    const quoted = /Unknown chart type "(q*)"/.exec(caught!.message);
+    expect(quoted).not.toBe(null);
+    expect(quoted![1]).toHaveLength(200);
+  });
+
   it('still names a short unknown type verbatim (no over-broad regression)', () => {
     expect(() => renderChartSvg({ type: 'radar' } as never)).toThrow(/Unknown chart type "radar"/);
   });

@@ -1876,14 +1876,17 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // `'__proto__'` id in practice (no widget carries such an own key past the
       // `addWidget` screen); this keeps the intent local to the write.
       //
-      // "In practice" is now measured rather than asserted, because an audit read this
-      // guard's survival as missing protection. It is UNPINNABLE, not untested: reaching it
-      // needs a hazard id already admitted as a real widget, and every producer of live
-      // state screens that — `screenWidgets` (`docScreening.ts`) at both the factory and the
-      // load boundary, `addWidget` below, `isInsertableAddedWidget` for the bulk insert path
-      // — and all three of those screens are themselves pinned. The subsuming
-      // `Object.hasOwn` check IS pinned now ("no-ops a set_widget_width for a row id that is
-      // not a real widget"); it was not, which is what made the pair look unobserved.
+      // "In practice" is measured rather than asserted, because an audit read this guard's
+      // survival as missing protection. No REACHABLE input pins it: reaching it needs a
+      // hazard id already admitted as a real widget, and every producer of live state screens
+      // that — `screenWidgets` (`docScreening.ts`) at both the factory and the load boundary,
+      // `addWidget` below, `isInsertableAddedWidget` for the bulk insert path — and all three
+      // of those screens are themselves pinned. The subsuming `Object.hasOwn` check IS pinned
+      // ("no-ops a set_widget_width for a row id that is not a real widget"); it was not,
+      // which is what made the pair look unobserved. This call was labelled UNPINNABLE, one
+      // word too strong: "setWidgetColSpan refuses a widget id that is a prototype-hazard own
+      // key of state.widgets" pins it by FABRICATING that unreachable pre-state with
+      // `Object.defineProperty`, leaving the `hasOwn` neighbour intact.
       if (!isSafePatchKey(widgetId)) {
         return state;
       }
@@ -2317,6 +2320,16 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // filters and spans — survive intact instead of the removal half of a rejected replace
       // deleting the user's widget. `removedWidgetIds` is already string-filtered, so
       // `has(widget.id)` implies a string id.
+      //
+      // The `isSafePatchKey` conjunct is NOT subsumed by the `has` conjunct beside it, though
+      // an earlier note claimed it was on the grounds that `removedWidgetIds` is `isSafeId`-
+      // screened at the wire. This reducer exists to guard mutations the server builds
+      // WITHOUT the parser (`executeToolOnState`), so such a payload puts a hazard id
+      // straight into this set and `has` returns true; measured, neutralising `has` leaves
+      // the hazard behaviour identical and only breaks an idempotent-add test. Pinned by
+      // "applyBulkUpdate does not count a prototype-hazard id as a re-added widget", which
+      // fabricates the hazard-id-as-live-widget pre-state that `screenWidgets` /
+      // `isInsertableAddedWidget` make unreachable.
       const removedWidgetIdSet = new Set(removedWidgetIds);
       const reAddedWidgetIds = new Set<string>();
       for (const widget of safeAddedWidgets) {
@@ -2735,7 +2748,10 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
         }
         // Prototype-hazard guard before the `nextWidgets[update.widgetId] = patchedWidget`
         // bracket-write below. The `Object.hasOwn` existence check just below already rejects
-        // an unsafe key in practice; this keeps the intent local to the write.
+        // an unsafe key in practice; this keeps the intent local to the write. "In practice"
+        // means: on every reachable input, since no producer can make a hazard id an own key
+        // of the widgets map. Pinned by "applyBulkUpdate.updatedWidgets refuses a
+        // prototype-hazard widget id", which fabricates one.
         if (!isSafePatchKey(update.widgetId)) {
           continue;
         }

@@ -7143,3 +7143,135 @@ describe('the span guards a test cannot pin, and the layer that covers each', ()
     expect(spans).toEqual({ w1: 12 });
   });
 });
+
+/**
+ * Three guards previously recorded as `unpinnable` in `keyGuardCallSites.test.ts`, pinned.
+ *
+ * Each sits behind a neighbour that rejects every REACHABLE hazard input, which is why the
+ * 1139-test suite could not tell whether the guard was there: `screenWidgets` at the factory
+ * and the load boundary, `addWidget` and `isInsertableAddedWidget` on the insert paths, all
+ * pinned themselves, together guarantee no prototype-hazard id is ever an own key of
+ * `state.widgets`. A reachability probe over six producers x three hazard keys confirms it:
+ * 18/18 leave `doc.widgets` with no hazard own key.
+ *
+ * So these tests FABRICATE that pre-state with `Object.defineProperty`, which no producer in
+ * this package can do. That makes the label accurate — "no reachable input pins this" rather
+ * than "no test can" — and, more usefully, turns three paragraphs of prose into three live
+ * assertions. The label exists to stop a future round deleting these calls because nothing
+ * failed; a discriminating test is a strictly stronger stop than a paragraph.
+ */
+describe('prototype-hazard key guards observable only from a fabricated pre-state', () => {
+  const HAZARD_KEYS = ['__proto__', 'constructor', 'prototype'] as const;
+
+  /**
+   * Install `value` as an own, enumerable key of `target`. Plain assignment cannot do this
+   * for `'__proto__'` (it hits the `Object.prototype` setter), which is why every producer's
+   * screen is enough in practice and why a test has to reach for `defineProperty`.
+   */
+  function defineOwn(target: Record<string, unknown>, key: string, value: unknown): void {
+    Object.defineProperty(target, key, {
+      value,
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
+  }
+
+  it('setWidgetColSpan refuses a widget id that is a prototype-hazard own key of state.widgets', () => {
+    // `applyMutation.ts:isSafeKey(widgetId)#0`. The neighbour named in its inventory row —
+    // `Object.hasOwn(state.widgets, widgetId)` — passes here, because the hazard id IS an own
+    // widget key in this fabricated doc. Only the guard stops the `newSpans[widgetId] =`
+    // write below it.
+    for (const hazard of HAZARD_KEYS) {
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: {
+          'page-1': {
+            id: 'page-1',
+            title: 'P1',
+            widgetRows: [['w1', 'w2', hazard]],
+            widgetColSpans: { w1: 6, w2: 6 },
+          },
+        },
+        widgets: { w1: chartWidget('w1'), w2: chartWidget('w2') },
+      });
+      const widgets = { ...base.widgets } as Record<string, unknown>;
+      defineOwn(widgets, hazard, chartWidget(hazard));
+      const doc: StudioDoc = { ...base, widgets: widgets as StudioDoc['widgets'] };
+
+      const next = applyDocMutation(doc, {
+        type: 'setWidgetColSpan',
+        args: {
+          widgetId: hazard,
+          columns: 4,
+          rowWidgetIds: ['w1', 'w2', hazard],
+          pageId: 'page-1',
+        },
+      });
+
+      const spans = next.pages['page-1'].widgetColSpans ?? {};
+      expect(Object.hasOwn(spans, hazard), `${hazard} became a span key`).toBe(false);
+      // The whole span map is untouched: the guard returns the doc, so the rebalance that
+      // would otherwise reflow the row never runs either.
+      expect(spans, `${hazard} disturbed the row`).toEqual({ w1: 6, w2: 6 });
+    }
+  });
+
+  it('applyBulkUpdate does not count a prototype-hazard id as a re-added widget', () => {
+    // `applyMutation.ts:isSafeKey(widget.id)#2`. Its inventory row used to name
+    // `removedWidgetIdSet.has(widget.id)` as the neighbour that subsumes it, on the grounds
+    // that `removedWidgetIds` is `isSafeId`-screened at the wire. Measured, that is backwards:
+    // a server-built bulk (`executeToolOnState` bypasses the parser, which is the whole reason
+    // this reducer guards at all) puts the hazard id straight into the set, `has` returns
+    // TRUE, and the neighbour screens nothing. With the guard alone disabled the doc changes;
+    // with the neighbour alone disabled it does not.
+    for (const hazard of HAZARD_KEYS) {
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const widgets = { ...base.widgets } as Record<string, unknown>;
+      defineOwn(widgets, hazard, { ...chartWidget(hazard), title: 'OLD' });
+      const doc: StudioDoc = { ...base, widgets: widgets as StudioDoc['widgets'] };
+
+      const next = applyDocMutation(doc, {
+        type: 'applyBulkUpdate',
+        args: {
+          removedWidgetIds: [hazard],
+          addedWidgets: [{ id: hazard, kind: 'text', title: 'NEW', config: {} }],
+        },
+      } as unknown as StateMutation);
+
+      // Membership of the re-added set is what makes a removed widget SURVIVE the bulk. A
+      // hazard id must not qualify, so the removal half stands and the fabricated entry goes.
+      expect(Object.hasOwn(next.widgets, hazard), `${hazard} survived as a re-add`).toBe(false);
+    }
+  });
+
+  it('applyBulkUpdate.updatedWidgets refuses a prototype-hazard widget id', () => {
+    // `applyMutation.ts:isSafeKey(update.widgetId)#0`. Its neighbour —
+    // `Object.hasOwn(nextWidgets, update.widgetId)` — passes here for the same reason as the
+    // first test, so only the guard stops the merge writing through to the fabricated entry.
+    for (const hazard of HAZARD_KEYS) {
+      const base = makeDoc({
+        dashboard: { id: 'd1', title: 'D', activePageId: 'page-1' },
+        pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
+        widgets: { w1: chartWidget('w1') },
+      });
+      const widgets = { ...base.widgets } as Record<string, unknown>;
+      defineOwn(widgets, hazard, { ...chartWidget(hazard), title: 'OLD' });
+      const doc: StudioDoc = { ...base, widgets: widgets as StudioDoc['widgets'] };
+
+      const next = applyDocMutation(doc, {
+        type: 'applyBulkUpdate',
+        args: { updatedWidgets: [{ widgetId: hazard, title: 'CHANGED' }] },
+      } as unknown as StateMutation);
+
+      const entry = Object.getOwnPropertyDescriptor(next.widgets, hazard)?.value as
+        | { title?: string }
+        | undefined;
+      expect(entry?.title, `${hazard} was merged into`).not.toBe('CHANGED');
+    }
+  });
+});

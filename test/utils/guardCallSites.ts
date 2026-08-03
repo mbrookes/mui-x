@@ -42,12 +42,15 @@ import ts from 'typescript';
  *
  * ── What this does NOT catch, stated because each line is a TEST ──
  *
- * The previous version of this file had a section headed "The one blind spot, made loud
- * rather than left silent". It had at least five, and machine-checked one. The list below is
- * the whole list as measured, and every entry is a fixture in `cssGuardCallSites.test.ts`'s
- * `the scan's own identity function` block — asserted MISSED or asserted REPORTED, against a
- * control proving the canonical form is caught. This is the discipline `sizeCapScan.ts` in
- * this directory already applies and this file's predecessor cited without adopting.
+ * The first version of this file had a section headed "The one blind spot, made loud rather
+ * than left silent". It had at least five, and machine-checked one. The second version put
+ * four in this list — and a later sweep measured SEVEN, with one of the three new ones sitting
+ * in the paragraph below claiming to be REPORTED, and a fourth entry filed under REPORTING
+ * that is in fact resolved. Every entry now corresponds to a fixture in
+ * `cssGuardCallSites.test.ts`'s `the scan's own identity function` block — asserted MISSED or
+ * asserted REPORTED against a control proving the canonical spelling of the same call IS
+ * caught. Nothing in this section is asserted only in prose, because prose is what was wrong
+ * three times.
  *
  * Escapes closed by REPORTING rather than by resolving — {@link findIndirectGuardReferences}
  * returns them and the inventory test asserts it empty, so they fail loudly instead of
@@ -55,24 +58,49 @@ import ts from 'typescript';
  *
  *  - a guard passed as a value rather than called: `[x].map(sanitizeFontSize)`, a default
  *    parameter, an object-literal property, a `useMemo` dependency;
- *  - a rebinding that is not a plain module-scope `const g = guard;` (a `let`, a rebinding
- *    inside a function body, a destructured namespace member);
+ *  - a rebinding inside a FUNCTION BODY, which is a scope analysis this scan does not do;
  *  - a barrel re-export of a guard module ({@link findGuardReExports}, unchanged).
  *
- * Genuinely NOT seen, and not reported either:
+ * A module-scope `let`/`var` rebinding is RESOLVED, not reported — the rebinding loop tests
+ * `ts.isVariableStatement`, which covers all three declaration kinds. That is the safe
+ * direction and it is pinned by a fixture, but it is unsound in principle: `let g = guard; …
+ * g = () => true;` would keep producing rows attributed to the guard.
+ *
+ * Genuinely NOT seen, and not reported either — SEVEN, each a fixture:
  *
  *  - a call in a file outside the family's `roots` (today: `packages`, and there are no guard
  *    calls in `docs`/`examples`/`scripts`/`test` — grepped, and re-grepped by a test);
  *  - a namespace member read through a COMPUTED access (`css['sanitizeCssColor'](x)`);
  *  - a guard reached through a dynamic `import()`;
  *  - a guard re-implemented inline rather than called, which is a semantic question no
- *    syntactic scan decides.
+ *    syntactic scan decides;
+ *  - a call through an alias EXPORTED BY A THIRD MODULE — `export const safeKey = isSafeKey;`
+ *    in a module that neither declares nor `export … from`-re-exports the guard, imported and
+ *    called elsewhere. Both halves of the mechanism fail at once: {@link expandModules} only
+ *    follows `export … from`, so the alias module never joins the family, and
+ *    {@link candidateFiles}' pre-filter drops the consumer because neither the guard module's
+ *    basename nor the guard name appears in its text. `applyMutation.ts:100` already contains
+ *    `const isSafePatchKey = isSafeKey;`, so adding one keyword to the line whose fourteen
+ *    hidden sites motivated this file is the whole escape;
+ *  - a NAMESPACE REBOUND to a module-scope const (`const ns = cssNs; ns.sanitizeFontSize(x)`).
+ *    Both halves are covered — a namespace is, a const alias is — and their composition is
+ *    covered by neither: the rebinding fixed point only propagates identifiers already in
+ *    `bindings`, and namespaces live in a separate set;
+ *  - a DESTRUCTURED namespace member (`const { sanitizeFontSize } = cssNs;`). This one was
+ *    previously listed above as REPORTED and is silent: the rebinding loop requires
+ *    `ts.isIdentifier(decl.name)`, so an `ObjectBindingPattern` is skipped, and the identifier
+ *    in the `BindingElement` is only examined when `bindings` already has it.
  *
- * **The honest claim:** a guard call written as a direct call through a static import, a
- * namespace, or a module-scope const alias, in a file under the family's roots, cannot be
- * added without a new inventory row. Anything else is either REPORTED by
- * {@link findIndirectGuardReferences}/{@link findGuardReExports} or in the four-item list
- * above. It is not "no guard call can ship unlisted".
+ * **The honest claim:** a guard call is guaranteed to produce an inventory row when its callee
+ * resolves to a guard NAME through a static import of a family module — a declaring module or
+ * a barrel that re-exports it verbatim — through a namespace import of one of those, or
+ * through a module-scope rebinding of either, in a file under the family's roots. Every other
+ * spelling is either REPORTED by
+ * {@link findIndirectGuardReferences}/{@link findGuardReExports} or one of the seven above. In
+ * particular the guarantee does NOT extend to every direct call through a static import: an
+ * import of an alias re-exported by a non-family module is exactly that shape and is invisible.
+ * It has never been "no guard call can ship unlisted", and the list of exceptions has grown
+ * every time someone measured it instead of reading it.
  */
 
 /** Same derivation `sizeCapInventory.ts` uses; `import.meta.url` is a file URL here. */
@@ -259,11 +287,16 @@ export function readGuardNames(
 }
 
 /**
- * Files worth parsing: any file that mentions a guard module by name. A call site must import
- * its guard, and an import names the module in its specifier however the binding is spelled —
- * so this pre-filter cannot drop a real call site, it only avoids parsing the whole monorepo.
- * (True of the pre-filter; the RESOLVER that runs after it is where the package-specifier
- * escape lived, which is why that is fixed above rather than argued about here.)
+ * Files worth parsing: any file that mentions a guard module by name, or a guard by name.
+ *
+ * The argument for this pre-filter used to be "a call site must import its guard, and an
+ * import names the module in its specifier however the binding is spelled — so it cannot drop
+ * a real call site". That is true only when the import TARGET is a declaring or re-exporting
+ * module. A module that merely holds a value alias (`export const safeKey = isSafeKey;`) is
+ * neither, and a consumer importing `safeKey` from it contains neither token — so the filter
+ * drops it, silently. Measured, with a fixture; it is one of the seven escapes in this file's
+ * header. Widening the tokens is not a fix (the alias can be spelled anything), which is why
+ * the limit is recorded and asserted rather than patched over.
  */
 function candidateFiles(family: GuardFamily, repoRoot: string, guards: string[]): string[] {
   const tokens = family.modules

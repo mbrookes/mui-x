@@ -502,6 +502,22 @@ describe("the scan's own identity function — resolved, reported, and missed", 
       expect(sites()).toContain('packages/app/a.ts:sanitizeCssShadow(config.shadow)#0');
     });
 
+    it('a `let` module-scope rebinding — resolved, NOT reported as the docblock once said', () => {
+      // The rebinding loop tests `ts.isVariableStatement`, which is true for `let` and `var`
+      // as well as `const`, so this produces a row. The docblock filed it under "closed by
+      // REPORTING", which was wrong in the safe direction and is now written where it is
+      // measured. It is still unsound in principle — `let g = sanitizeFontSize; g = () => 1;`
+      // would keep attributing rows to the guard — which is why it is pinned here rather than
+      // left to be rediscovered.
+      write('packages/app/a.ts', [
+        "import { sanitizeFontSize } from '../guards/cssValueValidation';",
+        'let sf = sanitizeFontSize;',
+        'export const a = sf(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
+      expect(findIndirectGuardReferences(family, root)).toEqual([]);
+    });
+
     it('an import through a PLAIN BARREL re-export', () => {
       // Followed rather than forbidden. The previous scan asserted no barrel exists; one does
       // (`x-studio-schema/src/index.ts`), it was simply never scanned.
@@ -597,6 +613,76 @@ describe("the scan's own identity function — resolved, reported, and missed", 
         'export const a = sanitizeFontSize(config.size);',
       ]);
       expect(sites()).toEqual([]);
+    });
+
+    it('does NOT see a call through an ALIAS EXPORTED BY A THIRD MODULE', () => {
+      // The sharpest of the three, because it is a direct call through a static import in a
+      // file under the family's roots — verbatim the shape the honest claim used to say
+      // "cannot be added without a new inventory row".
+      //
+      // Two mechanisms fail together. `collectBindings` resolves `const sf = sanitizeFontSize`
+      // INSIDE the alias module and marks the reference resolved, so nothing is reported; but
+      // `expandModules` only follows `export … from` declarations, so the alias module never
+      // joins the family and an import from it binds nothing. And `candidateFiles`' pre-filter
+      // drops the consumer outright: its tokens are the guard module's basename and the guard
+      // name, and `sf` contains neither.
+      //
+      // Not hypothetical: `applyMutation.ts` already contains `const isSafePatchKey =
+      // isSafeKey;` — the line whose fourteen hidden sites motivated this scan. Adding
+      // `export` to it and importing it from a second reducer file is the whole escape.
+      write('packages/guards/valueAlias.ts', [
+        "import { sanitizeFontSize } from './cssValueValidation';",
+        'export const sf = sanitizeFontSize;',
+      ]);
+      write('packages/app/a.ts', [
+        "import { sf } from '../guards/valueAlias';",
+        'export const a = sf(config.size);',
+      ]);
+      expect(sites()).toEqual([]);
+      expect(findIndirectGuardReferences(family, root)).toEqual([]);
+      expect(findGuardReExports(family, root)).toEqual([]);
+
+      // CONTROL, in the same fixture repo: the same call, spelled canonically, IS a row. So
+      // the empty result above is the scan's blind spot, not a broken fixture.
+      write('packages/app/b.ts', [
+        "import { sanitizeFontSize } from '../guards/cssValueValidation';",
+        'export const b = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toEqual(['packages/app/b.ts:sanitizeFontSize(config.size)#0']);
+    });
+
+    it('does NOT see a NAMESPACE REBOUND to a module-scope const', () => {
+      // The docblock names "a namespace" and "a module-scope const alias" as covered; their
+      // composition is covered by neither. The rebinding fixed point only propagates
+      // identifiers already in `bindings`, and namespaces live in a separate set that is
+      // never propagated through a const.
+      write('packages/app/a.ts', [
+        "import * as css from '../guards/cssValueValidation';",
+        'const ns = css;',
+        'export const a = ns.sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toEqual([]);
+      expect(findIndirectGuardReferences(family, root)).toEqual([]);
+    });
+
+    it('does NOT see a DESTRUCTURED NAMESPACE MEMBER — which the docblock listed as REPORTED', () => {
+      // This one sat inside the enumeration of the LOUD escapes: "a rebinding that is not a
+      // plain module-scope `const g = guard;` (a `let`, a rebinding inside a function body, a
+      // destructured namespace member)". The other two of those three are true. This is
+      // silent, and a silent escape listed among the loud ones is worse than an unlisted one,
+      // because the list is what a reader checks against.
+      //
+      // `collectBindings`' rebinding loop requires `ts.isIdentifier(decl.name)`, so an
+      // `ObjectBindingPattern` is skipped; and the identifier inside the `BindingElement` is
+      // only examined by `findIndirectGuardReferences` if `bindings.has('sanitizeFontSize')`,
+      // which is exactly what the destructuring failed to establish.
+      write('packages/app/a.ts', [
+        "import * as css from '../guards/cssValueValidation';",
+        'const { sanitizeFontSize } = css;',
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toEqual([]);
+      expect(findIndirectGuardReferences(family, root)).toEqual([]);
     });
 
     it('does NOT see a guard RE-IMPLEMENTED inline instead of called', () => {

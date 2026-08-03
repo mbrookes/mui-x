@@ -106,6 +106,41 @@ function normalizeCurrencyCode(currencyCode: string | undefined): string {
     : 'USD';
 }
 
+/**
+ * Clamp a doc-authored `precision` into the range `Intl.NumberFormat` accepts.
+ *
+ * This is a CRASH guard, not a cosmetic one. `precision?: number` is a plain, unvalidated
+ * field on `StudioDataField` and `StudioExpressionField`; `x-studio-schema` never validates
+ * it (`isExpressionFieldSafe` is a required-leaf check, not a key whitelist), so a persisted
+ * or host-supplied `precision` of any value round-trips through `deserializeState` untouched
+ * and reaches `formatNumber`'s 5th parameter from the map/chart/KPI/expression-preview call
+ * sites. `new Intl.NumberFormat(l, { minimumFractionDigits: p })` throws a `RangeError` for
+ * `p` outside `[0, 100]`, for `NaN` and for `Infinity` — which would crash whichever widget,
+ * tooltip or grid cell rendered that field. `Math.trunc` is the one clause that is not
+ * crash-preventing (a fractional `2.5` is accepted by `Intl`); it keeps the cache key stable.
+ *
+ * ── Why it is applied TWICE, deliberately ──
+ *
+ * `formatNumber` (the choke point) normalizes before dispatching, and `getCurrencyFormat`
+ * normalizes again. The second application is currently MASKED: `getCurrencyFormat` is
+ * module-private with exactly two callers, one passing this function's own output and one
+ * passing nothing, and this function is idempotent — so removing the inner call changes no
+ * observable behaviour today, and an audit that deletes on that evidence is deleting a guard
+ * that a third caller reinstates the need for. It is kept because `getCurrencyFormat` is a
+ * function whose whole job is surviving hostile input — it already carries a `try/catch` for
+ * exactly that reason — and it must not depend on its caller having normalized first.
+ *
+ * The tests named "clamps a hostile persisted `precision`…" measure how far that masking
+ * goes, so it does not have to be taken on trust. Neuter the OUTER call and 14 of them fail —
+ * the plain and percent paths, normalized nowhere else — while the six currency ones still
+ * pass, because this inner call catches that path. Neuter the guard BODY and all 20 fail.
+ * Neuter the INNER call alone and all 20 still pass: it is masked, and no test can pin it
+ * while `formatNumber` is its only live caller. That last line is stated rather than left for
+ * a future audit to rediscover as evidence for deleting it.
+ *
+ * `StudioExpressionFieldDialog` re-implements the same clamp inline over its number input;
+ * that copy covers only what the dialog authors, not the persisted-doc or host-field paths.
+ */
 function normalizePrecision(precision: number | undefined): number | undefined {
   if (precision == null || !Number.isFinite(precision)) {
     return undefined;

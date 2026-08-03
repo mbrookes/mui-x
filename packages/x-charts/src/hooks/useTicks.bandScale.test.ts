@@ -1,3 +1,17 @@
+/**
+ * Band-scale `getTicks` cases, kept in a file whose name does not collide with
+ * `useTicks.test.ts`.
+ *
+ * This suite used to be `useTicks.test.tsx`, next to a `useTicks.test.ts` with entirely
+ * different contents. When a wildcard `include` matches two files whose paths differ only by
+ * extension, tsc keeps the higher-priority `.ts` and drops the other
+ * (`removeWildcardFilesWithLowerPriorityExtension`), and nothing imported this one to pull it
+ * back in — so vitest ran it while `tsc -p packages/x-charts/tsconfig.json` had never seen a
+ * line of it. It happened to compile; that was luck, and the same state a scan utility was in
+ * two commits before it shipped with two type errors and a green suite.
+ *
+ * The file contains no JSX, so `.tsx` bought it nothing.
+ */
 import { scaleBand } from '@mui/x-charts-vendor/d3-scale';
 import { getTicks } from './useTicks';
 import type { D3Scale } from '../models/axis';

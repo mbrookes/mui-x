@@ -232,7 +232,9 @@ export function readGuardNames(
     const file = join(repoRoot, rel);
     const source = parse(file, readFileSync(file, 'utf8'));
     source.forEachChild((node) => {
-      const exported = node.modifiers?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword);
+      const exported =
+        ts.canHaveModifiers(node) &&
+        ts.getModifiers(node)?.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword);
       if (!exported) {
         return;
       }

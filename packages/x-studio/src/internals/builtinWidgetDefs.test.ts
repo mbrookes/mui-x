@@ -93,7 +93,9 @@ describe('useWidgetDefMap', () => {
 // one survived the full project. It is not a CSS-injection boundary (the value lands in a
 // numeric `height` prop, not an `sx` string), but an unsanitized non-finite value produces a
 // `NaN`/`Infinity` skeleton height on the pre-paint path, which is a layout break rather than a
-// blank frame — and it is the second call site of a guard whose first is tested.
+// blank frame — and it is the second call site READING `config.gridHeight`, the first of which
+// is tested. (Not "the guard's second call site": `sanitizeFiniteNumber` has several more, all
+// enumerated from the AST by `internals/cssGuardCallSites.test.ts`.)
 describe('BUILTIN_WIDGET_DEFS grid skeletonHeight sanitization', () => {
   function gridWidget(gridHeight: unknown) {
     return {

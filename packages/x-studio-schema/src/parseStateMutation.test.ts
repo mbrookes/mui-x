@@ -1096,6 +1096,46 @@ describe('parseStateMutation — id hygiene (prototype-injection defense)', () =
     expect(parsed.ok).toBe(false);
   });
 
+  // The two NESTED `config` channels. Each was the N-1 twin of a pinned sibling: `changes`
+  // itself is screened and pinned two tests up, and `updatedWidgets[i].config` is screened
+  // by `hasInvalidChartTypeInConfig` seven lines further down under two named tests — while
+  // the prototype-pollution screen on the very same expression had nothing.
+  //
+  // The reducer strips these keys too, and THAT is pinned, so live protection never
+  // depended on these tests. What they pin is that the WIRE boundary still REJECTS: the two
+  // layers are observably different (reject the whole mutation with a named error vs. accept
+  // it and strip one key), so a wire check silently degrading to the reducer's behaviour is
+  // a real regression a test can see. Asserted on the message, not just `ok === false`, so
+  // each names the guard that fired rather than passing on any rejection at all.
+  it.each(unsafeIds)(
+    'rejects an updateWidget whose changes.config carries an own "%s" key',
+    (id) => {
+      const parsed = parseStateMutation({
+        type: 'updateWidget',
+        args: { widgetId: 'w1', changes: { config: JSON.parse(`{"${id}":{"polluted":true}}`) } },
+      });
+      expect(parseError(parsed)).toBe(
+        "updateWidget.args.changes.config must not carry a '__proto__'/'constructor'/'prototype' key",
+      );
+    },
+  );
+
+  it.each(unsafeIds)(
+    'rejects an applyBulkUpdate updatedWidgets entry whose config carries an own "%s" key',
+    (id) => {
+      const parsed = parseStateMutation({
+        type: 'applyBulkUpdate',
+        args: {
+          ...validBulkArgs(),
+          updatedWidgets: [{ widgetId: 'w1', config: JSON.parse(`{"${id}":{"polluted":true}}`) }],
+        },
+      });
+      expect(parseError(parsed)).toBe(
+        "applyBulkUpdate.args.updatedWidgets[0].config must not carry a '__proto__'/'constructor'/'prototype' key",
+      );
+    },
+  );
+
   it('rejects an applyBulkUpdate whose widgetColSpans carries an own __proto__ key', () => {
     const parsed = parseStateMutation({
       type: 'applyBulkUpdate',

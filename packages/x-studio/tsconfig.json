@@ -9,5 +9,10 @@
     ],
     "skipLibCheck": true
   },
-  "include": ["src/**/*", "test/**/*", "../../test/utils/addChaiAssertions.ts"]
+  "include": [
+    "src/**/*",
+    "test/**/*",
+    "vitest.config.*.mts",
+    "../../test/utils/addChaiAssertions.ts"
+  ]
 }

@@ -37,6 +37,32 @@ import { StudioRequestCache } from '../internals/StudioRequestCache';
 import { buildScenario } from './syntheticData';
 import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models';
 
+// ─── Sampling parameters ─────────────────────────────────────────────────────
+
+/**
+ * tinybench sampling parameters, applied to every bench in this file.
+ *
+ * These were written in `vitest.config.bench.mts` as `benchmark.warmupIterations` /
+ * `benchmark.iterations`, each with a comment stating what it did. `BenchmarkUserOptions`
+ * declares neither — they were excess properties, silently dropped, so every number this
+ * suite has ever produced was sampled at tinybench's defaults (`warmupIterations: 5`,
+ * `iterations: 10`) rather than at these. Vitest takes them as the THIRD argument of
+ * `bench()`, which is the only place they take effect.
+ *
+ * `iterations` is a MINIMUM run count, not a sample count: tinybench runs a task until both
+ * `time` (500 ms by default) and `iterations` are satisfied, so raising it lengthens a run
+ * rather than fixing the sample size.
+ */
+const BENCH_SAMPLING = { warmupIterations: 3, iterations: 10 } as const;
+
+/**
+ * `bench()` with {@link BENCH_SAMPLING} applied. Every measurement in this file goes through
+ * it, so the parameters cannot drift back to being declared somewhere that ignores them.
+ */
+function sampledBench(name: string, fn: () => void): void {
+  bench(name, fn, BENCH_SAMPLING);
+}
+
 // ─── Shared bench helper ──────────────────────────────────────────────────────
 
 /**
@@ -58,7 +84,7 @@ function layerBench(
           scenario = buildScenario(orderCount);
         });
 
-        bench(layerName, () => {
+        sampledBench(layerName, () => {
           fn(scenario, orderCount);
         });
       });
@@ -91,7 +117,7 @@ describe('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
         getCachedNormalizedDataSource(scenario.dataSources.orders);
       });
 
-      bench('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
+      sampledBench('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
         // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
         getCachedNormalizedDataSource(scenario.dataSources.orders);
       });
@@ -136,7 +162,7 @@ describe('L2-cache getCachedEnrichedRows (warm hit)', () => {
         );
       });
 
-      bench('L2-cache getCachedEnrichedRows (warm hit)', () => {
+      sampledBench('L2-cache getCachedEnrichedRows (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
         // Same rows/expressionFields/dataSources refs → cache hit, no recompute.
         getCachedEnrichedRows(
@@ -210,7 +236,7 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
         );
       });
 
-      bench('L3-cache resolveRowsCached (warm hit)', () => {
+      sampledBench('L3-cache resolveRowsCached (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
         // Same widgetRows WeakMap key + same filterKey → O(1) cache hit
         resolveRowsCached(
@@ -269,7 +295,7 @@ describe('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
         );
       });
 
-      bench('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
+      sampledBench('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
         resolveChartRowsForAggregation(
           scenario.dataSources.customers.rows!,
           'customers',
@@ -351,16 +377,16 @@ function makePageFilter(id: string): StudioFilterState {
 describe('A1 buildQueryDescriptor', () => {
   const widget = makeKpiWidget();
 
-  bench('A1 buildQueryDescriptor (1 filter)', () => {
+  sampledBench('A1 buildQueryDescriptor (1 filter)', () => {
     buildQueryDescriptor(widget, [makePageFilter('f1')], 'page-1');
   });
 
-  bench('A1 buildQueryDescriptor (10 filters)', () => {
+  sampledBench('A1 buildQueryDescriptor (10 filters)', () => {
     const filters = Array.from({ length: 10 }, (_, i) => makePageFilter(`f${i}`));
     buildQueryDescriptor(widget, filters, 'page-1');
   });
 
-  bench('A1 buildQueryDescriptor (50 filters)', () => {
+  sampledBench('A1 buildQueryDescriptor (50 filters)', () => {
     const filters = Array.from({ length: 50 }, (_, i) => makePageFilter(`f${i}`));
     buildQueryDescriptor(widget, filters, 'page-1');
   });
@@ -379,11 +405,11 @@ describe('A2 StudioRequestCache.get (warm hit)', () => {
     cache.set(cacheKey, { rows: [{ id: 1 }] });
   });
 
-  bench('A2 cache.get (hit)', () => {
+  sampledBench('A2 cache.get (hit)', () => {
     cache.get(cacheKey);
   });
 
-  bench('A2 cache.get (miss)', () => {
+  sampledBench('A2 cache.get (miss)', () => {
     cache.get('nonexistent-key');
   });
 });
@@ -412,7 +438,7 @@ describe('A3 StudioRequestCache set+get round-trip', () => {
   });
 
   let i = 0;
-  bench('A3 set+get (rotating keys)', () => {
+  sampledBench('A3 set+get (rotating keys)', () => {
     const key = keys[i % keys.length];
     cache.set(key, { rows: [{ id: i }] });
     cache.get(key);
@@ -434,7 +460,7 @@ describe('A4 StudioRequestCache.invalidateSource', () => {
         cache = new StudioRequestCache();
       });
 
-      bench(`A4 invalidateSource (${entryCount} entries)`, () => {
+      sampledBench(`A4 invalidateSource (${entryCount} entries)`, () => {
         // Repopulate so each iteration exercises the same scan length.
         for (let i = 0; i < entryCount; i += 1) {
           const f: StudioFilterState = {

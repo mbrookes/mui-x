@@ -30,10 +30,16 @@ export default defineConfig({
     globals: true,
     passWithNoTests: true,
     benchmark: {
-      // Warm-up iterations before sampling
-      warmupIterations: 3,
-      // Number of samples for mean/p75/p99 calculation
-      iterations: 10,
+      // Sampling parameters are NOT configurable here. `BenchmarkUserOptions` declares only
+      // include/exclude/includeSource/reporters/outputFile/compare/outputJson/includeSamples;
+      // vitest passes tinybench's `time`/`iterations`/`warmupTime`/`warmupIterations` as the
+      // THIRD argument of `bench()`. This block previously carried `warmupIterations: 3` and
+      // `iterations: 10` with comments describing what they did — excess properties, dropped
+      // silently at runtime, so every number this suite ever produced was sampled at
+      // tinybench's defaults. They now live in `BENCH_SAMPLING` in `pipeline.bench.ts`, where
+      // they take effect. No test could have caught this (`passWithNoTests: true` plus the
+      // `include` glob means the project is green when it runs nothing); the typecheck can,
+      // which is why `tsconfig.json` now includes `vitest.config.*.mts`.
       reporters: ['default'],
     },
   },

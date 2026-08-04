@@ -29,13 +29,33 @@ import {
  * closed it for the two modules it hardcoded, and this family was not one of them. So the
  * scan is now generic over a {@link GuardFamily} and this family is registered:
  * `test/utils/guardCallSites.ts` resolves the alias, and the completeness test below is what
- * makes the count 18 rather than whatever anyone remembers.
+ * makes the count 19 rather than whatever anyone remembers.
+ *
+ * ── Why the count was 18 for four rounds and is 19 now ──
+ *
+ * The nineteenth row is not a new call. `studioBackendAdapter.ts` has imported and called
+ * `isSafeKey` through the `@mui/x-studio-schema` specifier the whole time; the scan could not
+ * SEE it. `resolveSpecifier` matched `paths` prefixes with a bare `startsWith`, so
+ * `@mui/x-studio-schema` was captured by the `@mui/x-studio` entry and resolved to
+ * `packages/x-studio/src-schema`, which does not exist — and there was no `paths` entry for the
+ * schema package to fall through to. An unresolvable specifier makes `collectBindings` return
+ * before binding anything, so the call was invisible to `findGuardSites` AND to
+ * `findIndirectGuardReferences` at once.
+ *
+ * The bitter part is where that was written down: the completeness test below named
+ * `@mui/x-studio-schema` BY HAND, in the comment claiming a call through it would fail the
+ * assertion. It did not, for as long as the comment existed. This family's stated purpose is to
+ * be the denylist SHARED by the wire boundary and the reducer, and the scan could only see the
+ * calls inside the declaring package — the one direction it needed to span. The resolver now
+ * matches aliases at a path-segment boundary and reads workspace package names from their own
+ * `package.json`, and the fixtures in `cssGuardCallSites.test.ts` assert both.
  *
  * ── What a row claims ──
  *
  * Every row is one call site, derived from the AST. `pinnedBy` names the test measured to
  * fail when that call is replaced by a pass-through that always returns `true` — measured, one
- * site at a time, at project `x-studio-schema`. Fifteen rows carry one.
+ * site at a time, at project `x-studio-schema`, or at `x-studio` for the row that lives there.
+ * Sixteen rows carry one.
  *
  * The other three carry `unpinnable` instead, and that is the deliberate part. Each is a real
  * guard that no test can pin, because a neighbouring guard already rejects every input that
@@ -92,6 +112,8 @@ type KeyGuardEntry = {
 );
 
 const P = 'packages/x-studio-schema/src/';
+/** The consuming package — the cross-package half of the family, invisible until r22. */
+const C = 'packages/x-studio/src/';
 
 const KEY_GUARD_INVENTORY: KeyGuardEntry[] = [
   // ── The four sites spelled `isSafeKey` at the call — the ones the old sweep counted ──
@@ -239,6 +261,17 @@ const KEY_GUARD_INVENTORY: KeyGuardEntry[] = [
       test: 'applyBulkUpdate.updatedWidgets refuses a prototype-hazard widget id',
     },
   },
+
+  // ── The one OUTSIDE the declaring package, reached through `@mui/x-studio-schema` ──
+  {
+    site: `${C}components/StudioChatPanel/studioBackendAdapter.ts:isSafeKey(key)#0`,
+    what: "`createBackendChatAdapter`'s message-metadata door — screens each own key of a server-supplied `event.metadata` record before it is copied into the metadata that gets merged into the persisted assistant message",
+    note: 'Shipped and executed for four rounds while the scan reported 18 sites. Only the import SPECIFIER hid it: leave the call byte-identical and rewrite line 16 as a relative import of the same module and the count goes 18 -> 19, which is how the resolver was isolated as the whole cause. Pinned at project `x-studio` rather than `x-studio-schema` — the only row in this file whose measurement runs elsewhere — and measured the same way as the rest: neutering the call to `(isSafeKey(key) || true)` leaves exactly the one test below failing, out of 149 in that file',
+    pinnedBy: {
+      file: `${C}components/StudioChatPanel/studioBackendAdapter.test.ts`,
+      test: 'drops every shared UNSAFE_KEYS member, not just __proto__',
+    },
+  },
 ];
 
 describe('isSafeKey — call-site inventory', () => {
@@ -251,10 +284,17 @@ describe('isSafeKey — call-site inventory', () => {
   });
 
   it('finds exactly the call sites the inventory records — no more, no fewer', () => {
-    // THE assertion. The previous enumeration of this family said four; there are eighteen,
-    // and the difference is one `const isSafePatchKey = isSafeKey;`. A new call site — under
-    // any local name, through the package barrel, through the `@mui/x-studio-schema`
-    // specifier — fails this until a row is written for it.
+    // THE assertion. The previous enumeration of this family said four; there are nineteen,
+    // and fourteen of the difference is one `const isSafePatchKey = isSafeKey;`.
+    //
+    // This comment used to promise that a call site "through the `@mui/x-studio-schema`
+    // specifier" fails this until a row is written for it, and that was FALSE for as long as it
+    // was written: `resolveSpecifier` could not resolve that one specifier, so the shipped call
+    // in `studioBackendAdapter.ts` produced no row and this assertion stayed green. It is now
+    // true, and the way it is kept true is not this sentence — it is the resolver fixture in
+    // `cssGuardCallSites.test.ts` that asserts a cross-package specifier CAUGHT against a
+    // control, plus the row below whose site id names that file. Re-measure rather than reread:
+    // add the spelling to a shipped file and diff `findGuardSites` before and after.
     expect(found.map((s) => s.site).sort()).toEqual(
       KEY_GUARD_INVENTORY.map((row) => row.site).sort(),
     );
@@ -290,13 +330,13 @@ describe('isSafeKey — call-site inventory', () => {
     // neighbouring guard and the measurement — not a shrug.
     const unaccounted = KEY_GUARD_INVENTORY.filter((row) => !row.pinnedBy && !row.unpinnable);
     expect(unaccounted).toEqual([]);
-    // Stated as a ratio rather than left implicit: this family is 15/18 pinned, and the rest is
+    // Stated as a ratio rather than left implicit: this family is 16/19 pinned, and the rest is
     // defence-in-depth that is subsumed by something that IS pinned. The previous enumeration
     // reported "4 sites, 4/4 KILLED", which reads as 100%. Four of the seven rows that once
     // said `unpinnable` are pinned by tests that fabricate an unreachable pre-state; each of
     // those carries a `note` saying so, because "pinned" and "pinned only from a state no
     // producer can build" are different claims.
-    expect(KEY_GUARD_INVENTORY.filter((row) => row.pinnedBy)).toHaveLength(15);
+    expect(KEY_GUARD_INVENTORY.filter((row) => row.pinnedBy)).toHaveLength(16);
     expect(KEY_GUARD_INVENTORY.filter((row) => row.unpinnable)).toHaveLength(3);
   });
 });

@@ -415,7 +415,16 @@ describe("the scan's own identity function — resolved, reported, and missed", 
     // The repo's own `paths` mapping, so the package-specifier case is resolved the way the
     // real one is rather than by a rule invented for the test.
     write('tsconfig.json', [
-      JSON.stringify({ compilerOptions: { paths: { 'fixture-pkg/*': ['./packages/*'] } } }),
+      JSON.stringify({
+        compilerOptions: {
+          paths: {
+            'fixture-pkg/*': ['./packages/*'],
+            // A no-`*` key, the shape `@mui/x-studio` has. It is the one that used to swallow
+            // `@mui/x-studio-schema` whole via `startsWith`.
+            'fixture-pkg': ['./packages'],
+          },
+        },
+      }),
     ]);
     write('packages/guards/cssValueValidation.ts', [
       'export function sanitizeFontSize(value: unknown): number | undefined {',
@@ -550,6 +559,84 @@ describe("the scan's own identity function — resolved, reported, and missed", 
       expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
       expect(findIndirectGuardReferences(family, root)).toEqual([]);
       expect(findGuardReExports(family, root)).toEqual([]);
+    });
+
+    it('a CROSS-PACKAGE specifier with no tsconfig `paths` entry, read from package.json', () => {
+      // The shipped escape, reproduced. `studioBackendAdapter.ts` calls `isSafeKey` through
+      // `@mui/x-studio-schema`; `tsconfig.json` maps `@mui/x-studio` and NOT the schema package,
+      // and the resolver's `startsWith` alias match captured the longer name into the shorter
+      // entry and resolved it to `packages/x-studio/src-schema`, which does not exist. Silent in
+      // both mechanisms, for four rounds, while the completeness assertion in
+      // `keyGuardCallSites.test.ts` named that exact specifier as one it would catch.
+      //
+      // Both halves of the fix are load-bearing here and neither is separately observable:
+      // reverting the segment-boundary match makes `fixture-pkg-schema` resolve through the
+      // `fixture-pkg` entry, and reverting the workspace-package.json alias leaves it with no
+      // entry to fall through to. Either way this test goes red.
+      write('packages/schema/package.json', [
+        JSON.stringify({ name: 'fixture-pkg-schema', main: './src/index.ts' }),
+      ]);
+      write('packages/schema/src/index.ts', [
+        "export { sanitizeFontSize } from '../../guards/cssValueValidation';",
+      ]);
+      write('packages/app/a.ts', [
+        "import { sanitizeFontSize } from 'fixture-pkg-schema';",
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
+    });
+
+    it('an import written with a `.js` EXTENSION — the NodeNext/ESM spelling', () => {
+      // `./cssValueValidation.js` is how the same module is spelled under NodeNext, and
+      // `x-studio-ai-middleware` already contains three imports written that way. The resolver
+      // appended its candidates to the specifier text unchanged, so it probed
+      // `cssValueValidation.js.ts` and returned null — no binding, no site, no report.
+      write('packages/app/a.ts', [
+        "import { sanitizeFontSize } from '../guards/cssValueValidation.js';",
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
+    });
+
+    it('an import written with a `.ts` EXTENSION — legal here, `allowImportingTsExtensions`', () => {
+      write('packages/app/a.ts', [
+        "import { sanitizeFontSize } from '../guards/cssValueValidation.ts';",
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
+    });
+
+    it('a barrel spelled `index.tsx` rather than `index.ts`', () => {
+      // The directory-index probe was the single literal `index.ts`. Nine `index.tsx` barrels
+      // exist under `packages` today; a family whose barrel were one of them would have had
+      // every import through it drop silently.
+      write('packages/guards/index.tsx', [
+        "export { sanitizeFontSize } from './cssValueValidation';",
+      ]);
+      write('packages/app/a.ts', [
+        "import { sanitizeFontSize } from '../guards';",
+        'export const a = sanitizeFontSize(config.size);',
+      ]);
+      expect(sites()).toContain('packages/app/a.ts:sanitizeFontSize(config.size)#0');
+    });
+
+    it('a guard module DECLARED in a `.mts` file, imported without the extension', () => {
+      // The mirror of "a call in a `.mts` file" below: that one is about which files are
+      // WALKED, this one is about which files a specifier can RESOLVE to. `isSourceFile` was
+      // widened to the full extension set a round earlier and `resolveSpecifier` was not, so a
+      // `.mts` module was walked for calls and unreachable by import.
+      write('packages/guards/other.mts', [
+        'export const sanitizeCssShadow = (value: unknown): string | undefined =>',
+        "  typeof value === 'string' ? value : undefined;",
+      ]);
+      const mtsFamily = { ...family, modules: ['packages/guards/other.mts'] };
+      write('packages/app/a.ts', [
+        "import { sanitizeCssShadow } from '../guards/other';",
+        'export const a = sanitizeCssShadow(config.shadow);',
+      ]);
+      expect(findGuardSites(mtsFamily, root).map((s) => s.site)).toContain(
+        'packages/app/a.ts:sanitizeCssShadow(config.shadow)#0',
+      );
     });
 
     it('a call in a `.mts` file under the roots', () => {

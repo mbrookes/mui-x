@@ -49,11 +49,20 @@ import ts from 'typescript';
  * safe reading of this one is "these are the spellings somebody has actually run through the
  * scan", and the honest count of the rest is unknown.
  *
- * Two of the nine are closed as of this revision (a `from`-less verbatim re-export, and a call
- * in a `.mts`/`.cts`/`.js` file under the roots) and one is now REPORTED rather than silent (a
- * `from`-less renaming re-export). That is the fourth time closing measured escapes has been
- * the outcome of measuring, which is the argument for the standing instruction below rather
- * than for trusting the shortened list.
+ * Two of the nine were closed one revision ago (a `from`-less verbatim re-export, and a call
+ * in a `.mts`/`.cts`/`.js` file under the roots) and one was made REPORTED rather than silent (a
+ * `from`-less renaming re-export). Five more were measured after that and are closed here — a
+ * cross-package specifier with no `paths` entry, an import carrying a `.js` extension, one
+ * carrying a `.ts` extension, a barrel spelled `index.tsx`, and a module declared in `.mts`.
+ * That is the fifth time closing measured escapes has been the outcome of measuring, which is
+ * the argument for the standing instruction below rather than for trusting the shortened list.
+ *
+ * Where those five were is the part worth carrying forward. Every escape found before them was
+ * an EXPORT-side spelling, so four rewrites hardened the export side; all five of these were in
+ * the twenty-three lines of {@link resolveSpecifier}, which no revision had touched, because no
+ * revision had yet found a bug there. One of them was live in the shipped tree the whole time
+ * (`studioBackendAdapter.ts` calling `isSafeKey` through `@mui/x-studio-schema`). Absence of
+ * past findings in a region of this file is not evidence about the region.
  *
  * **Standing instruction: re-measure before relying on any line of this.** The recipe is the
  * one that found the last three — write the spelling into a shipped file, run
@@ -124,12 +133,16 @@ import ts from 'typescript';
  *  - a named import of a guard, aliased or not, from a declaring module;
  *  - a named import through a barrel that re-exports the guard verbatim, with `from`
  *    (`export { isSafeKey } from './unsafeKeys'`) or without it (`import { isSafeKey } …;
- *    export { isSafeKey };`);
- *  - the repo's own package specifiers, resolved through `tsconfig.json`'s `paths`;
+ *    export { isSafeKey };`), including a barrel spelled `index.ts` or `index.tsx`;
+ *  - the repo's own package specifiers, resolved through `tsconfig.json`'s `paths` — and, for
+ *    the workspace packages `paths` never got an entry for, through their own `package.json`
+ *    `name`/`main`. `@mui/x-studio-schema` is one of those, and the call it hid was shipped;
+ *  - a specifier carrying an extension: `./unsafeKeys.js` (NodeNext) or `./unsafeKeys.ts`
+ *    (`allowImportingTsExtensions`);
  *  - a namespace import of either, called as `ns.guard(x)`;
  *  - a module-scope `const`/`let`/`var` rebinding of either, to a fixed point;
  *  - any of the above in a `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.mjs`, `.cjs` or `.jsx` file
- *    under the family's roots.
+ *    under the family's roots, and importing a guard DECLARED in any of those.
  *
  * Everything else is either REPORTED by
  * {@link findIndirectGuardReferences}/{@link findGuardReExports}, or one of the measured misses
@@ -262,7 +275,80 @@ function readPathAliases(repoRoot: string): Array<[string, string]> {
     }
     pairs.push([pattern.replace(/\*$/, ''), target.replace(/^\.\//, '').replace(/\*$/, '')]);
   }
-  // Longest prefix first, so `@mui/x-studio/` wins over a hypothetical `@mui/`.
+  return pairs;
+}
+
+/**
+ * Every workspace package under `packages/`, mapped from its published NAME to its source
+ * directory — read from each `package.json`, not from `tsconfig.json`.
+ *
+ * `tsconfig.json`'s `paths` is not the repo's list of packages, it is the subset somebody
+ * remembered to add: `@mui/x-studio-schema`, `@mui/x-studio-ai-middleware` and
+ * `@mui/x-studio-data-middleware` have no entry, and they are the three the studio packages
+ * import ACROSS package boundaries. `studioBackendAdapter.ts` imports and calls `isSafeKey`
+ * through `@mui/x-studio-schema`; with only `paths` to go on that specifier resolved to
+ * nothing, `collectBindings` returned before binding anything, and a shipped call site was
+ * invisible to {@link findGuardSites} AND {@link findIndirectGuardReferences} at once. For a
+ * family whose whole purpose is to be SHARED across packages, that made the entire
+ * cross-package surface unobservable while the inventory's completeness assertion stayed green.
+ *
+ * The source directory comes from `main` (`"./src/index.ts"` -> `src`) so it is derived from
+ * the same field the workspace resolves through, and the mapping is dropped if the directory
+ * does not exist.
+ */
+function readWorkspaceAliases(repoRoot: string): Array<[string, string]> {
+  const pairs: Array<[string, string]> = [];
+  const packagesDir = join(repoRoot, 'packages');
+  if (!existsSync(packagesDir)) {
+    return pairs;
+  }
+  for (const entry of readdirSync(packagesDir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const manifest = join(packagesDir, entry.name, 'package.json');
+    if (!existsSync(manifest)) {
+      continue;
+    }
+    let name: unknown;
+    let main: unknown;
+    try {
+      const json = JSON.parse(readFileSync(manifest, 'utf8'));
+      name = json?.name;
+      main = json?.main;
+    } catch {
+      continue;
+    }
+    if (typeof name !== 'string' || name.length === 0) {
+      continue;
+    }
+    const sub = typeof main === 'string' ? dirname(main.replace(/^\.\//, '')) : 'src';
+    const dir = sub === '.' ? `packages/${entry.name}` : `packages/${entry.name}/${sub}`;
+    if (!existsSync(join(repoRoot, dir))) {
+      continue;
+    }
+    pairs.push([name, dir]);
+    pairs.push([`${name}/`, `${dir}/`]);
+  }
+  return pairs;
+}
+
+/**
+ * The alias table {@link resolveSpecifier} consults: `tsconfig.json`'s `paths` first, then every
+ * workspace package name, longest prefix first so `@mui/x-studio/` wins over `@mui/x-studio`.
+ * A prefix already contributed by `paths` is kept, so the hand-written mapping stays
+ * authoritative wherever it exists and the workspace scan only fills the gaps.
+ */
+function readModuleAliases(repoRoot: string): Array<[string, string]> {
+  const seen = new Set<string>();
+  const pairs: Array<[string, string]> = [];
+  for (const pair of [...readPathAliases(repoRoot), ...readWorkspaceAliases(repoRoot)]) {
+    if (seen.has(pair[0])) {
+      continue;
+    }
+    seen.add(pair[0]);
+    pairs.push(pair);
+  }
   return pairs.sort((a, b) => b[0].length - a[0].length);
 }
 
@@ -310,6 +396,48 @@ function localGuardImports(
   return imported;
 }
 
+/**
+ * Extensions a module may actually be spelled with here, in preference order — the same set
+ * {@link isSourceFile} walks. It was `.ts`/`.tsx` only, so a guard declared in a `.mts` module,
+ * or reached through a barrel spelled `index.tsx`, resolved to `null`.
+ */
+const MODULE_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts', '.js', '.jsx', '.mjs', '.cjs'];
+
+/**
+ * What a specifier that ALREADY carries an extension may resolve to, TypeScript's own rule:
+ * `./x.js` means `./x.ts` under `moduleResolution: bundler`/NodeNext, `./x.mjs` means `./x.mts`,
+ * and `./x.ts` is legal verbatim because `allowImportingTsExtensions` is ON in this repo's
+ * `tsconfig.json`. The resolver used to append its candidates to the specifier text unchanged,
+ * so `./unsafeKeys.js` was probed as `unsafeKeys.js.ts` and missed — and three imports written
+ * exactly that way already exist in `x-studio-ai-middleware`.
+ */
+const EXTENSION_REWRITES: Record<string, string[]> = {
+  '.js': ['.ts', '.tsx', '.js', '.jsx'],
+  '.jsx': ['.tsx', '.jsx'],
+  '.mjs': ['.mts', '.mjs'],
+  '.cjs': ['.cts', '.cjs'],
+  '.ts': ['.ts'],
+  '.tsx': ['.tsx'],
+  '.mts': ['.mts'],
+  '.cts': ['.cts'],
+};
+
+/**
+ * Does `specifier` fall under `prefix`, at a PATH-SEGMENT boundary?
+ *
+ * A bare `specifier.startsWith(prefix)` is what made `@mui/x-studio-schema` resolve through the
+ * `@mui/x-studio` mapping to `packages/x-studio/src-schema`, a directory that does not exist —
+ * so the specifier failed, silently, instead of falling through to the mapping that would have
+ * worked. A `paths` key with no `*` names one module; a key with a `*` (prefix ending in `/`)
+ * names everything beneath it. Neither one names its own name plus a hyphen.
+ */
+function matchesAlias(specifier: string, prefix: string): boolean {
+  if (!specifier.startsWith(prefix)) {
+    return false;
+  }
+  return prefix.endsWith('/') || specifier.length === prefix.length;
+}
+
 /** Resolve an import specifier to a repo-relative file path, or `null`. */
 function resolveSpecifier(
   fromFile: string,
@@ -321,13 +449,28 @@ function resolveSpecifier(
   if (specifier.startsWith('.')) {
     base = resolve(dirname(fromFile), specifier);
   } else {
-    const hit = aliases.find(([prefix]) => specifier.startsWith(prefix));
+    const hit = aliases.find(([prefix]) => matchesAlias(specifier, prefix));
     if (!hit) {
       return null;
     }
     base = resolve(repoRoot, hit[1] + specifier.slice(hit[0].length));
   }
-  for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, 'index.ts')]) {
+  const candidates: string[] = [];
+  const written = /\.[cm]?[jt]sx?$/.exec(base)?.[0];
+  if (written) {
+    const stem = base.slice(0, -written.length);
+    for (const extension of EXTENSION_REWRITES[written] ?? [written]) {
+      candidates.push(stem + extension);
+    }
+  } else {
+    for (const extension of MODULE_EXTENSIONS) {
+      candidates.push(base + extension);
+    }
+    for (const extension of MODULE_EXTENSIONS) {
+      candidates.push(join(base, `index${extension}`));
+    }
+  }
+  for (const candidate of candidates) {
     if (existsSync(candidate)) {
       return toRepoRelative(candidate, repoRoot);
     }
@@ -516,7 +659,7 @@ interface FamilyContext {
   family: GuardFamily;
   /** The family's exported guard names. */
   guards: Set<string>;
-  /** `tsconfig.json` path aliases, longest prefix first. */
+  /** `tsconfig.json` paths plus workspace package names, longest prefix first. */
   aliases: Array<[string, string]>;
   /** Declaring modules PLUS the barrels that re-export them — every valid import target. */
   modules: string[];
@@ -526,7 +669,7 @@ interface FamilyContext {
 
 function familyContext(family: GuardFamily, repoRoot: string): FamilyContext {
   const guardNames = readGuardNames(family, repoRoot);
-  const aliases = readPathAliases(repoRoot);
+  const aliases = readModuleAliases(repoRoot);
   return {
     family,
     guards: new Set(guardNames),

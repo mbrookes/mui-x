@@ -18,12 +18,20 @@
  * own timing loop that never loads this file or `vitest.config.bench.mts`. This file's header
  * said `pnpm bench` and was wrong about which command runs it.
  *
- * Data is built once per describe block in beforeAll (outside the timed loop).
- * Cache-hit benches prime the cache with a single cold call before benchmarking
- * the warm path.
+ * Data is built once per ROW COUNT, at collection time, outside the timed loop — NOT in
+ * `beforeAll`. That distinction is the whole reason 28 of the 31 benchmarks in this file took no
+ * samples for at least three rounds: `beforeAll` does not run before a bench body in vitest
+ * 4.1.8 bench mode (measured — the hook's own `console.log` never printed), so every group that
+ * read a `beforeAll`-assigned variable threw on every iteration, and a throwing bench emits no
+ * `✓` line, no results table and no error text. `pnpm bench:vitest` exited 0 in 3.5 s having
+ * measured one group of ten. This header used to say "built once per describe block in
+ * beforeAll", which was false in the strongest way available: it was not built at all.
+ * `vitest.config.bench.mts`'s `ZeroSampleGuard` now fails the run if that ever recurs.
+ *
+ * Cache-hit benches prime the cache with a single cold call before benchmarking the warm path.
  */
 
-import { describe, bench, beforeAll } from 'vitest';
+import { describe, bench } from 'vitest';
 import { normalizeDataSourceRows } from '../internals/temporalUtils';
 import { resolveRows } from '../internals/dataSourceGraph';
 import {
@@ -74,26 +82,56 @@ import type { StudioDataSource, StudioFilterState, StudioWidget } from '../model
 // future run needs a bounded, deterministic sample count, pass `time: 0` WITH `iterations` and
 // expect the absolute numbers to move.
 
+// ─── Scenario data, built at collection time and shared per row count ─────────
+
+type Scenario = ReturnType<typeof buildScenario>;
+
+const SCENARIOS = new Map<number, Scenario>();
+
+/**
+ * The scenario for a row count, built on first ask and reused after.
+ *
+ * Called from describe bodies, which vitest executes during COLLECTION — before any bench body
+ * runs, and outside every timed loop. That is the property `beforeAll` was supposed to provide
+ * and does not have here.
+ *
+ * Memoised rather than per-group because the alternative is holding one scenario per group:
+ * eleven groups x two row counts, and the 100 000-order scenario alone is 100 000 orders +
+ * 300 000 order items + 10 000 customers. Collection builds them all at once, so per-group
+ * isolation would cost roughly twenty times the peak memory for no difference the numbers can
+ * show — the layer caches are keyed on the row-ARRAY references, and no bench in this file
+ * mutates the rows it was given.
+ *
+ * The one place sharing is visible is L4: `resolveChartRowsForAggregation` caches internally on
+ * stable refs, so "L4 (cold)" hits that cache from its second iteration whether or not the
+ * scenario is shared with L4-cache. Sharing only moves that to the first iteration. Read the L4
+ * and L4-cache numbers as two measurements of the warm path until that bench is given a fresh
+ * anchor per iteration; the numbers are new here (they did not exist before this file's data was
+ * built at all) and that property has not been fixed, only measured.
+ * @param {number} orderCount - Number of synthetic orders in the scenario.
+ */
+function scenarioFor(orderCount: number): Scenario {
+  let scenario = SCENARIOS.get(orderCount);
+  if (!scenario) {
+    scenario = buildScenario(orderCount);
+    SCENARIOS.set(orderCount, scenario);
+  }
+  return scenario;
+}
+
 // ─── Shared bench helper ──────────────────────────────────────────────────────
 
 /**
  * Builds a bench group that measures the given `fn` at `10_000` and `100_000`
- * orders.  The scenario is built once in `beforeAll`; only `fn` is timed.
- * @param {ReturnType<typeof buildScenario>} scenario - The pre-built benchmark scenario.
- * @param {number} orderCount - Number of synthetic orders in the scenario.
+ * orders.  The scenario is built at collection time; only `fn` is timed.
+ * @param {string} layerName - Name of the pipeline layer under test.
+ * @param {Function} fn - The work to time, given the scenario and its row count.
  */
-function layerBench(
-  layerName: string,
-  fn: (scenario: ReturnType<typeof buildScenario>, orderCount: number) => void,
-) {
+function layerBench(layerName: string, fn: (scenario: Scenario, orderCount: number) => void) {
   describe(layerName, () => {
     for (const orderCount of [10_000, 100_000]) {
       describe(`${orderCount.toLocaleString()} rows`, () => {
-        let scenario: ReturnType<typeof buildScenario>;
-
-        beforeAll(() => {
-          scenario = buildScenario(orderCount);
-        });
+        const scenario = scenarioFor(orderCount);
 
         bench(layerName, () => {
           fn(scenario, orderCount);
@@ -120,13 +158,9 @@ layerBench('L1 normalizeDataSourceRows', ({ dataSources }) => {
 describe('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
   for (const orderCount of [10_000, 100_000]) {
     describe(`${orderCount.toLocaleString()} rows`, () => {
-      let scenario: ReturnType<typeof buildScenario>;
-
-      beforeAll(() => {
-        scenario = buildScenario(orderCount);
-        // Prime the cache with one cold call.
-        getCachedNormalizedDataSource(scenario.dataSources.orders);
-      });
+      const scenario = scenarioFor(orderCount);
+      // Prime the cache with one cold call.
+      getCachedNormalizedDataSource(scenario.dataSources.orders);
 
       bench('L1-cache getCachedNormalizedDataSource (warm hit)', () => {
         // Same rows + fields refs → O(1) WeakMap lookup, no recomputation.
@@ -153,25 +187,20 @@ layerBench('L2 enrichRowsWithExpressions', ({ dataSources, relationships, expres
 
 // ─── L2-cache: getCachedEnrichedRows (cache hit) ──────────────────────────────
 // Same enrichment after the enrichedRowsCache is warm.
-// Primed with one cold call in beforeAll; warm calls are O(1) ref-equality checks.
+// Primed with one cold call at collection time; warm calls are O(1) ref-equality checks.
 
 describe('L2-cache getCachedEnrichedRows (warm hit)', () => {
   for (const orderCount of [10_000, 100_000]) {
     describe(`${orderCount.toLocaleString()} rows`, () => {
-      let scenario: ReturnType<typeof buildScenario>;
-
-      beforeAll(() => {
-        scenario = buildScenario(orderCount);
-        const { dataSources, relationships, expressionFields } = scenario;
-        // Prime the enrichedRowsCache with one cold call.
-        getCachedEnrichedRows(
-          dataSources.orders.rows!,
-          'orders',
-          expressionFields,
-          dataSources,
-          relationships,
-        );
-      });
+      const scenario = scenarioFor(orderCount);
+      // Prime the enrichedRowsCache with one cold call.
+      getCachedEnrichedRows(
+        scenario.dataSources.orders.rows!,
+        'orders',
+        scenario.expressionFields,
+        scenario.dataSources,
+        scenario.relationships,
+      );
 
       bench('L2-cache getCachedEnrichedRows (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
@@ -220,7 +249,7 @@ layerBench(
 describe('L3-cache resolveRowsCached (warm hit)', () => {
   for (const orderCount of [10_000, 100_000]) {
     describe(`${orderCount.toLocaleString()} rows`, () => {
-      let scenario: ReturnType<typeof buildScenario>;
+      const scenario = scenarioFor(orderCount);
       // stable filter and globalFilters references — same object on every call
       // so resolvedRowsCache treats this as a cache-valid state
       const filter: StudioFilterState = {
@@ -233,19 +262,15 @@ describe('L3-cache resolveRowsCached (warm hit)', () => {
       };
       const resolvedFilters: StudioFilterState[] = [filter];
 
-      beforeAll(() => {
-        scenario = buildScenario(orderCount);
-        const { dataSources, relationships, expressionFields } = scenario;
-        // Prime the cache: first call computes and stores the entry
-        resolveRowsCached(
-          dataSources.orders.rows!,
-          'orders',
-          resolvedFilters,
-          dataSources,
-          relationships,
-          expressionFields,
-        );
-      });
+      // Prime the cache: first call computes and stores the entry
+      resolveRowsCached(
+        scenario.dataSources.orders.rows!,
+        'orders',
+        resolvedFilters,
+        scenario.dataSources,
+        scenario.relationships,
+        scenario.expressionFields,
+      );
 
       bench('L3-cache resolveRowsCached (warm hit)', () => {
         const { dataSources, relationships, expressionFields } = scenario;
@@ -289,22 +314,18 @@ layerBench(
 describe('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
   for (const orderCount of [10_000, 100_000]) {
     describe(`${orderCount.toLocaleString()} rows`, () => {
-      let scenario: ReturnType<typeof buildScenario>;
-
-      beforeAll(() => {
-        scenario = buildScenario(orderCount);
-        // Prime the WeakMap cache with one cold call
-        resolveChartRowsForAggregation(
-          scenario.dataSources.customers.rows!,
-          'customers',
-          'country',
-          ['total'],
-          undefined,
-          scenario.dataSources,
-          scenario.relationships,
-          scenario.expressionFields,
-        );
-      });
+      const scenario = scenarioFor(orderCount);
+      // Prime the WeakMap cache with one cold call
+      resolveChartRowsForAggregation(
+        scenario.dataSources.customers.rows!,
+        'customers',
+        'country',
+        ['total'],
+        undefined,
+        scenario.dataSources,
+        scenario.relationships,
+        scenario.expressionFields,
+      );
 
       bench('L4-cache resolveChartRowsForAggregation (warm hit)', () => {
         resolveChartRowsForAggregation(
@@ -406,15 +427,9 @@ describe('A1 buildQueryDescriptor', () => {
 // ── A2: StudioRequestCache.get (warm Map lookup) ──────────────────────────────
 
 describe('A2 StudioRequestCache.get (warm hit)', () => {
-  let cache: StudioRequestCache;
-  let cacheKey: string;
-
-  beforeAll(() => {
-    cache = new StudioRequestCache();
-    const widget = makeKpiWidget();
-    cacheKey = buildQueryDescriptor(widget, [makePageFilter('f1')], 'page-1').cacheKey;
-    cache.set(cacheKey, { rows: [{ id: 1 }] });
-  });
+  const cache = new StudioRequestCache();
+  const cacheKey = buildQueryDescriptor(makeKpiWidget(), [makePageFilter('f1')], 'page-1').cacheKey;
+  cache.set(cacheKey, { rows: [{ id: 1 }] });
 
   bench('A2 cache.get (hit)', () => {
     cache.get(cacheKey);
@@ -428,24 +443,18 @@ describe('A2 StudioRequestCache.get (warm hit)', () => {
 // ── A3: StudioRequestCache set + get round-trip ───────────────────────────────
 
 describe('A3 StudioRequestCache set+get round-trip', () => {
-  let cache: StudioRequestCache;
-  let keys: string[];
-
-  beforeAll(() => {
-    cache = new StudioRequestCache();
-    const widget = makeKpiWidget();
-    // Pre-build 100 unique cache keys (vary filter values)
-    keys = Array.from({ length: 100 }, (_, i) => {
-      const f: StudioFilterState = {
-        id: 'f1',
-        scope: { kind: 'page' },
-        field: 'status',
-        fieldType: 'string',
-        operator: 'equals',
-        value: `value-${i}`,
-      };
-      return buildQueryDescriptor(widget, [f], 'page-1').cacheKey;
-    });
+  const cache = new StudioRequestCache();
+  // Pre-build 100 unique cache keys (vary filter values)
+  const keys = Array.from({ length: 100 }, (_, index) => {
+    const f: StudioFilterState = {
+      id: 'f1',
+      scope: { kind: 'page' },
+      field: 'status',
+      fieldType: 'string',
+      operator: 'equals',
+      value: `value-${index}`,
+    };
+    return buildQueryDescriptor(makeKpiWidget(), [f], 'page-1').cacheKey;
   });
 
   let i = 0;
@@ -462,14 +471,10 @@ describe('A3 StudioRequestCache set+get round-trip', () => {
 describe('A4 StudioRequestCache.invalidateSource', () => {
   for (const entryCount of [10, 100, 1_000]) {
     describe(`${entryCount} entries`, () => {
-      let cache: StudioRequestCache;
       const widget = makeKpiWidget();
-
-      beforeAll(() => {
-        // A4 mutates the cache, so we rebuild it before each describe block.
-        // The bench loop re-populates before each invalidate to keep work constant.
-        cache = new StudioRequestCache();
-      });
+      // A4 mutates the cache, so each describe block gets its own.
+      // The bench loop re-populates before each invalidate to keep work constant.
+      const cache = new StudioRequestCache();
 
       bench(`A4 invalidateSource (${entryCount} entries)`, () => {
         // Repopulate so each iteration exercises the same scan length.

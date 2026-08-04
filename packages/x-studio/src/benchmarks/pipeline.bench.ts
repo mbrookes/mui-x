@@ -96,18 +96,20 @@ const SCENARIOS = new Map<number, Scenario>();
  * and does not have here.
  *
  * Memoised rather than per-group because the alternative is holding one scenario per group:
- * eleven groups x two row counts, and the 100 000-order scenario alone is 100 000 orders +
- * 300 000 order items + 10 000 customers. Collection builds them all at once, so per-group
- * isolation would cost roughly twenty times the peak memory for no difference the numbers can
+ * eleven groups x two row counts is twenty-two, and the 100 000-order scenario alone is 100 000
+ * orders + 300 000 order items + 10 000 customers. Collection builds them all at once, so
+ * per-group isolation would cost eleven times the peak memory for no difference the numbers can
  * show — the layer caches are keyed on the row-ARRAY references, and no bench in this file
  * mutates the rows it was given.
  *
  * The one place sharing is visible is L4: `resolveChartRowsForAggregation` caches internally on
  * stable refs, so "L4 (cold)" hits that cache from its second iteration whether or not the
- * scenario is shared with L4-cache. Sharing only moves that to the first iteration. Read the L4
- * and L4-cache numbers as two measurements of the warm path until that bench is given a fresh
- * anchor per iteration; the numbers are new here (they did not exist before this file's data was
- * built at all) and that property has not been fixed, only measured.
+ * scenario is shared with L4-cache. Sharing only moves that to the first iteration. Now that
+ * these benches take samples, the first run says so outright — L4 (cold) 408 937 hz at 10 000
+ * rows and 411 497 hz at 100 000, against L4-cache's 411 803 and 404 683: four measurements
+ * within 2% of each other and INDEPENDENT OF ROW COUNT, which no cold O(N) join can be. Read L4
+ * and L4-cache as two measurements of the warm path until the cold bench is given a fresh anchor
+ * per iteration. That is measured here, not fixed here.
  * @param {number} orderCount - Number of synthetic orders in the scenario.
  */
 function scenarioFor(orderCount: number): Scenario {

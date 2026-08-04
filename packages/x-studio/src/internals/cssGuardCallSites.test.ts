@@ -569,10 +569,16 @@ describe("the scan's own identity function — resolved, reported, and missed", 
       // both mechanisms, for four rounds, while the completeness assertion in
       // `keyGuardCallSites.test.ts` named that exact specifier as one it would catch.
       //
-      // Both halves of the fix are load-bearing here and neither is separately observable:
-      // reverting the segment-boundary match makes `fixture-pkg-schema` resolve through the
-      // `fixture-pkg` entry, and reverting the workspace-package.json alias leaves it with no
-      // entry to fall through to. Either way this test goes red.
+      // WHICH HALF OF THE FIX THIS PINS, measured rather than assumed. Reverting the
+      // workspace-`package.json` alias makes this red (and the shipped inventory 18 again).
+      // Reverting the segment-boundary alias match leaves it GREEN — `readModuleAliases` sorts
+      // longest-prefix-first, so once `fixture-pkg-schema` has an entry of its own it is found
+      // before `fixture-pkg` whether the match is bounded or not. The boundary rule is NOT what
+      // makes the cross-package case work and must not be read as pinned by this test; it is
+      // kept because it turns a mis-resolution into a clean miss, and a mis-resolution is only
+      // silent while the wrong path happens not to exist (`packages/x-studio/src-schema` did
+      // not). No fixture can observe that while the alias table is complete, which is exactly
+      // the kind of claim this block exists to stop being written as if it were measured.
       write('packages/schema/package.json', [
         JSON.stringify({ name: 'fixture-pkg-schema', main: './src/index.ts' }),
       ]);

@@ -426,10 +426,18 @@ const EXTENSION_REWRITES: Record<string, string[]> = {
  * Does `specifier` fall under `prefix`, at a PATH-SEGMENT boundary?
  *
  * A bare `specifier.startsWith(prefix)` is what made `@mui/x-studio-schema` resolve through the
- * `@mui/x-studio` mapping to `packages/x-studio/src-schema`, a directory that does not exist —
- * so the specifier failed, silently, instead of falling through to the mapping that would have
- * worked. A `paths` key with no `*` names one module; a key with a `*` (prefix ending in `/`)
- * names everything beneath it. Neither one names its own name plus a hyphen.
+ * `@mui/x-studio` mapping to `packages/x-studio/src-schema`, a directory that does not exist.
+ * A `paths` key with no `*` names one module; a key with a `*` (prefix ending in `/`) names
+ * everything beneath it. Neither one names its own name plus a hyphen.
+ *
+ * NOT PINNED, and measured that way rather than asserted. With {@link readWorkspaceAliases}
+ * supplying an entry for every package and the table sorted longest-prefix-first, the exact
+ * entry is always found before the shorter one — so reverting this function to a bare
+ * `startsWith` leaves BOTH the cross-package fixture and the shipped inventory green (measured;
+ * the other two reverts of this commit each go red). The load-bearing half of that fix is the
+ * workspace alias, not this one. This is kept because a mis-resolution is silent only while the
+ * wrong path happens not to exist, and it is recorded here as unobservable rather than
+ * described as though a test held it down.
  */
 function matchesAlias(specifier: string, prefix: string): boolean {
   if (!specifier.startsWith(prefix)) {

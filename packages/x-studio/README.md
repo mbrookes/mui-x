@@ -37,9 +37,10 @@ Additional MUI developer reference documentation in this package:
 | [AG_STUDIO_CLONE_REQUIREMENTS.md](./docs/AG_STUDIO_CLONE_REQUIREMENTS.md) | Feature requirements modelled on AG Studio                                                            |
 | [AG_STUDIO_GAP_ANALYSIS.md](./docs/AG_STUDIO_GAP_ANALYSIS.md)             | Gap analysis against AG Studio clone requirements                                                     |
 | [X_STUDIO_PROGRESS.md](./docs/X_STUDIO_PROGRESS.md)                       | Requirements progress tracker                                                                         |
-| [BACKLOG.md](./docs/BACKLOG.md)                                           | Known issues and planned work                                                                         |
+| [BACKLOG.md](./BACKLOG.md)                                                | Known issues and planned work                                                                         |
 | Architecture                                                              |
-| [ARCHITECTURE.md](./docs/ARCHITECTURE.md)                                 | Component architecture, `StudioController`, data pipeline, and slot system                            |
+| [ARCHITECTURE.md](./ARCHITECTURE.md)                                      | **Canonical.** State management, data pipeline, widgets, canvas, filters, persistence, AI integration |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)                            | Superseded — kept for its pipeline/cache walkthroughs; see the canonical doc above for current state  |
 | AI Assistant                                                              |
 | [AI_ASSISTANT_OVERVIEW.md](./docs/AI_ASSISTANT_OVERVIEW.md)               | AI agent reference: all 12 tools, SSE pipeline, insight generation, and data isolation                |
 | [AI_ASSISTANT_RESEARCH.md](./docs/AI_ASSISTANT_RESEARCH.md)               | Market research, gap analysis, and roadmap for AI assistant features                                  |

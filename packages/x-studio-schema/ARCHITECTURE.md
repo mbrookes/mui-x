@@ -217,8 +217,8 @@ Three consequences worth stating plainly:
   deltas layer onto current state rather than a turn-start snapshot, a widget concurrently
   created or edited while an agentic turn runs keeps its record entry instead of being silently
   reverted. `widgetRows`/`widgetColSpans` are **optional** because an updates-only bulk has no
-  layout snapshot to attach; see [`applyBulkUpdate`](#applybulkupdate) for how the reducer stays
-  total over every partial shape.
+  layout snapshot to attach; see [the mutation reducer](#applymutationts--the-single-mutation-reducer)
+  for how `applyBulkUpdate` stays total over every partial shape.
 
 - **`richContextTypes.ts`** — `StudioAIFieldStat`/`StudioAILayoutWidget`/`StudioAICrossFilterEdge`/`StudioAIPageLayout`/`StudioAIRecentMutation`,
   the constituents of `StudioAIRichContext`: the purely-additive client-derived signal attached
@@ -643,9 +643,15 @@ re-persists the dangling reference forever with no self-heal.
 The rule: **every path that drops a filter prunes `dependsOn` against the survivors.**
 `pruneDependsOn(filters, survivingIds)` is the ONE implementation, exported from
 `applyMutation.ts` (not from `index.ts`) so the load boundary uses identical code. The
-file-private `pruneDependsOnAgainstSelf(filters)` wrapper covers the common "some filters were
-just dropped from this array" shape; the exported primitive keeps its explicit
+`pruneDependsOnAgainstSelf(filters)` wrapper covers the common "some filters were
+just dropped from this array" shape; the primitive keeps its explicit
 surviving-id-set signature for the load boundary, which computes the set itself.
+
+**`pruneDependsOnAgainstSelf` is published from `index.ts`** (it began as file-private) because
+the rule is not this package's alone to keep: `@mui/x-studio`'s eight filter-drop paths commit
+through `commitDocPatch` and **never reach the reducer**, so they cannot inherit the cascade by
+routing through it. Publishing the wrapper is what holds them to the same invariant every
+reducer drop path enforces, instead of leaving eight hand-rolled near-copies to drift.
 
 It drops the whole `dependsOn` array (never leaves `dependsOn: []`) when the prune empties it,
 mirroring `docTransforms.ts`'s convention for this exact field, and is reference-stable at both
@@ -853,8 +859,23 @@ Three sharp edges, all handled by private helpers:
 
 ### `unsafeKeys.ts`, `wireLimits.ts`, `internalGuards.ts` and `docScreening.ts`
 
-All four are package-internal (absent from `index.ts`) and exist purely so their guards have
-exactly one implementation across every trust boundary.
+All four exist purely so their guards have exactly one implementation across every trust
+boundary. They began fully package-internal; five names have since been published from
+`index.ts`, on a deliberate rule:
+
+> **A guard is published when it is NOT an implementation detail of this package's own
+> boundaries** — when every consumer that writes an untrusted string key into a record, or
+> forwards an untrusted value into the persisted `doc`, needs the SAME answer. Everything else
+> stays internal.
+
+Published: `UNSAFE_KEYS`/`isSafeKey` (from `unsafeKeys.ts`) and `MAX_ARRAY_LENGTH`/
+`MAX_STRING_LENGTH` (from `wireLimits.ts`). `@mui/x-studio`'s SSE adapter had hand-rolled a
+byte-equivalent `key === '__proto__' || key === 'constructor' || key === 'prototype'` literal
+**precisely because these were unreachable** — which is how a denylist that exists to be defined
+exactly once starts drifting. Both modules stay zero-dependency, so exporting them adds nothing
+to a consumer's import graph. `docScreening.ts` additionally publishes
+`hasResolvableFilterAnchors` (see below). The rest of `internalGuards.ts` remains unexported —
+those really are boundary internals.
 
 - **`unsafeKeys.ts`** — `UNSAFE_KEYS`/`isSafeKey`. Imported by `applyMutation.ts` (as the local
   `isSafePatchKey` alias), `parseStateMutation.ts` (behind `isSafeId` and `hasUnsafeOwnKeys`),
@@ -882,6 +903,16 @@ exactly one implementation across every trust boundary.
   `statePersistence.ts` and `factories.ts` — see
   [the four trust boundaries](#the-four-trust-boundaries) for why the factory needs them and which
   two load-boundary behaviours it deliberately does not take.
+
+  It also publishes **`hasResolvableFilterAnchors`**, which with `parseStateMutation.ts`'s
+  **`isValidFilterScope`** forms the two halves of filter-scope screening: stage 1 is
+  WELLFORMEDNESS (kind membership, the required id fields per kind, prototype-hazard keys, size
+  bounds — a payload judged in isolation), stage 2 is EXISTENCE (every id the scope names
+  resolves against a doc). The reducer's `addFilter` runs exactly these two, in this order.
+  Both are exported so a client-side writer that installs a scope **without** going through
+  `applyMutation` — `StudioController.updateFilter` commits via `commitDocPatch`, never the
+  reducer — is held to the same standard as its reducer-routed sibling, rather than accepting a
+  scope live that the load boundary then silently drops on the next reload.
 
   **Import-cycle constraint, load-bearing:** this module must not import `factories.ts`,
   `applyMutation.ts` or `statePersistence.ts`, because `factories.ts` imports it. That is why the

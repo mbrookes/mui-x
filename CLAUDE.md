@@ -47,17 +47,18 @@ x-studio is an embedded analytics dashboard builder. Understanding the layered a
 
 ### Data pipeline
 
-`StudioPipeline` (`src/internals/StudioPipeline.ts`) processes raw rows through three ordered layers:
+The row pipeline has four ordered, separately-cached layers. `StudioPipeline` (`src/internals/StudioPipeline.ts`) is the non-React façade over L2–L4:
 
-1. **L2** — enrich rows with expression-column (computed field) values
-2. **L3** — apply scoped filters (page / widget / cross-filter / interactive)
-3. **L4** — re-anchor to chart aggregation grain (for multi-source chart fields)
+1. **L1** — normalize raw `dataSources[id].rows` (`internals/normalizedRowsCache.ts`); every other layer and the adapter path must go through it
+2. **L2** — enrich rows with expression-column (computed field) values
+3. **L3** — apply scoped filters (page / widget / cross-filter / interactive)
+4. **L4** — re-anchor to chart aggregation grain (for multi-source chart fields)
 
 Widget components call `resolveWidgetRows()` then apply widget-specific aggregation themselves.
 
 ### State persistence
 
-`statePersistence.ts` (`packages/x-studio-schema/src/statePersistence.ts`) handles serialization of the `doc` partition only — `serializeState`/`serializeDoc` take a `StudioDoc` (or the `doc` field of a `StudioState`); `session` and `runtime` are never serialized (session state resets to defaults and runtime data sources are re-injected by the host on load). `CURRENT_SCHEMA_VERSION` is an integer; add a migration entry keyed by the **old** version when bumping. The `migrateState` function runs migrations sequentially.
+`statePersistence.ts` (`packages/x-studio-schema/src/statePersistence.ts`) handles serialization of the `doc` partition only — `serializeState`/`serializeDoc` take a `StudioDoc` (or the `doc` field of a `StudioState`); `session` and `runtime` are never serialized (session state resets to defaults and runtime data sources are re-injected by the host on load). `CURRENT_SCHEMA_VERSION` is an integer defined in `stateTypes.ts` (the single source of truth) and re-exported from `statePersistence.ts`; add a migration entry keyed by the **old** version when bumping. The `migrateState` function runs migrations sequentially.
 
 ### Widget system
 
@@ -85,7 +86,7 @@ cd examples/<name> && pnpm dev
 
 ## Adding a new widget type
 
-1. Add the kind string to `StudioWidgetKind` in `src/models/baseTypes.ts`
+1. Add the kind string to `BuiltinStudioWidgetKind` in `packages/x-studio-schema/src/baseTypes.ts` (`StudioWidgetKind` is the open union `BuiltinStudioWidgetKind | (string & {})`, and `x-studio/src/models/baseTypes.ts` is only a re-export shim)
 2. Create a directory under `src/components/widgets/Studio<Kind>Widget/`
 3. Add the widget component and an optional setup panel
 4. Register the kind in the widget factory / compose drawer
@@ -96,7 +97,7 @@ cd examples/<name> && pnpm dev
 
 When changing `StudioDoc` (the persisted partition of `StudioState`) in a way that breaks deserialization of persisted dashboards:
 
-1. Increment `CURRENT_SCHEMA_VERSION` in `packages/x-studio-schema/src/statePersistence.ts`
+1. Increment `CURRENT_SCHEMA_VERSION` in `packages/x-studio-schema/src/stateTypes.ts` (the single source of truth; `statePersistence.ts` re-exports it)
 2. Add a migration function keyed by the **previous** version number
 3. Add a test in `statePersistence.test.ts` with a v(N) fixture
 

@@ -1,5 +1,13 @@
 # x-studio Architecture
 
+> [!IMPORTANT]
+> **Superseded. The canonical architecture doc is [`../ARCHITECTURE.md`](../ARCHITECTURE.md).**
+>
+> This file is not part of the per-round doc-sync contract and was last reconciled with the
+> code on 2026-07-25; the canonical doc has moved on since. Where the two disagree, the
+> canonical one wins. It is kept for its long-form pipeline and cache walkthroughs, which have
+> no equivalent there — treat anything else here as historical.
+
 > **Audience:** engineers working on or integrating `@mui/x-studio`.
 > **Scope:** end-to-end data pipeline, state management, UI structure, and public API surface.
 

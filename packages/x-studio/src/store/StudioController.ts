@@ -36,7 +36,6 @@ import {
   // and so never reach the reducer; without this they left dangling `dependsOn` ids in the
   // LIVE doc that only `serializeDoc` pruned, so the in-memory cascade and the saved one
   // disagreed until the next reload.
-  pruneDependsOnAgainstSelf,
 } from '@mui/x-studio-schema';
 
 import {
@@ -2608,8 +2607,17 @@ export class StudioController {
       return MUTATION_NOOP;
     }
 
-    this.commitDocPatch(
-      { filters: nextFilters },
+    // The WRITE goes through the reducer; the SCREENING above stays here, deliberately.
+    //
+    // Everything above this line reports a REASON — `MUTATION_INVALID`, `MUTATION_NOT_FOUND`,
+    // `MUTATION_RANK_CONFLICT` — and the reducer's contract ("never throws, returns the SAME doc
+    // when it declines") cannot express any of them: a rejected write and a value-equal re-save
+    // are the same observation from inside `applyMutation`. So this method keeps the part that
+    // has to answer the caller, and hands the reducer the part that has to be identical to what
+    // every other filter write does. The reducer's own `updateFilter` handler re-runs the scope
+    // screen for callers that do not come through here.
+    this.commitMutation(
+      { type: 'updateFilter', args: { filterId, changes } },
       {
         // `{ undoable: false }` is ALSO the self-repair signal: both
         // `PageFilterRow`/`WidgetFilterRow` pass it only from their render-time
@@ -2618,9 +2626,15 @@ export class StudioController {
         // `undoable`, so an unlabeled self-repair commit would otherwise still write a
         // synthetic recent-mutation-log line — and since the log is capped
         // (`MAX_MUTATION_LOG`), that line could evict a genuine user-initiated one.
-        // Omit the label ONLY for the self-repair case; a genuine call (the default,
+        // Suppress the label ONLY for the self-repair case; a genuine call (the default,
         // `undoable !== false`) keeps its normal label.
-        label: options?.undoable === false ? undefined : `updateFilter:${filterId}`,
+        //
+        // `null`, not `undefined`. The two commit paths differ here and the difference is silent:
+        // `commitDocPatch` treats an absent label as "do not log", while `commitMutations` treats
+        // it as "use the mutation's own `mutationLabel`" — so carrying `undefined` across this
+        // migration would have started logging every self-repair. Pinned by
+        // "updateFilter self-repair ({ undoable: false }) logs nothing".
+        label: options?.undoable === false ? null : `updateFilter:${filterId}`,
         undoable: options?.undoable,
       },
     );
@@ -2635,14 +2649,7 @@ export class StudioController {
   };
 
   toggleFilter = (filterId: string) => {
-    const state = this.store.state;
-    // `mapPreservingIdentity` (1.6): an unknown `filterId` returns the original array,
-    // so `commitDocPatch` no-ops it (no undo entry, no log line).
-    this.commitDocPatch({
-      filters: mapPreservingIdentity(state.doc.filters, (f: StudioFilterState) =>
-        f.id === filterId ? { ...f, disabled: !f.disabled } : f,
-      ),
-    });
+    this.commitMutation({ type: 'toggleFilter', args: { filterId } }, { label: null });
   };
 
   /**
@@ -2843,19 +2850,11 @@ export class StudioController {
    * Clears the interactive filter originating from a specific filter widget.
    */
   clearInteractiveFilter = (sourceWidgetId: string) => {
-    const state = this.store.state;
-    const next = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
-    );
-    this.commitDocPatch(
-      {
-        filters:
-          next.length === state.doc.filters.length
-            ? state.doc.filters
-            : pruneDependsOnAgainstSelf(next),
-      },
-      { undoable: false },
+    // Stays non-undoable and unlogged: an interactive selection is a viewer gesture, not a
+    // document edit, and `carryTransientDocState` carries interactive filters across an undo swap.
+    this.commitMutation(
+      { type: 'clearInteractiveFilter', args: { sourceWidgetId } },
+      { undoable: false, label: null },
     );
   };
 
@@ -2959,20 +2958,7 @@ export class StudioController {
    * Clears the cross-filter originating from a specific widget.
    */
   clearCrossFilter = (sourceWidgetId: string) => {
-    const state = this.store.state;
-    const next = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
-    );
-    this.commitDocPatch(
-      {
-        filters:
-          next.length === state.doc.filters.length
-            ? state.doc.filters
-            : pruneDependsOnAgainstSelf(next),
-      },
-      { label: `clearCrossFilter:${sourceWidgetId}` },
-    );
+    this.commitMutation({ type: 'clearCrossFilter', args: { sourceWidgetId } });
   };
 
   /**
@@ -2992,36 +2978,8 @@ export class StudioController {
    * Removes all page-level filters for the active page (restores the default view).
    */
   clearPageFilters = () => {
-    const state = this.store.state;
-    const activePageId = state.doc.dashboard.activePageId;
-    // Retention predicate, identical to `docTransforms.applyFilterPreset`'s: everything that is not
-    // page-scoped, every LEGACY pageId-less page filter (`scope: { kind: 'page' }` with no
-    // `pageId`, predating the per-page scope model — `selectFiltersForWidget`'s `!sv2.pageId`
-    // branch and `filterScoping.ts` both treat those as applying to EVERY page), and every page
-    // filter belonging to another page.
-    //
-    // Regression note: this used to retain only page filters whose `pageId` was BOTH set and
-    // different from `activePageId`. An all-pages filter satisfied neither disjunct, so
-    // "Clear all" on ONE page deleted it from the doc entirely and silently un-filtered every
-    // OTHER page too. Clearing the active page's filters must never touch an all-pages
-    // filter's effect on the rest of the dashboard — the exact invariant `applyFilterPreset`
-    // documents at its own `f.scope.pageId == null` disjunct.
-    const next = state.doc.filters.filter(
-      (f: StudioFilterState) =>
-        f.scope.kind !== 'page' || f.scope.pageId == null || f.scope.pageId !== activePageId,
-    );
-    this.commitDocPatch(
-      {
-        filters:
-          next.length === state.doc.filters.length
-            ? state.doc.filters
-            : pruneDependsOnAgainstSelf(next),
-      },
-      // Labeled like every other filter writer (`updateFilter:*`, `clearCrossFilter:*`) so a
-      // "Clear all" shows up in `getRecentMutations()` — the log the AI assistant reads back
-      // via `get_recent_changes`. Previously unlabeled, so the model never saw the clear.
-      { label: `clearPageFilters:${activePageId}` },
-    );
+    const activePageId = this.store.state.doc.dashboard.activePageId;
+    this.commitMutation({ type: 'clearPageFilters', args: { pageId: activePageId } });
   };
 
   /**
@@ -3051,16 +3009,10 @@ export class StudioController {
    * Clears all cross-filters.
    */
   clearAllCrossFilters = () => {
-    const state = this.store.state;
-    const next = state.doc.filters.filter(
-      (f: StudioFilterState) => f.scope.kind !== 'cross-filter',
-    );
-    this.commitDocPatch({
-      filters:
-        next.length === state.doc.filters.length
-          ? state.doc.filters
-          : pruneDependsOnAgainstSelf(next),
-    });
+    // `label: null` preserves this writer's existing "absent from the mutation log" behaviour.
+    // That gap is real and documented, but closing it is a per-writer decision, not something to
+    // change as a side effect of moving the write onto the reducer.
+    this.commitMutation({ type: 'clearAllCrossFilters', args: {} }, { label: null });
   };
 
   /**

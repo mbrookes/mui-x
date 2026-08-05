@@ -958,6 +958,22 @@ the callers differ: the reducer and the load boundary cascade the drops into the
 while the factory takes the array as-is. All three share the loop, so the predicate and the
 array-order tie-break cannot drift.
 
+### Two mutation unions, one reducer
+
+`mutationTypes.ts` defines **`WireStateMutation`** (what may arrive from outside — SSE
+`state-mutation` events, AI tool calls) and **`InternalStateMutation`** (what `@mui/x-studio`'s
+controller may issue but the wire may not carry). `StateMutation` is their union.
+
+The asymmetry is enforced, not documented: `parseStateMutation`'s `MUTATION_ARG_VALIDATORS` is a
+mapped type over `WireStateMutation` only, so an internal variant has no entry, and a payload
+naming one is rejected on the unknown-type path — fail-closed, with nothing to add and no
+per-variant decision to remember. `applyMutation`'s `MUTATION_HANDLERS` stays exhaustive over the
+full `StateMutation`.
+
+Before the split there was one union, so "the reducer should own this write" could not be
+answered without also answering "a remote party may perform this write". The second answer
+governed, and 25 client writers stayed outside the reducer as a result.
+
 ### `applyMutation.ts` — the single mutation reducer
 
 #### The two layers

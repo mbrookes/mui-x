@@ -273,14 +273,56 @@ describe('parseStateMutation — valid payloads (one per variant)', () => {
   });
 });
 
+/**
+ * The mutations the reducer handles but the WIRE must never be able to name.
+ *
+ * Kept as a literal list rather than derived from a type: the whole point is that widening the
+ * wire surface should require editing a list a human reads, not fall out of adding a union
+ * member somewhere else.
+ */
+const INTERNAL_ONLY_MUTATION_TYPES = [
+  'clearPageFilters',
+  'clearCrossFilter',
+  'clearAllCrossFilters',
+  'clearInteractiveFilter',
+  'toggleFilter',
+  'updateFilter',
+];
+
 describe('parseStateMutation — table-sync pins', () => {
-  it('the validator table covers exactly the reducer variant list', () => {
-    expect(new Set(PARSEABLE_MUTATION_TYPES)).toEqual(new Set(MUTATION_TYPES));
-    expect(PARSEABLE_MUTATION_TYPES).toHaveLength(MUTATION_TYPES.length);
+  it('the validator table covers every WIRE-reachable variant, and nothing else', () => {
+    // Deliberately NOT "exactly the reducer variant list" any more. The reducer's vocabulary is
+    // the superset: it also owns writes only this process may issue. Keeping the two identical is
+    // what made every candidate internal mutation a widening of the untrusted surface, which is
+    // why 25 controller writers stayed outside the reducer instead.
+    const wireReachable = MUTATION_TYPES.filter(
+      (type) => !INTERNAL_ONLY_MUTATION_TYPES.includes(type),
+    );
+    expect(new Set(PARSEABLE_MUTATION_TYPES)).toEqual(new Set(wireReachable));
+    expect(PARSEABLE_MUTATION_TYPES).toHaveLength(wireReachable.length);
   });
 
-  it('the valid-payload suite exercises every variant', () => {
-    expect(new Set(VALID_CASES.map((c) => c.type))).toEqual(new Set(MUTATION_TYPES));
+  it('rejects every internal-only mutation arriving from the wire', () => {
+    for (const type of INTERNAL_ONLY_MUTATION_TYPES) {
+      // Fail-closed on the UNKNOWN-type path: there is no validator entry to get wrong, and no
+      // per-variant decision to remember when one is added.
+      const result = parseStateMutation({ type, args: {} });
+      expect(result.ok, `${type} must not be parseable from the wire`).toBe(false);
+    }
+  });
+
+  it('the reducer nonetheless handles every internal-only mutation', () => {
+    // The other half of the split: unreachable from the wire, fully owned by the reducer.
+    for (const type of INTERNAL_ONLY_MUTATION_TYPES) {
+      expect(MUTATION_TYPES, `${type} must have a reducer handler`).toContain(type);
+    }
+  });
+
+  it('the valid-payload suite exercises every wire-reachable variant', () => {
+    const wireReachable = MUTATION_TYPES.filter(
+      (type) => !INTERNAL_ONLY_MUTATION_TYPES.includes(type),
+    );
+    expect(new Set(VALID_CASES.map((c) => c.type))).toEqual(new Set(wireReachable));
   });
 });
 

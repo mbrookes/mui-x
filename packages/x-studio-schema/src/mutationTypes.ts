@@ -48,10 +48,24 @@ export type OptionalWidgetField = {
 }[keyof StudioWidget];
 
 /**
- * A state mutation produced server-side and streamed to the client as an SSE event.
- * Both sides apply it through the shared `applyMutation` reducer.
+ * The mutations acceptable from OUTSIDE this process — produced server-side and streamed to the
+ * client as an SSE event, or issued by an AI tool call. Both sides apply them through the shared
+ * `applyMutation` reducer.
+ *
+ * THIS UNION IS THE UNTRUSTED WIRE SURFACE. `parseStateMutation`'s validator table is a mapped
+ * type over exactly this union, so a variant added here becomes something a hostile or buggy
+ * server can make the client apply. Adding one is a security decision and should be argued as
+ * such.
+ *
+ * It is deliberately SEPARATE from {@link InternalStateMutation}, which the client may issue but
+ * the wire may not carry. Before the split there was one union, so the two questions — "should
+ * the reducer own this write?" and "should a remote party be able to perform it?" — had a single
+ * answer, and the second one (correctly cautious) suppressed the first. The result was 25
+ * controller writers committing through `commitDocPatch` outside every invariant the reducer
+ * upholds, which is what the `dependsOn` cascade, the filter-scope screen and the rank-conflict
+ * resolution each had to be re-implemented for, by hand, at each bypass site.
  */
-export type StateMutation =
+export type WireStateMutation =
   | { type: 'addPage'; args: { id: string; title: string } }
   | { type: 'setDashboardTitle'; args: { title: string } }
   | {
@@ -204,6 +218,45 @@ export type StateMutation =
         threadId?: string;
       };
     };
+
+/**
+ * Mutations the CLIENT may issue but the WIRE may not carry.
+ *
+ * Every write that belongs in the reducer — so it inherits the `dependsOn` cascade, filter-scope
+ * screening, rank-conflict resolution, the reference-equality no-op contract and the id-coercion
+ * rules — but which no remote party has any business performing. `parseStateMutation` cannot
+ * produce one: its validator table is keyed on {@link WireStateMutation}, so a payload naming one
+ * of these types is rejected as unknown, fail-closed, with no entry to add and no decision to
+ * remember.
+ *
+ * That separation is the point. These exist so "the reducer should own this write" can be
+ * answered YES without also answering yes to "a remote party may perform this write" — the
+ * coupling that previously kept 25 controller writers out of the reducer entirely.
+ */
+export type InternalStateMutation =
+  /** Drop every filter scoped to a page. Cascades `dependsOn` against the survivors. */
+  | { type: 'clearPageFilters'; args: { pageId: string } }
+  /** Drop the cross-filter contributed by one widget. */
+  | { type: 'clearCrossFilter'; args: { sourceWidgetId: string } }
+  /** Drop every cross-filter on the document. */
+  | { type: 'clearAllCrossFilters'; args: Record<string, never> }
+  /** Drop the interactive selection contributed by one filter widget. */
+  | { type: 'clearInteractiveFilter'; args: { sourceWidgetId: string } }
+  /** Flip one filter's `disabled` flag. */
+  | { type: 'toggleFilter'; args: { filterId: string } }
+  /** Merge a partial into one filter, re-screening its scope. */
+  | {
+      type: 'updateFilter';
+      args: { filterId: string; changes: Partial<StudioFilterState> };
+    };
+
+/**
+ * The full mutation vocabulary the reducer handles: everything the wire may carry, plus the
+ * client-only writes it may not. `applyMutation`'s `MUTATION_HANDLERS` is exhaustive over THIS
+ * union; `parseStateMutation`'s validator table is exhaustive over {@link WireStateMutation}
+ * only. The asymmetry is deliberate and is the whole design.
+ */
+export type StateMutation = WireStateMutation | InternalStateMutation;
 
 /**
  * A `StateMutation` addressed for wire transport: every mutation that crosses

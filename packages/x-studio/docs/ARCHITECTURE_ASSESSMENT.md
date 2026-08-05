@@ -34,11 +34,11 @@ Three structural issues stand out. Two of them are the root cause of a visible s
 the review rounds spent their effort on, which is the main reason this assessment is worth
 having: those rounds were fixing recurring symptoms of causes they were not positioned to see.
 
-| #   | Issue                                                             | Severity | Shape of the fix                            |
-| :-- | :---------------------------------------------------------------- | :------- | :------------------------------------------ |
-| 1   | Data wire contract defined independently on both sides            | High     | Extract a shared module; mechanical         |
-| 2   | 26 of 44 controller write paths bypass the shared reducer         | High     | Decouple two concerns, then migrate writers |
-| 3   | `StudioController` is a god object (1,896 code lines, 73 methods) | Medium   | Split along seams already visible           |
+| #   | Issue                                                                                            | Severity | Shape of the fix                                |
+| :-- | :----------------------------------------------------------------------------------------------- | :------- | :---------------------------------------------- |
+| 1   | ~~Data wire contract defined independently on both sides~~ **CLOSED**                            | High     | Extracted to `x-studio-schema/dataWireTypes.ts` |
+| 2   | 25 of 42 controller write paths bypassed the shared reducer — now 19, and the blocker is removed | High     | Vocabulary split shipped; writers migrating     |
+| 3   | `StudioController` is a god object (1,896 code lines, 73 methods)                                | Medium   | Split along seams already visible               |
 
 ## What is structurally right
 
@@ -161,7 +161,28 @@ logic. More than half of the client's own write paths never reach it.
 - `c23441bb0f` — _"screen updateFilter / updateActivePage to their siblings' standard"_ —
   bringing two bypass writers up to the level their reducer-routed siblings get for free.
 
-**The underlying cause is stated in the architecture doc itself:**
+> **Status: the structural blocker is closed; the migration is partial.**
+>
+> `mutationTypes.ts` now defines `WireStateMutation` (acceptable from outside) separately from
+> `InternalStateMutation` (client-only), with `StateMutation` their union.
+> `parseStateMutation`'s validator table is keyed on the wire union alone, so an internal
+> mutation is rejected fail-closed on the unknown-type path and adding one no longer widens the
+> untrusted surface at all. Six filter writes — `clearPageFilters`, `clearCrossFilter`,
+> `clearAllCrossFilters`, `clearInteractiveFilter`, `toggleFilter`, `updateFilter` — have moved
+> onto the reducer, taking the ratio from 16/25 to 22/19.
+>
+> Nineteen writers remain, in four families: filter presets (4), relationships (3), expression
+> fields (3), date range (3), plus cross-filter settings, page fields and the two
+> `applyCrossFilter`/`applyInteractiveFilter` writes. Each is now a routine migration rather than
+> a design question — the argument that blocked them is gone.
+>
+> One nuance the migration surfaced and future ones must respect: `updateFilter` keeps its
+> _screening_ in the controller and moves only its _write_. The reducer's contract ("never
+> throws, returns the same doc when it declines") cannot express `MUTATION_INVALID` versus
+> `MUTATION_RANK_CONFLICT` versus a value-equal re-save — they are one observation from inside
+> `applyMutation`. Writers that report a reason to their caller keep that part.
+
+**The underlying cause was stated in the architecture doc itself:**
 
 > Adding a `StateMutation` variant is deliberately avoided — each variant is nominally
 > AI-tool-facing wire surface.

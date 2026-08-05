@@ -2201,6 +2201,157 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
     },
   },
 
+  /*
+   * ── The client-only filter writes ──────────────────────────────────────────────────────
+   *
+   * Six writes `@mui/x-studio`'s controller performed through `commitDocPatch`, outside the
+   * reducer, each therefore outside the `dependsOn` cascade every reducer-routed drop path
+   * enforces. That is not hypothetical: eight client filter-drop paths were found re-persisting
+   * dangling `dependsOn` references, and the cascade helper had to be PUBLISHED from this
+   * package so those paths could re-implement by hand what routing here would have given them.
+   *
+   * They live on `InternalStateMutation`, so `parseStateMutation` has no validator entry for
+   * them and a server cannot make a client apply one. The reducer owns the write; the wire
+   * still cannot reach it.
+   */
+  clearPageFilters: {
+    apply: (state, args) => {
+      const { pageId } = args;
+      if (typeof pageId !== 'string') {
+        return state;
+      }
+      // Retention predicate, identical to `docTransforms.applyFilterPreset`'s: everything not
+      // page-scoped, every LEGACY pageId-less page filter (`scope: { kind: 'page' }` with no
+      // `pageId`, predating the per-page scope model — `selectFiltersForWidget`'s `!sv2.pageId`
+      // branch and `filterScoping.ts` both treat those as applying to EVERY page), and every page
+      // filter belonging to another page.
+      //
+      // Regression note: this once retained only page filters whose `pageId` was BOTH set and
+      // different. An all-pages filter satisfied neither disjunct, so "Clear all" on ONE page
+      // deleted it from the doc entirely and silently un-filtered every OTHER page too. Clearing
+      // one page's filters must never touch an all-pages filter's effect on the rest of the
+      // dashboard.
+      const nextFilters = state.filters.filter(
+        (f: StudioFilterState) => !(f.scope.kind === 'page' && f.scope.pageId === pageId),
+      );
+      if (nextFilters.length === state.filters.length) {
+        return state;
+      }
+      return { ...state, filters: pruneDependsOnAgainstSelf(nextFilters) };
+    },
+    label: (args) => `clearPageFilters:${args.pageId}`,
+  },
+  clearCrossFilter: {
+    apply: (state, args) => {
+      const { sourceWidgetId } = args;
+      if (typeof sourceWidgetId !== 'string') {
+        return state;
+      }
+      const nextFilters = state.filters.filter(
+        (f: StudioFilterState) =>
+          !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
+      );
+      if (nextFilters.length === state.filters.length) {
+        return state;
+      }
+      return { ...state, filters: pruneDependsOnAgainstSelf(nextFilters) };
+    },
+    label: (args) => `clearCrossFilter:${args.sourceWidgetId}`,
+  },
+  clearAllCrossFilters: {
+    apply: (state) => {
+      const nextFilters = state.filters.filter(
+        (f: StudioFilterState) => f.scope.kind !== 'cross-filter',
+      );
+      if (nextFilters.length === state.filters.length) {
+        return state;
+      }
+      return { ...state, filters: pruneDependsOnAgainstSelf(nextFilters) };
+    },
+    label: () => 'clearAllCrossFilters',
+  },
+  clearInteractiveFilter: {
+    apply: (state, args) => {
+      const { sourceWidgetId } = args;
+      if (typeof sourceWidgetId !== 'string') {
+        return state;
+      }
+      const nextFilters = state.filters.filter(
+        (f: StudioFilterState) =>
+          !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
+      );
+      if (nextFilters.length === state.filters.length) {
+        return state;
+      }
+      return { ...state, filters: pruneDependsOnAgainstSelf(nextFilters) };
+    },
+    label: (args) => `clearInteractiveFilter:${args.sourceWidgetId}`,
+  },
+  toggleFilter: {
+    apply: (state, args) => {
+      const { filterId } = args;
+      if (typeof filterId !== 'string') {
+        return state;
+      }
+      let changed = false;
+      const nextFilters = state.filters.map((f: StudioFilterState) => {
+        if (f.id !== filterId) {
+          return f;
+        }
+        changed = true;
+        return { ...f, disabled: !f.disabled };
+      });
+      // Reference-equality no-op contract: an unknown id returns the SAME doc, so the commit
+      // choke point sees no change and pushes no undo entry.
+      return changed ? { ...state, filters: nextFilters } : state;
+    },
+    label: (args) => `toggleFilter:${args.filterId}`,
+  },
+  updateFilter: {
+    apply: (state, args) => {
+      const { filterId, changes } = args;
+      if (typeof filterId !== 'string' || !isPlainRecord(changes)) {
+        return state;
+      }
+      const target = state.filters.find((f: StudioFilterState) => f.id === filterId);
+      if (!target) {
+        return state;
+      }
+      // A `scope` arriving in `changes` is screened to the SAME standard `addFilter` applies —
+      // wellformedness then existence — rather than the weaker hand-rolled check the bypassing
+      // writer used to carry. An unusable scope leaves the existing one in place instead of
+      // installing one the load boundary would silently drop on the next reload.
+      let nextScope = target.scope;
+      if (changes.scope !== undefined) {
+        const incoming = changes.scope;
+        const usable = isValidFilterScope(incoming) && hasResolvableFilterAnchors(incoming, state);
+        // An unusable scope leaves the EXISTING one in place rather than installing one the load
+        // boundary would silently drop on the next reload. The controller's `updateFilter` rejects
+        // such a payload outright with a reason; this is the same rule for any other caller, which
+        // has no channel to report one.
+        nextScope = usable ? incoming : target.scope;
+      }
+      const merged = { ...target, ...changes, scope: nextScope };
+      // Reference-equality no-op contract. `commitDocPatch`'s `===` guard cannot see a
+      // fresh-but-equivalent object, which is why the bypassing writer carried its own
+      // hand-rolled value comparison; routing here makes that the reducer's job. `scope` is
+      // compared by reference deliberately — `nextScope` is `target.scope` itself unless a
+      // NEW, screened scope arrived, so an unchanged scope is always reference-equal.
+      if (
+        shallowRecordEqual(
+          target as unknown as Record<string, unknown>,
+          merged as unknown as Record<string, unknown>,
+        )
+      ) {
+        return state;
+      }
+      return {
+        ...state,
+        filters: state.filters.map((f: StudioFilterState) => (f.id === filterId ? merged : f)),
+      };
+    },
+    label: (args) => `updateFilter:${args.filterId}`,
+  },
   removeFilter: {
     apply: (state, args) => {
       const { filterId } = args;

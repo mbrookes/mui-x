@@ -25,7 +25,7 @@
  * implementation of the check rather than independently-drifting inline validation
  * at each call site — see that file's doc comment for the fuller rationale.
  */
-import type { StateMutation } from './aiTypes';
+import type { StateMutation, WireStateMutation } from './aiTypes';
 import type { StudioFilterScope } from './stateTypes';
 import { validateConfigKeysForKind } from './configKeyValidation';
 import {
@@ -648,7 +648,13 @@ function validateFilter(filter: unknown, path: string): string | null {
  */
 type MutationArgValidator = (args: Record<string, unknown>) => string | null;
 
-const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgValidator } = {
+// Keyed on `WireStateMutation`, NOT `StateMutation`. That is what makes the wire surface a
+// DECISION rather than a side effect: an `InternalStateMutation` variant has no entry here, so a
+// payload naming one falls through the `Object.hasOwn` guard below and is rejected as an unknown
+// type, fail-closed — the client can issue it, a server cannot make the client apply it. Adding a
+// wire-reachable mutation still forces an entry, so the exhaustiveness lock is unchanged for the
+// union that actually needs it.
+const MUTATION_ARG_VALIDATORS: { [M in WireStateMutation as M['type']]: MutationArgValidator } = {
   addPage: (args) => {
     if (!isSafeId(args.id)) {
       return "addPage.args.id must be a string id and not '__proto__'/'constructor'/'prototype'";
@@ -971,7 +977,7 @@ export function parseStateMutation(value: unknown): ParseStateMutationResult {
   if (!isRecord(value.args)) {
     return { ok: false, error: `mutation.args must be a plain object for type '${type}'` };
   }
-  const validate = MUTATION_ARG_VALIDATORS[type as StateMutation['type']];
+  const validate = MUTATION_ARG_VALIDATORS[type as WireStateMutation['type']];
   const error = validate(value.args);
   if (error) {
     return { ok: false, error };

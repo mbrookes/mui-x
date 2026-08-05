@@ -40,7 +40,7 @@ function includeExpressionField(
  *
  * This is the shared per-source inner fold previously hand-rolled independently in
  * `GridSetupPanel.tsx` (four times) and inlined (for the whole-catalog case) in
- * `ChartSetupPanel.tsx` / `KpiSetupPanel.tsx` — see finding 2.4 in the remediation plan.
+ * `ChartSetupPanel.tsx` / `KpiSetupPanel.tsx` —.4 in the remediation plan.
  *
  * Always skips hidden physical fields (`field.hidden`) and hidden expression fields
  * (`ef.hidden`) — this matches every existing per-source caller. Callers that need to
@@ -158,12 +158,11 @@ export function buildFieldCatalog(
 /**
  * Build a flat `fieldId → label` map across all data sources.
  *
- * KNOWN LIMITATION (documented, not fixed here — see finding 2.4): duplicate field
- * ids across two different sources resolve first-writer-wins, in `Object.values`
- * iteration order. E.g. if both an "orders" and a "customers" source expose a
- * `country` field, whichever source is encountered first in `Object.values(dataSources)`
- * wins the label for every reference to `country` — a filter chip for the other
- * source's `country` field silently shows the wrong source's label. This mirrors the
+ * KNOWN LIMITATION (documented, not fixed here —): duplicate field ids across two different sources
+ * resolve first-writer-wins, in `Object.values` iteration order. E.g. if both an "orders" and a
+ * "customers" source expose a `country` field, whichever source is encountered first in
+ * `Object.values(dataSources)` wins the label for every reference to `country` — a filter chip for
+ * the other source's `country` field silently shows the wrong source's label. This mirrors the
  * pre-existing behavior of every fold this helper replaces.
  *
  * Hidden fields (`field.hidden`) ARE included — this map is used to label existing

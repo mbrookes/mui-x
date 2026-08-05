@@ -77,8 +77,8 @@ export function shouldApplyWidgetRankAtL3(widget: StudioWidget): boolean {
 }
 
 /**
- * The pipeline context — a snapshot of the store state slices that the pipeline functions
- * need.  Obtained via `controller.getState()` or built manually in tests and benchmarks.
+ * The pipeline context — a snapshot of the store state slices that the pipeline functions need.
+ * Obtained via `controller.getState()` or built manually in tests and benchmarks.
  */
 export interface StudioPipelineState {
   dataSources: Record<string, StudioDataSource>;

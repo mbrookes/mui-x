@@ -2,17 +2,17 @@
  * x-studio data pipeline benchmarks
  *
  * Each layer is measured independently:
- *   L1 – normalizeDataSourceRows
- *   L2 – enrichRowsWithExpressions
- *   L3 – resolveRows (cold)
+ *   normalizeDataSourceRows
+ *   enrichRowsWithExpressions
+ *   resolveRows (cold)
  *   L3-cache – resolveRowsCached (cache hit)
- *   L4 – resolveChartRowsForAggregation (cold)
+ *   resolveChartRowsForAggregation (cold)
  *   L4-cache – resolveChartRowsForAggregation (cache hit via computedCache WeakMap)
- *   L5a – aggregateByField
- *   L5b – aggregateByTwoFields
- *   L5c – aggregateMultipleSeries
+ *   aggregateByField
+ *   aggregateByTwoFields
+ *   aggregateMultipleSeries
  *
- * Run:  pnpm bench  (from packages/x-studio)
+ * Run: pnpm bench (from packages/x-studio)
  *
  * Data is built once per describe block in beforeAll (outside the timed loop).
  * Cache-hit benches prime the cache with a single cold call before benchmarking
@@ -40,8 +40,8 @@ import type { StudioDataSource, StudioFilterState, StudioWidget } from '../model
 // ─── Shared bench helper ──────────────────────────────────────────────────────
 
 /**
- * Builds a bench group that measures the given `fn` at `10_000` and `100_000`
- * orders.  The scenario is built once in `beforeAll`; only `fn` is timed.
+ * Builds a bench group that measures the given `fn` at `10_000` and `100_000` orders. The scenario
+ * is built once in `beforeAll`; only `fn` is timed.
  * @param {ReturnType<typeof buildScenario>} scenario - The pre-built benchmark scenario.
  * @param {number} orderCount - Number of synthetic orders in the scenario.
  */
@@ -310,16 +310,16 @@ layerBench('L5c aggregateMultipleSeries', ({ dataSources }) => {
 //
 // These benchmarks measure the synchronous CPU work on the async path:
 //
-//   A1  buildQueryDescriptor — builds filter tree + stable cacheKey from widget
+// A1 buildQueryDescriptor — builds filter tree + stable cacheKey from widget
 //       + active filters. Varies filter count to capture hashing cost at scale.
 //
-//   A2  StudioRequestCache.get — warm Map lookup (the hot path executed on every
+// A2 StudioRequestCache.get — warm Map lookup (the hot path executed on every
 //       React render when an adapter source is present).
 //
-//   A3  StudioRequestCache.set + get — round-trip write then read (simulates the
+// A3 StudioRequestCache.set + get — round-trip write then read (simulates the
 //       first fetch completing and subsequent renders reading from cache).
 //
-//   A4  StudioRequestCache.invalidateSource — prefix scan over N cached entries.
+// A4 StudioRequestCache.invalidateSource — prefix scan over N cached entries.
 //       Called each time upsertDataSource() updates a source that has an adapter.
 
 // ── A1: buildQueryDescriptor ──────────────────────────────────────────────────

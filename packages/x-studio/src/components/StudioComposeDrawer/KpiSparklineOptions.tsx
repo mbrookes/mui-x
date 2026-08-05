@@ -28,10 +28,10 @@ import { lookup } from '../../utils/safeLookup';
 import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
 import { selectFiltersForWidget } from '../../internals/filterScoping';
 import { shouldApplyWidgetRankAtL3 } from '../../internals/StudioPipeline';
-// THE date-field rule, owned by the KPI widget and exported for exactly this reason: the
-// setup panel must answer "is a filter driving the time axis?" with the SAME implementation
-// the rendered widget uses (M5). Imported from `kpiUtils` (pure) rather than the widget's
-// barrel, which would drag the whole chart-rendering import chain into the compose drawer.
+// THE date-field rule, owned by the KPI widget and exported for exactly this reason: the setup
+// panel must answer "is a filter driving the time axis?" with the SAME implementation the rendered
+// widget uses. Imported from `kpiUtils` (pure) rather than the widget's barrel, which would drag
+// the whole chart-rendering import chain into the compose drawer.
 import { resolveKpiDateField } from '../widgets/StudioKpiWidget/kpiUtils';
 import type { StudioDataSource, StudioWidgetConfig } from '../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
@@ -93,9 +93,8 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   const crossFilterMode =
     crossFilterModeRaw === 'cross-highlight' ? 'cross-filter' : (crossFilterModeRaw ?? 'none');
 
-  // Collect date fields from primary source + all directly related sources.
-  // Built on the shared `buildSourceFieldEntries` catalog helper (architecture
-  // review finding 2.8) instead of hand-rolling the id/label/type/sourceId/
+  // Collect date fields from primary source + all directly related sources. Built on the shared
+  // `buildSourceFieldEntries` catalog helper instead of hand-rolling the id/label/type/sourceId/
   // sourceLabel shape per source, as `ChartSetupPanel`/`KpiSetupPanel` already do.
   const allDateFieldsWithJoined = React.useMemo<DataSourceFieldEntry[]>(() => {
     if (!source || !sourceId) {
@@ -139,7 +138,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
     return result;
   }, [source, sourceId, relationships, dataSources, expressionFields]);
 
-  // M5: the SINGLE "which date field does this KPI use?" rule, shared verbatim with the
+  // The SINGLE "which date field does this KPI use?" rule, shared verbatim with the
   // rendered widget (`resolveKpiDateField`, `kpiUtils.ts`). This panel used to answer the
   // question with its own third variant — it matched the first in-scope filter against own
   // AND joined date fields with no notion of the resolver's later tiers — so it could hide the
@@ -192,10 +191,9 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
 
   const gaugeMax = config.kpiSparklineGaugeMax ?? 100;
 
-  // Local text buffer for the gauge-max input (architecture review finding 1.14):
-  // rejecting anything not `> 0` on every keystroke made the field impossible to
-  // clear and retype. Buffered through the shared dirty-aware `useBufferedInput` (M15) and
-  // parsed/validated/committed on blur only.
+  // Local text buffer for the gauge-max input: rejecting anything not `> 0` on every keystroke made
+  // the field impossible to clear and retype. Buffered through the shared dirty-aware
+  // `useBufferedInput` and parsed/validated/committed on blur only.
   const gaugeMaxBuffer = useBufferedInput(String(gaugeMax), `${widgetId}:kpiSparklineGaugeMax`);
 
   const commitGaugeMax = () => {
@@ -220,7 +218,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
         ) : (
           <DataSourceFieldSelect
             value={config.kpiSparklineField ?? ''}
-            // Finding 7: the picker's option list spans the primary source AND every
+            // The picker's option list spans the primary source AND every
             // relationship neighbour in both directions, so a shared field id (e.g. two
             // sources with a `createdAt` date) is likely. `config.kpiSparklineSourceId` is
             // written right below and records which source the stored field belongs to —

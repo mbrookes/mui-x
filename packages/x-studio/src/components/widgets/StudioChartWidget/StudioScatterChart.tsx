@@ -68,8 +68,8 @@ interface StudioScatterChartProps {
   xValueFormatter?: (value: number | null) => string;
   yValueFormatter?: (value: number | null) => string;
   /**
-   * Accessible name for the chart graphic — forwarded to the `ScatterChart`'s `title` prop,
-   * which becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   * Accessible name for the chart graphic — forwarded to the `ScatterChart`'s `title` prop, which
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2).
    */
   ariaTitle?: string;
   slotProps?: Partial<ScatterChartProps>;

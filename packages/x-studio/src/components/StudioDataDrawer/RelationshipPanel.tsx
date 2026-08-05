@@ -29,7 +29,7 @@ export function RelationshipPanel(props: {
   const [editingRel, setEditingRel] = React.useState<
     { id: string; form: RelationshipFormState } | undefined
   >(undefined);
-  // H8: `addRelationship`/`updateRelationship` now RETURN a `StudioMutationResult`, so this
+  // `addRelationship`/`updateRelationship` now RETURN a `StudioMutationResult`, so this
   // panel branches on the controller's verdict — `duplicate-id` on an add, `not-found` when
   // the relationship was removed from another view / by the AI assistant while this dialog was
   // open — instead of re-reading the committed doc and inferring. A value-equal no-op comes

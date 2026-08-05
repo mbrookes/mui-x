@@ -16,7 +16,7 @@ import { SetupSection } from './SetupSection';
 import { useBufferedInput } from './useBufferedInput';
 
 /**
- * Stable per-rule identity (M13).
+ * Stable per-rule identity.
  *
  * `StudioConditionalFormat` carries no id and adding one is a persisted-schema change, so
  * the identity is minted lazily against the rule OBJECT and memoised in a `WeakMap`. The
@@ -43,19 +43,18 @@ function getRuleId(rule: StudioConditionalFormat): string {
 }
 
 /**
- * Numeric conditional-format value input (architecture review finding 1.14):
- * `Number(raw)` on every keystroke ate the in-progress decimal point ("0." rendered
- * back as "0") and committed `undefined` for a bare "-" before the user could finish
- * typing a negative number. Buffer the displayed text locally and only parse/commit
- * on blur, mirroring `FormatPanel.tsx`'s grid-height input.
+ * Numeric conditional-format value input: `Number(raw)` on every keystroke ate the in-progress
+ * decimal point ("0." rendered back as "0") and committed `undefined` for a bare "-" before the
+ * user could finish typing a negative number. Buffer the displayed text locally and only
+ * parse/commit on blur, mirroring `FormatPanel.tsx`'s grid-height input.
  */
 function ConditionalFormatValueInput(props: {
   widgetId: string;
   /** Stable identity of this rule (see `getRuleId`), used together with `widgetId` to gate
-   * the resync so switching which rule/widget is being edited always resyncs the buffer,
-   * even when the two rules/widgets happen to share the same value. Deliberately NOT the
-   * array index: deleting a rule renumbers its survivors without changing the identity
-   * string, so a still-dirty buffer would commit onto a different rule (M13). */
+   * the resync so switching which rule/widget is being edited always resyncs the buffer, even when
+   * the two rules/widgets happen to share the same value. Deliberately NOT the array index:
+   * deleting a rule renumbers its survivors without changing the identity string, so a still-dirty
+   * buffer would commit onto a different rule. */
   ruleId: string;
   value: unknown;
   ariaLabel: string;
@@ -63,9 +62,8 @@ function ConditionalFormatValueInput(props: {
 }) {
   const { widgetId, ruleId, value, ariaLabel, onCommit } = props;
   const initialText = value !== undefined && value !== null ? String(value) : '';
-  // Shared dirty-aware buffer (M15), keyed on widget AND rule identity so switching to a
-  // different widget or a different rule carrying the same value still discards an
-  // uncommitted edit.
+  // Shared dirty-aware buffer, keyed on widget AND rule identity so switching to a different widget
+  // or a different rule carrying the same value still discards an uncommitted edit.
   const {
     value: text,
     dirty,
@@ -113,12 +111,11 @@ function ConditionalFormatValueInput(props: {
 }
 
 /**
- * String-value conditional-format value input (architecture review finding 2.3):
- * this branch was missed by the earlier buffer-then-commit-on-blur pass above — it
- * called `controller.updateWidgetConfig` on every keystroke, so typing a multi-
- * character string value pushed one undoable commit (plus a mutation-log line, plus
- * a full pipeline recompute) PER CHARACTER, and Ctrl+Z un-typed one character at a
- * time. Buffer the displayed text locally and only commit on blur/Enter, mirroring
+ * String-value conditional-format value input: this branch was missed by the earlier
+ * buffer-then-commit-on-blur pass above — it called `controller.updateWidgetConfig` on every
+ * keystroke, so typing a multi- character string value pushed one undoable commit (plus a
+ * mutation-log line, plus a full pipeline recompute) PER CHARACTER, and Ctrl+Z un-typed one
+ * character at a time. Buffer the displayed text locally and only commit on blur/Enter, mirroring
  * `ConditionalFormatValueInput` above (no numeric parsing needed here).
  */
 function ConditionalFormatStringValueInput(props: {
@@ -132,7 +129,7 @@ function ConditionalFormatStringValueInput(props: {
   const { widgetId, ruleId, value, ariaLabel, onCommit } = props;
   const localeText = useStudioLocaleText();
   const initialText = value !== undefined && value !== null ? String(value) : '';
-  // Shared dirty-aware buffer (M15) — see `ConditionalFormatValueInput` above.
+  // Shared dirty-aware buffer — see `ConditionalFormatValueInput` above.
   const {
     value: text,
     dirty,
@@ -248,12 +245,11 @@ export function GridConditionalFormatSection(props: { widgetId: string }) {
               p.style.fontWeight === rule.style.fontWeight,
           );
           return (
-            // Keyed by the rule's stable identity, not its array index (M13). With an index
-            // key, deleting a rule renumbered the survivors and React RE-USED the surviving
-            // row's mounted inputs for a different rule — carrying a half-typed, still-dirty
-            // buffer across with them. The AI chat's `update_widget` can delete a rule while
-            // the user is typing, so this is reachable even though clicking Delete blurs
-            // (and therefore commits) first.
+            // Keyed by the rule's stable identity, not its array index. With an index key, deleting
+            // a rule renumbered the survivors and React RE-USED the surviving row's mounted inputs
+            // for a different rule — carrying a half-typed, still-dirty buffer across with them.
+            // The AI chat's `update_widget` can delete a rule while the user is typing, so this is
+            // reachable even though clicking Delete blurs (and therefore commits) first.
             <Box
               key={ruleId}
               sx={{ display: 'flex', gap: 0.5, alignItems: 'center', flexWrap: 'wrap' }}

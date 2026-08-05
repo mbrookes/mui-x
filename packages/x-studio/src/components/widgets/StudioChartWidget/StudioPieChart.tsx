@@ -145,7 +145,7 @@ export interface StudioPieChartProps {
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
   /**
    * Accessible name for the chart graphic — forwarded to the `PieChart`'s `title` prop, which
-   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2).
    */
   ariaTitle?: string;
   /** Spread onto the underlying PieChart. */
@@ -241,7 +241,7 @@ export function StudioPieChart({
       return String(applyXGroupBy(toXValue(rawX, localeText), xGroupBy));
     };
 
-    // Finding 1.1: use the properly filtered rows (which honor interactive filter-widget
+    // Use the properly filtered rows (which honor interactive filter-widget
     // selections AND `crossFilterMode: 'filter'` cross-filters) as the base by default —
     // mirroring the single-ring path's `pieBaseData = isPieHighlightActive ? allChartData : chartData`.
     // Only fall back to the unfiltered baseline (`allEnrichedRows`) — rendering every slice and
@@ -280,7 +280,7 @@ export function StudioPieChart({
       return { id: `ring-${category}`, label: category, slices: agg };
     });
 
-    // Finding 1.3: "Other"-group the split-by categories GLOBALLY across all rings (keeping the
+    // "Other"-group the split-by categories GLOBALLY across all rings (keeping the
     // top `pieMaxSlices - 1` categories by total value), so the kept category set — and therefore
     // the category→colour mapping — stays consistent between rings. This mirrors the single-ring
     // pieMaxSlices behaviour (which only applied to the single-ring path before).
@@ -475,7 +475,7 @@ export function StudioPieChart({
     const ringGapActual = 1;
     const ringWidth = Math.max(6, Math.floor((totalSpace - ringGapActual * (n - 1)) / n));
 
-    // Finding 1.3: a stable category → colour mapping across ALL rings, keyed on the union of
+    // A stable category → colour mapping across ALL rings, keyed on the union of
     // split-by categories (categoryOrder). Every slice is coloured by its category, so the same
     // split-by category is the same colour in every ring — unlike the previous positional
     // `resolvedChartColors[i % …]` which re-coloured categories per ring. Reconciled with the

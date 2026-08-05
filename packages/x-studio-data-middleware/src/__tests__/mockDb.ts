@@ -20,11 +20,10 @@
  * success path end-to-end (as opposed to only being able to test that a
  * `columnAliases`-bearing descriptor crashes because `db.raw` didn't exist).
  *
- * `.sum()`/`.avg()`/`.count()`/`.min()`/`.max()` accept EITHER a `"column as
- * alias"` string OR Knex's object/alias-map form (`{ [alias]: column }`) —
- * `executeForTier` uses the latter (see finding 2.2) to route the aggregate
- * column+alias through Knex's identifier-wrapping instead of string
- * interpolation. Both forms resolve to the same internal `AggSpec`.
+ * `.sum()`/`.avg()`/`.count()`/`.min()`/`.max()` accept EITHER a `"column as alias"` string OR
+ * Knex's object/alias-map form (`{ [alias]: column }`) — `executeForTier` uses the latter to route
+ * the aggregate column+alias through Knex's identifier-wrapping instead of string interpolation.
+ * Both forms resolve to the same internal `AggSpec`.
  *
  * This avoids any native SQLite driver dependency in tests.
  */

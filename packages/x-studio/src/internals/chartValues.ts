@@ -68,14 +68,14 @@ export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): 
  * **The package-wide null policy, stated once here because it differs per dimension:**
  *
  * - **Axis / category dimension → the row is DROPPED.** Applied uniformly by
- *   `aggregateByField`, `aggregateByTwoFields`, `aggregateMultipleSeries`,
- *   `chartShapes/heatmap.aggregateHeatmap`, `chartShapes/scatter` (either coordinate) and
- *   `StudioPieChart`'s inner ring. A category axis answers "how does the measure break down
- *   ACROSS this dimension"; a row with no value for it has no position on that breakdown, and
- *   fabricating one (an `(empty)` bar, a scatter point at the origin) invents a data point the
- *   source never contained. Two earlier fixes converged on this deliberately rather than by
- *   accident: heatmap was changed to drop so it would stop disagreeing with bar/line over the
- *   same field, and scatter to drop so null costs stopped stacking on `y = 0` (M13).
+ * `aggregateByField`, `aggregateByTwoFields`, `aggregateMultipleSeries`,
+ * `chartShapes/heatmap.aggregateHeatmap`, `chartShapes/scatter` (either coordinate) and
+ * `StudioPieChart`'s inner ring. A category axis answers "how does the measure break down ACROSS
+ * this dimension"; a row with no value for it has no position on that breakdown, and fabricating
+ * one (an `(empty)` bar, a scatter point at the origin) invents a data point the source never
+ * contained. Two earlier fixes converged on this deliberately rather than by accident: heatmap was
+ * changed to drop so it would stop disagreeing with bar/line over the same field, and scatter to
+ * drop so null costs stopped stacking on `y = 0`.
  * - **Split / color dimension → the row is KEPT, under {@link emptyBucketLabel}.** A split
  *   partitions a category's rows; silently deleting the unlabelled partition would make the
  *   stacked bars at that category sum to less than the single-series bar for the same rows
@@ -91,13 +91,12 @@ export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): 
  * never fire for an x value. The argument is kept so the guard-then-convert pair is spelled
  * identically at all six sites and the policy stays a one-line decision here.
  *
- * Deliberately does NOT treat the empty-bucket label (`emptyBucketLabel`) as empty, and
- * therefore takes no `localeText`. Every call site passes a raw row value, never an
- * already-converted `toXValue` output, so that clause could only ever fire as a FALSE
- * POSITIVE: a `tickets.csv` whose `assignee` column literally contains the string
- * `(empty)` had those rows silently dropped from "count by assignee" — the bars summed
- * to less than the row count, with no indication anything was missing — and a French
- * dashboard did the same for `frLocaleText.chartEmptyCategoryLabel` (M8). A real
+ * Deliberately does NOT treat the empty-bucket label (`emptyBucketLabel`) as empty, and therefore
+ * takes no `localeText`. Every call site passes a raw row value, never an already-converted
+ * `toXValue` output, so that clause could only ever fire as a FALSE POSITIVE: a `tickets.csv` whose
+ * `assignee` column literally contains the string `(empty)` had those rows silently dropped from
+ * "count by assignee" — the bars summed to less than the row count, with no indication anything was
+ * missing — and a French dashboard did the same for `frLocaleText.chartEmptyCategoryLabel`. A real
  * category must never be deleted because it collides with a display label.
  */
 export function isEmptyXValue(raw: unknown): boolean {

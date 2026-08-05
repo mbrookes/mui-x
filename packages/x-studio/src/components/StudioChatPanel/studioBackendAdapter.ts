@@ -658,13 +658,12 @@ export function createBackendChatAdapter(
       // This request's own reader, captured so cleanup removes only it (never a
       // concurrent request's reader) from the shared `activeReaders` set.
       let requestReader: StudioStreamReader | null = null;
-      // A single agentic turn can interleave text and tool calls across multiple
-      // steps: preamble text → tool call → final answer. Each contiguous text run
-      // must render as its OWN text part, in arrival order — otherwise the final
-      // answer's deltas get appended into the SAME text part as the preamble and
-      // render spliced ABOVE the (earlier) tool card instead of below it (finding
-      // 2.23). So the text-part id is per-run, not fixed: a new id is minted every
-      // time a text run is closed by an intervening `step-start` or `tool-activity`.
+      // A single agentic turn can interleave text and tool calls across multiple steps: preamble
+      // text → tool call → final answer. Each contiguous text run must render as its OWN text part,
+      // in arrival order — otherwise the final answer's deltas get appended into the SAME text part
+      // as the preamble and render spliced ABOVE the (earlier) tool card instead of below it. So
+      // the text-part id is per-run, not fixed: a new id is minted every time a text run is closed
+      // by an intervening `step-start` or `tool-activity`.
       let textPartCounter = 0;
       let textPartId = `text-${textPartCounter}`;
       const reasoningId = `r-thinking`;

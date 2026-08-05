@@ -91,7 +91,7 @@ export function DataSourcePreview({
     return [...physicalCols, ...exprCols];
   }, [source.fields, expressionFields, source.id]);
 
-  // H1: an adapter-backed source carries no `rows` until the host imperatively calls
+  // An adapter-backed source carries no `rows` until the host imperatively calls
   // `setDataSourceRows` — the adapter path resolves rows per-widget into `studioRequestCache`
   // and never writes them back onto the source. Collapsing that `undefined` into "No data
   // available for Orders." states, falsely, that the source was read and found empty. Show a

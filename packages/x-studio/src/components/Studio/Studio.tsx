@@ -79,9 +79,9 @@ export interface StudioHandle {
    */
   setDataSourceAdapter(sourceId: string, adapter: StudioDataSourceAdapter | undefined): void;
   /**
-   * Replace the in-memory rows stored on a data source without invalidating the
-   * adapter request cache.  Use this to pre-populate the data drawer row count and
-   * tooltip preview for sources that also have an adapter handling widget queries.
+   * Replace the in-memory rows stored on a data source without invalidating the adapter request
+   * cache. Use this to pre-populate the data drawer row count and tooltip preview for sources that
+   * also have an adapter handling widget queries.
    *
    * @param sourceId - The ID of the data source to update.
    * @param rows - The rows to store on the source.

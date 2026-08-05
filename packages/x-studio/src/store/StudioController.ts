@@ -105,10 +105,10 @@ const MAX_MUTATION_LOG = 20;
  *    (`widget`/`cross-filter`/`interactive` scope naming a widget that does not exist), a
  *    `scope.pageId` naming a nonexistent page, a non-`StudioFilterOperator`
  *    `operator`/`operator2`, a malformed/non-record `scope`, a non-string `id`, and a
- *    non-string `field` (R6 F8 — the last was screened all along but missing from this list
+ *    non-string `field` (the last was screened all along but missing from this list
  *    and from `addFilter`'s own JSDoc). The writers that do NOT route through the reducer
  *    (`updateFilter`, `updateActivePage`) run the same shared screens against the keys they
- *    write and report the same reason — see R6 F2. The caller's values were discarded.
+ *    write and report the same reason. The caller's values were discarded.
  */
 export type StudioMutationRejectionReason =
   | 'duplicate-id'
@@ -120,10 +120,9 @@ export type StudioMutationRejectionReason =
 /**
  * The outcome of a controller mutation that can reject its caller's request.
  *
- * Replaces the `void` return that made every rejection indistinguishable from a save (H8):
- * two separate UI units — `StudioExpressionFieldDialog` and `RelationshipPanel` — had each
- * grown their own "re-read the committed doc and compare" workaround because the controller
- * would not say.
+ * Replaces the `void` return that made every rejection indistinguishable from a save: two separate
+ * UI units — `StudioExpressionFieldDialog` and `RelationshipPanel` — had each grown their own
+ * "re-read the committed doc and compare" workaround because the controller would not say.
  *
  * `committed` splits the SUCCESS case in two so a caller never has to treat "nothing to do"
  * as an error:
@@ -192,7 +191,7 @@ export class StudioController {
   // `undoStack`/`redoStack` (`MAX_UNDO_HISTORY`) and may have already evicted it.
   private undoMutationLog: (StudioAIRecentMutation | null)[] = [];
   private redoMutationLog: (StudioAIRecentMutation | null)[] = [];
-  // Monotonic commit counter, keyed per log entry via `mutationSeq` (finding 3's redo
+  // Monotonic commit counter, keyed per log entry via `mutationSeq` (the redo
   // reinsertion needs a total order over log entries). `StudioAIRecentMutation.at` is a
   // public, AI-facing ISO timestamp with only millisecond resolution — two commits inside
   // the same synchronous call chain (routine in tests, and reachable in real fast-path
@@ -433,8 +432,8 @@ export class StudioController {
    *    pruning (an interactive filter from a widget the swap removed has no home). This
    *    is replacement, not a merge: a redo that re-applies the same interactive filter
    *    must not stack a duplicate. Each carried entry's `scope.pageId` is additionally
-   *    RE-DERIVED against the emitting widget's actual page in the INCOMING doc (finding
-   *    1), not carried verbatim from the current doc — a filter widget moved to another
+   *    RE-DERIVED against the emitting widget's actual page in the INCOMING doc,
+   *    not carried verbatim from the current doc — a filter widget moved to another
    *    page, then selected on it (stamping `scope.pageId` with that new page), must have
    *    its carried filter follow the widget back to its original page when that move is
    *    undone, instead of keeping the stale (new-page) `scope.pageId`.
@@ -668,11 +667,11 @@ export class StudioController {
     }
     const source = state.runtime.dataSources[sourceId];
     // Key-wise reference no-op guard, mirroring `commitDocPatch` (1.6), `commitShellPatch` and
-    // `updateState` (2.4). This was the only commit helper without one (M12): `setDataSourceRows
-    // (id, sameArrayRef)` — a host poller re-injecting the SAME rows array from an effect — still
+    // `updateState` (2.4). This was the only commit helper without one: `setDataSourceRows (id,
+    // sameArrayRef)` — a host poller re-injecting the SAME rows array from an effect — still
     // rebuilt the source object AND the `dataSources` record, changing both references and
-    // notifying every subscriber for no actual change. `updateDataSourceField` had to grow its
-    // own guard for exactly this; putting it here covers every caller instead.
+    // notifying every subscriber for no actual change. `updateDataSourceField` had to grow its own
+    // guard for exactly this; putting it here covers every caller instead.
     const keys = Object.keys(patch) as (keyof StudioDataSource)[];
     if (keys.every((key) => patch[key] === source[key])) {
       return;
@@ -721,23 +720,21 @@ export class StudioController {
    * does so via `applyStateMutation`.
    */
   applyExternalMutation = (mutation: StateMutation, label: string = mutationLabel(mutation)) => {
-    // Undo-flag parity with the controller's own internal methods (2.1). Some mutations
-    // touch ONLY transient-carried `doc` fields — e.g. `setActivePage` (`dashboard.
-    // activePageId`), `renameAIThread` (`doc.ai`), or a re-delivered `addPage` for an
-    // id that already exists (which only re-points `activePageId` — T3.3).
-    // `carryTransientDocState` overlays the CURRENT value of those fields back onto any
-    // undo/redo swap, so an undo entry pushed for one of them can never actually revert
-    // anything — yet the commit would still clear the redo stack, silently destroying a
-    // pending redo. Classify by the ACTUAL resulting diff (`isTransientOnlyDocDiff`)
-    // rather than by mutation type, so every mutation shaped this way is caught — not
-    // just the ones hand-picked by name. The controller's own `setActivePage` already
-    // special-cases `undoable: false` for exactly this reason; mirror it here so the AI
-    // wire path (which reaches these mutations through `applyExternalMutation`) doesn't
-    // push dead, redo-destroying undo entries. Logging/label behaviour is unchanged:
-    // `commitState` records the label whenever the DOC changed regardless of `undoable`
-    // (2.11), so these non-undoable navigations/renames still land in the
-    // recent-mutation log the model reads back — the `label` passed below is
-    // intentionally NOT suppressed for them.
+    // Undo-flag parity with the controller's own internal methods (2.1). Some mutations touch ONLY
+    // transient-carried `doc` fields — e.g. `setActivePage` (`dashboard. activePageId`),
+    // `renameAIThread` (`doc.ai`), or a re-delivered `addPage` for an id that already exists (which
+    // only re-points `activePageId`). `carryTransientDocState` overlays the CURRENT value of those
+    // fields back onto any undo/redo swap, so an undo entry pushed for one of them can never
+    // actually revert anything — yet the commit would still clear the redo stack, silently
+    // destroying a pending redo. Classify by the ACTUAL resulting diff (`isTransientOnlyDocDiff`)
+    // rather than by mutation type, so every mutation shaped this way is caught — not just the ones
+    // hand-picked by name. The controller's own `setActivePage` already special-cases `undoable:
+    // false` for exactly this reason; mirror it here so the AI wire path (which reaches these
+    // mutations through `applyExternalMutation`) doesn't push dead, redo-destroying undo entries.
+    // Logging/label behaviour is unchanged: `commitState` records the label whenever the DOC
+    // changed regardless of `undoable` (2.11), so these non-undoable navigations/renames still land
+    // in the recent-mutation log the model reads back — the `label` passed below is intentionally
+    // NOT suppressed for them.
     this.commitMutation(mutation, {
       label,
       // Classify the transient-only diff from the SAME reducer fold `commitMutations` already
@@ -936,11 +933,11 @@ export class StudioController {
 
   setMode = (mode: StudioMode) => {
     const state = this.store.state;
-    // Value-equality no-op guard (M12): `{ ...state.session, mode }` always allocates a fresh
-    // `session`, so re-setting the CURRENT mode (a toolbar toggle re-committing its own value,
-    // or a host effect re-applying a controlled `mode` prop) rebuilt `session` and notified
-    // every subscriber for nothing. `commitState` bails on `nextState === current`, but only
-    // after this rebuild has already changed the `session` reference. Same guard style as
+    // Value-equality no-op guard: `{ ...state.session, mode }` always allocates a fresh `session`,
+    // so re-setting the CURRENT mode (a toolbar toggle re-committing its own value, or a host
+    // effect re-applying a controlled `mode` prop) rebuilt `session` and notified every subscriber
+    // for nothing. `commitState` bails on `nextState === current`, but only after this rebuild has
+    // already changed the `session` reference. Same guard style as
     // `setGlobalCrossFilterMode`/`setCrossFilterAllPages`.
     if (state.session.mode === mode) {
       return;
@@ -1122,10 +1119,9 @@ export class StudioController {
   };
 
   /**
-   * Replaces the in-memory rows for a data source without invalidating the
-   * adapter request cache.  Use this to pre-populate rows for the data drawer
-   * (count badge, tooltip preview) when the source also has an adapter that
-   * handles live widget queries.
+   * Replaces the in-memory rows for a data source without invalidating the adapter request cache.
+   * Use this to pre-populate rows for the data drawer (count badge, tooltip preview) when the
+   * source also has an adapter that handles live widget queries.
    *
    * @param sourceId - The ID of the data source to update.
    * @param rows - The rows to store on the source.
@@ -1168,7 +1164,7 @@ export class StudioController {
   };
 
   /**
-   * Evicts every cached adapter response for the given source ids (M11).
+   * Evicts every cached adapter response for the given source ids.
    *
    * The request `cacheKey` (`internals/queryDescriptor.ts`) is
    * `${widget.sourceId}:${stableStringify({ select, filter, groupBy, aggregations, … })}` — it
@@ -1246,11 +1242,11 @@ export class StudioController {
       }
       return MUTATION_CYCLE;
     }
-    // Evict the source's cached adapter responses (M11) — see `invalidateSources`. Defensive
-    // for a pure ADD (a field nothing references yet cannot change any existing response, and
-    // the widget that later selects it changes `select` and hence the `cacheKey`), but kept for
-    // parity with the update/remove siblings so no path through this class can leave a stale
-    // entry behind. Placed AFTER the guards so a rejected add never evicts anything.
+    // Evict the source's cached adapter responses — see `invalidateSources`. Defensive for a pure
+    // ADD (a field nothing references yet cannot change any existing response, and the widget that
+    // later selects it changes `select` and hence the `cacheKey`), but kept for parity with the
+    // update/remove siblings so no path through this class can leave a stale entry behind. Placed
+    // AFTER the guards so a rejected add never evicts anything.
     this.invalidateSources(field.sourceId);
     this.commitDocPatch({ expressionFields: nextFields });
     return MUTATION_COMMITTED;
@@ -1304,9 +1300,9 @@ export class StudioController {
       }
       return MUTATION_CYCLE;
     }
-    // Evict the cached adapter responses for BOTH the field's previous source and its new one
-    // (M11) — an edit can repoint `sourceId`, and the pre-edit source's cached rows are just as
-    // stale as the new one's. See `invalidateSources` for why the `cacheKey` cannot catch this.
+    // Evict the cached adapter responses for BOTH the field's previous source and its new one — an
+    // edit can repoint `sourceId`, and the pre-edit source's cached rows are just as stale as the
+    // new one's. See `invalidateSources` for why the `cacheKey` cannot catch this.
     this.invalidateSources(existing.sourceId, updatedField.sourceId);
     this.commitDocPatch({ expressionFields: nextFields });
     return MUTATION_COMMITTED;
@@ -1392,10 +1388,10 @@ export class StudioController {
       (ef: StudioExpressionField) => ef.id !== fieldId,
     );
     if (next.length !== state.doc.expressionFields.length) {
-      // Evict the source's cached adapter responses (M11) — a widget still selecting the
-      // deleted field keeps its `cacheKey` (nothing about expression fields feeds the key) but
-      // its response no longer carries the column. Only on a REAL removal: an unknown id must
-      // stay a clean no-op. See `invalidateSources`.
+      // Evict the source's cached adapter responses — a widget still selecting the deleted field
+      // keeps its `cacheKey` (nothing about expression fields feeds the key) but its response no
+      // longer carries the column. Only on a REAL removal: an unknown id must stay a clean no-op.
+      // See `invalidateSources`.
       this.invalidateSources(
         state.doc.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId)?.sourceId,
       );
@@ -1687,7 +1683,7 @@ export class StudioController {
    * spans summed past `GRID_COLS` could be committed live, and the canvas had to approximate
    * the missing sweep on its side (`rowColSpans.ts`).
    *
-   * (R6 F5 corrects the reason this comment used to give — "`normalizePersistedPages` only
+   * (Corrects the reason this comment used to give — "`normalizePersistedPages` only
    * clamps each span INDIVIDUALLY at load", i.e. an overflowing row survived serialize/reload.
    * It does not: that function runs the very same `enforceLayoutColSpans` this routing does
    * (`nextSpans = enforceLayoutColSpans([], sanitizedRows, rebuilt)`), and an overflowing row's
@@ -1816,7 +1812,7 @@ export class StudioController {
   updateWidget = (
     widgetId: string,
     changes: Partial<Omit<StudioWidget, 'id'>>,
-    // Finding 1.5: a widget's data-source switch (driven by the setup panels) can
+    // A widget's data-source switch (driven by the setup panels) can
     // strand widget-scoped filters whose field belongs to the OLD source — those
     // filters keep matching by `widgetId` (`filterScoping.ts`) but their field no
     // longer exists on the new source's rows, so the date/`gte`/`between` branches
@@ -1827,7 +1823,7 @@ export class StudioController {
     // the source/config change — the exact source-switch-folding pattern already used
     // for `sourceId` + config. A lone Ctrl+Z then reverts the whole gesture at once,
     // rather than landing on a torn "new source, stale filter" state the UI never
-    // actually rendered (finding 2.2's rationale, extended to widget filters).
+    // actually rendered (the same rationale, extended to widget filters).
     options?: { removeFilterIds?: string[] },
   ) => {
     // Delegates to the shared reducer (the last controller mutation method to do
@@ -2326,15 +2322,14 @@ export class StudioController {
    * Adds a filter, stamping a `page`-scoped one with the currently active page.
    *
    * @returns {@link StudioMutationResult} — `duplicate-id` when a filter with this id is
-   *   already in the doc (the stored one wins; an add never overwrites), `rank-conflict` when
-   *   the page context already holds a rank (Top-N) filter, and `invalid` when the shared
-   *   reducer refuses the payload (unknown widget anchor, `scope.pageId` naming a nonexistent
-   *   page, bad `operator`/`operator2`, malformed scope, non-string `id`, non-string `field` —
-   *   the last was screened all along but omitted here, R6 F8). Every one of those used to be a silent `void`
-   *   return with at most a dev-only `console.warn` (M12), so a user switching a second filter
-   *   to Top-N saw the control snap back with no explanation and nothing at all in production.
-   *   Callers that surface the outcome to a user must branch on this rather than assuming the
-   *   write landed.
+   * already in the doc (the stored one wins; an add never overwrites), `rank-conflict` when the
+   * page context already holds a rank (Top-N) filter, and `invalid` when the shared reducer refuses
+   * the payload (unknown widget anchor, `scope.pageId` naming a nonexistent page, bad
+   * `operator`/`operator2`, malformed scope, non-string `id`, non-string `field` — the last was
+   * screened all along but omitted here). Every one of those used to be a silent `void` return with
+   * at most a dev-only `console.warn`, so a user switching a second filter to Top-N saw the control
+   * snap back with no explanation and nothing at all in production. Callers that surface the
+   * outcome to a user must branch on this rather than assuming the write landed.
    */
   addFilter = (filter: import('../models').StudioFilterState): StudioMutationResult => {
     const state = this.store.state;
@@ -2344,13 +2339,13 @@ export class StudioController {
       filter.scope.kind === 'page'
         ? { ...filter, scope: { kind: 'page' as const, pageId: state.doc.dashboard.activePageId } }
         : filter;
-    // Duplicate-id check, hoisted out of the reducer so the caller can be TOLD (M12). The
-    // reducer is idempotent on a duplicate filter id (re-delivery of the same `addFilter` SSE
-    // event must not append a second entry) and signals that by returning the same state
-    // reference — indistinguishable from every other refusal below. Checked BEFORE the rank
-    // guard so the precedence matches the reducer's own ordering: `hasConflictingRankFilter`
-    // excludes the filter sharing the candidate's id, so a duplicate id whose stored twin is a
-    // rank filter would otherwise be misreported as a clean add.
+    // Duplicate-id check, hoisted out of the reducer so the caller can be TOLD. The reducer is
+    // idempotent on a duplicate filter id (re-delivery of the same `addFilter` SSE event must not
+    // append a second entry) and signals that by returning the same state reference —
+    // indistinguishable from every other refusal below. Checked BEFORE the rank guard so the
+    // precedence matches the reducer's own ordering: `hasConflictingRankFilter` excludes the filter
+    // sharing the candidate's id, so a duplicate id whose stored twin is a rank filter would
+    // otherwise be misreported as a clean add.
     if (state.doc.filters.some((f: StudioFilterState) => f.id === stampedFilter.id)) {
       return MUTATION_DUPLICATE_ID;
     }
@@ -2407,9 +2402,9 @@ export class StudioController {
     if (exists) {
       return MUTATION_DUPLICATE_ID;
     }
-    // Evict both endpoints' (and any junction source's) cached adapter responses (M11): a new
-    // relationship makes a JOIN available that the previous responses were computed without,
-    // and nothing about relationships feeds the request `cacheKey`. See `invalidateSources`.
+    // Evict both endpoints' (and any junction source's) cached adapter responses: a new
+    // relationship makes a JOIN available that the previous responses were computed without, and
+    // nothing about relationships feeds the request `cacheKey`. See `invalidateSources`.
     this.invalidateSources(...StudioController.relationshipSourceIds(relationship));
     this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
     return MUTATION_COMMITTED;
@@ -2445,10 +2440,10 @@ export class StudioController {
     if (patchKeys.every((key) => patch[key] === existing[key])) {
       return MUTATION_NOOP;
     }
-    // Evict the cached adapter responses for the endpoints of BOTH the pre-edit relationship
-    // and the patched one (M11): a patch can repoint `sourceId`/`targetId`/`junctionSourceId`,
-    // and the JOIN `on` pair a response was computed with is exactly what changed. Nothing
-    // about relationships feeds the request `cacheKey`. See `invalidateSources`.
+    // Evict the cached adapter responses for the endpoints of BOTH the pre-edit relationship and
+    // the patched one: a patch can repoint `sourceId`/`targetId`/`junctionSourceId`, and the JOIN
+    // `on` pair a response was computed with is exactly what changed. Nothing about relationships
+    // feeds the request `cacheKey`. See `invalidateSources`.
     this.invalidateSources(
       ...StudioController.relationshipSourceIds(existing),
       ...StudioController.relationshipSourceIds({ ...existing, ...patch }),
@@ -2468,9 +2463,9 @@ export class StudioController {
     const existing = state.doc.relationships.find((rel: StudioRelationship) => rel.id === id);
     const next = state.doc.relationships.filter((rel: StudioRelationship) => rel.id !== id);
     if (next.length !== state.doc.relationships.length) {
-      // Evict both endpoints' cached adapter responses (M11): the removed JOIN was baked into
-      // them and nothing about relationships feeds the request `cacheKey`. Only on a REAL
-      // removal — an unknown id must stay a clean no-op. See `invalidateSources`.
+      // Evict both endpoints' cached adapter responses: the removed JOIN was baked into them and
+      // nothing about relationships feeds the request `cacheKey`. Only on a REAL removal — an
+      // unknown id must stay a clean no-op. See `invalidateSources`.
       this.invalidateSources(...StudioController.relationshipSourceIds(existing));
     }
     this.commitDocPatch({
@@ -2483,28 +2478,28 @@ export class StudioController {
    * Updates a filter.
    *
    * @returns {@link StudioMutationResult} — `not-found` when no filter carries `filterId`,
-   *   `rank-conflict` when the change would put a second rank (Top-N) filter in a page context
-   *   that already has one (M12 — previously a silent `void` return with a dev-only
-   *   `console.warn`, so the drawer's Top-N control snapped back with no explanation),
-   *   `invalid` when a written key would not survive the load boundary (see the screen inside
-   *   — R6 F2), and `{ ok: true, committed: false }` when every changed key already holds its
-   *   incoming value (a deliberate no-op re-save, which a caller should treat as success).
+   * `rank-conflict` when the change would put a second rank (Top-N) filter in a page context that
+   * already has one (previously a silent `void` return with a dev-only `console.warn`, so the
+   * drawer's Top-N control snapped back with no explanation), `invalid` when a written key would
+   * not survive the load boundary (see the screen inside), and `{ ok: true, committed: false }`
+   * when every changed key already holds its incoming value (a deliberate no-op re-save, which a
+   * caller should treat as success).
    */
   updateFilter = (
     filterId: string,
     changes: Partial<import('../models').StudioFilterState>,
-    // `undoable` defaults to `true` (via `commitDocPatch`/`commitState`), so existing
-    // callers are unaffected. A `{ undoable: false }` write lets a UI-driven self-repair
-    // (e.g. a filters-drawer row rewriting a stored operator that is invalid for the
-    // field type — finding 2.12) reconcile the doc without pushing an unauthored undo
-    // entry, mirroring `updateWidgetConfig`'s option used by `KpiSetupPanel`.
+    // `undoable` defaults to `true` (via `commitDocPatch`/`commitState`), so existing callers are
+    // unaffected. A `{ undoable: false }` write lets a UI-driven self-repair (e.g. a filters-drawer
+    // row rewriting a stored operator that is invalid for the field type) reconcile the doc without
+    // pushing an unauthored undo entry, mirroring `updateWidgetConfig`'s option used by
+    // `KpiSetupPanel`.
     options?: { undoable?: boolean },
   ): StudioMutationResult => {
     const state = this.store.state;
     const target = state.doc.filters.find((f: StudioFilterState) => f.id === filterId);
-    // Hoisted out of the `map` below (M12) so an absent id — previously visible only as "the
-    // array reference didn't change", i.e. indistinguishable from a value-equal re-save — is
-    // reported as the REJECTION it is.
+    // Hoisted out of the `map` below so an absent id — previously visible only as "the array
+    // reference didn't change", i.e. indistinguishable from a value-equal re-save — is reported as
+    // the REJECTION it is.
     if (!target) {
       return MUTATION_NOT_FOUND;
     }
@@ -2573,10 +2568,10 @@ export class StudioController {
         state.doc.pages,
       );
 
-    // Hoisted out of the `map` too (M12): a rejected rank change and a value-equal re-save both
-    // used to return the original array reference and were therefore reported identically (as
-    // nothing at all). The dev `console.warn` is KEPT alongside the returned `reason` — host
-    // code also reaches this method and never inspects the result.
+    // Hoisted out of the `map` too: a rejected rank change and a value-equal re-save both used to
+    // return the original array reference and were therefore reported identically (as nothing at
+    // all). The dev `console.warn` is KEPT alongside the returned `reason` — host code also reaches
+    // this method and never inspects the result.
     if (rejectRankChange) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn(
@@ -2818,11 +2813,11 @@ export class StudioController {
       ...(options?.fieldType && { fieldType: options.fieldType }),
     };
 
-    // Value-equality no-op guard (M12), the same one `applyCrossFilter` documents at length
-    // below. This commit is `{ undoable: false }`, so the undo/redo stacks were never at risk —
-    // but `createFilterId()` is minted unconditionally, so `commitDocPatch`'s REFERENCE-equality
-    // guard could never fire, and every identical re-emission (reachable from the slider control
-    // and from `DateRangeControl`'s 300ms-debounced commit) rebuilt `doc.filters`, notified every
+    // Value-equality no-op guard, the same one `applyCrossFilter` documents at length below. This
+    // commit is `{ undoable: false }`, so the undo/redo stacks were never at risk — but
+    // `createFilterId()` is minted unconditionally, so `commitDocPatch`'s REFERENCE-equality guard
+    // could never fire, and every identical re-emission (reachable from the slider control and from
+    // `DateRangeControl`'s 300ms-debounced commit) rebuilt `doc.filters`, notified every
     // subscriber, re-ran L3 for every widget on the page, and swapped the filter's `id` out from
     // under the drawer's disable affordance.
     //
@@ -2883,19 +2878,17 @@ export class StudioController {
     if (!Object.hasOwn(state.doc.widgets, sourceWidgetId)) {
       return;
     }
-    // Single enforcement point for the "don't emit a cross-filter when the source
-    // widget's crossFilterMode is 'none'" invariant (architecture review iteration 22,
-    // Tier 2 finding 2). `crossFilterMode` governs whether a widget participates in
-    // widget-to-widget cross-filtering at all — 'none' must suppress EMITTING a
-    // cross-filter on click, just as it already suppresses REACTING to one (see
-    // `useWidgetRows`'s `effectiveRows`/`filteredRowsNoChartCross` resolution and
-    // `StudioGridWidget`'s `baseRows` branch above). Every widget's click handler
-    // (chart, grid, map, and any future kind) previously had to duplicate this check —
-    // and two of them (chart, grid) simply never did, letting 'none'-mode widgets keep
-    // emitting cross-filters. Centralizing it here means the invariant holds for every
-    // caller, present and future, with a single source of truth. Precedence mirrors
-    // `useWidgetRows`/`StudioGridWidget`: the dashboard-wide `globalCrossFilterMode`
-    // override wins over the emitting widget's own config.
+    // Single enforcement point for the "don't emit a cross-filter when the source widget's
+    // crossFilterMode is 'none'" invariant. `crossFilterMode` governs whether a widget participates
+    // in widget-to-widget cross-filtering at all — 'none' must suppress EMITTING a cross-filter on
+    // click, just as it already suppresses REACTING to one (see `useWidgetRows`'s
+    // `effectiveRows`/`filteredRowsNoChartCross` resolution and `StudioGridWidget`'s `baseRows`
+    // branch above). Every widget's click handler (chart, grid, map, and any future kind)
+    // previously had to duplicate this check — and two of them (chart, grid) simply never did,
+    // letting 'none'-mode widgets keep emitting cross-filters. Centralizing it here means the
+    // invariant holds for every caller, present and future, with a single source of truth.
+    // Precedence mirrors `useWidgetRows`/`StudioGridWidget`: the dashboard-wide
+    // `globalCrossFilterMode` override wins over the emitting widget's own config.
     const sourceWidget = state.doc.widgets[sourceWidgetId];
     const effectiveCrossFilterMode =
       state.doc.dashboard.globalCrossFilterMode ??
@@ -3001,11 +2994,11 @@ export class StudioController {
   clearPageFilters = () => {
     const state = this.store.state;
     const activePageId = state.doc.dashboard.activePageId;
-    // Retention predicate, identical to `docTransforms.applyFilterPreset`'s (H6): everything
-    // that is not page-scoped, every LEGACY pageId-less page filter (`scope: { kind: 'page' }`
-    // with no `pageId`, predating the per-page scope model — `selectFiltersForWidget`'s
-    // `!sv2.pageId` branch and `filterScoping.ts` both treat those as applying to EVERY page),
-    // and every page filter belonging to another page.
+    // Retention predicate, identical to `docTransforms.applyFilterPreset`'s: everything that is not
+    // page-scoped, every LEGACY pageId-less page filter (`scope: { kind: 'page' }` with no
+    // `pageId`, predating the per-page scope model — `selectFiltersForWidget`'s `!sv2.pageId`
+    // branch and `filterScoping.ts` both treat those as applying to EVERY page), and every page
+    // filter belonging to another page.
     //
     // Regression note: this used to retain only page filters whose `pageId` was BOTH set and
     // different from `activePageId`. An all-pages filter satisfied neither disjunct, so
@@ -3090,10 +3083,10 @@ export class StudioController {
    * and {@link renamePage} to re-key a page; all route through the reducer.
    *
    * @returns {@link StudioMutationResult} — `invalid` when a written value would not survive
-   *   the load boundary (R6 F2: a non-string `title` loads back as `'Untitled Page'`, so
-   *   accepting it here just defers the loss to the next reload — its reducer-routed sibling
-   *   `renamePage` refuses the same value). Excluded keys are STRIPPED with a dev warning
-   *   rather than sinking the call, matching how the layout keys have always been handled.
+   * the load boundary (a non-string `title` loads back as `'Untitled Page'`, so accepting it here
+   * just defers the loss to the next reload — its reducer-routed sibling `renamePage` refuses the
+   * same value). Excluded keys are STRIPPED with a dev warning rather than sinking the call,
+   * matching how the layout keys have always been handled.
    */
   updateActivePage = (
     changes: Partial<Omit<StudioPage, 'id' | 'widgetRows' | 'widgetColSpans'>>,
@@ -3105,7 +3098,7 @@ export class StudioController {
       return MUTATION_NOT_FOUND;
     }
     // Runtime backstop for the type exclusion above — a JS host (or a `as any` call site)
-    // can still hand over the excluded keys. `id` joined the list in R6 F2: it was type-
+    // can still hand over the excluded keys. `id` joined the list later: it was type-
     // excluded but neither stripped nor warned about, so `updateActivePage({ id: 'zzz' })`
     // committed `pages.p1.id === 'zzz'` against record key `p1`.
     if (process.env.NODE_ENV !== 'production') {
@@ -3687,12 +3680,11 @@ export class StudioController {
     // out of proportion to the impact, so it is left as a documented limitation rather than
     // risk mis-indexing the restored undo/redo stacks.
     //
-    // The `interactive` strip (R6 F8 — this comment used to name only cross-filters) matters
-    // MORE for a restored session, not less: `carryTransientDocState` deliberately carries
-    // interactive selections ACROSS every undo/redo swap so they survive time travel, and
-    // this is the one boundary that discards them. A restored session therefore comes back
-    // with every widget's interactive selection cleared, in the present snapshot as well as
-    // in every history entry.
+    // The `interactive` strip (this comment used to name only cross-filters) matters MORE for a
+    // restored session, not less: `carryTransientDocState` deliberately carries interactive
+    // selections ACROSS every undo/redo swap so they survive time travel, and this is the one
+    // boundary that discards them. A restored session therefore comes back with every widget's
+    // interactive selection cleared, in the present snapshot as well as in every history entry.
     const toSnapshot = (doc: StudioDoc): SerializedStudioSnapshot => ({
       mode,
       state: serializeDoc(doc),

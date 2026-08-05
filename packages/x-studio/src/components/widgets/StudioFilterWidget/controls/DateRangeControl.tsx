@@ -35,14 +35,14 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
   const fromFocusedRef = React.useRef(false);
   const toFocusedRef = React.useRef(false);
 
-  // Handle to the debounced `onApply` scheduled by `scheduleApply` below. Declared here
-  // because the external-sync effect has to cancel it too (M8), and the blur handlers read it.
+  // Handle to the debounced `onApply` scheduled by `scheduleApply` below. Declared here because the
+  // external-sync effect has to cancel it too, and the blur handlers read it.
   const pendingApply = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sync when external value changes (e.g. filter cleared programmatically)
   // react-doctor-disable-next-line react-doctor/no-reset-all-state-on-prop-change -- external sync is intentional; local state buffers UI interaction
   React.useEffect(() => {
-    // M8: an EXTERNAL change to this filter — another surface's Clear (the drawer's
+    // An EXTERNAL change to this filter — another surface's Clear (the drawer's
     // Interactive filters section), an undo/redo, a preset — is authoritative and must also
     // cancel this component's own in-flight debounced commit. Previously only the local Clear
     // button cancelled it, so every other clear surface raced: the store cleared, the blur

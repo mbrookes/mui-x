@@ -626,18 +626,16 @@ export const SAFE_ALIAS_PATTERN = /^[A-Za-z0-9_-]+$/;
 /**
  * Validate that no two PROJECTED columns land on the same result-row key.
  *
- * SECURITY/CORRECTNESS INVARIANT (Tier3, iter24 finding) — runs UNCONDITIONALLY
- * for every widget (independent of whether a `columnAllowlist` is configured),
- * mirroring `validateAggregationAliases`'s existing agg-vs-projection and
- * agg-vs-agg collision guards. Two directly-projected columns from different
- * tables whose RESULT KEY collides (e.g. `orders.category` and
- * `customers.category` both key as `category` — the last dot-segment Knex
- * assigns a bare `SELECT <table>.<column>` on the row object) previously had no
- * guard at all: `execute.ts`'s `projectColumn` SELECTs both under the same key,
- * so one column's value silently overwrites the other in every result row —
- * the same "one field silently dropped" hazard `validateAggregationAliases`
- * already closes for an agg-vs-projection or agg-vs-agg collision, just for the
- * one remaining pairing (projection-vs-projection) it didn't cover.
+ * SECURITY/CORRECTNESS INVARIANT (iter24 finding) — runs UNCONDITIONALLY for every widget
+ * (independent of whether a `columnAllowlist` is configured), mirroring
+ * `validateAggregationAliases`'s existing agg-vs-projection and agg-vs-agg collision guards. Two
+ * directly-projected columns from different tables whose RESULT KEY collides (e.g.
+ * `orders.category` and `customers.category` both key as `category` — the last dot-segment Knex
+ * assigns a bare `SELECT <table>.<column>` on the row object) previously had no guard at all:
+ * `execute.ts`'s `projectColumn` SELECTs both under the same key, so one column's value silently
+ * overwrites the other in every result row — the same "one field silently dropped" hazard
+ * `validateAggregationAliases` already closes for an agg-vs-projection or agg-vs-agg collision,
+ * just for the one remaining pairing (projection-vs-projection) it didn't cover.
  *
  * `projectionKeys` is the SAME per-column result-key list `validateQueryPlan`
  * already computes and threads into `validateAggregationAliases` — one
@@ -728,16 +726,15 @@ export function validateAggregationAliases(
           `Give each aggregation a distinct alias.`,
       );
     }
-    // An `agg.alias` colliding with a PROJECTED COLUMN'S RESULT KEY is the same
-    // key-collision hazard across the two SELECT sources — whether that column is a
-    // renamed expression field (SELECT-ed AS its logical id via `?? as ??`, finding
-    // 3.4) OR a direct dimension column (SELECT-ed under the last dot-segment of its
-    // physical name, e.g. `orders.category` → `category`, finding 2.1). Both land on
-    // ONE result-row key that row-object drivers collapse last-wins, silently
-    // dropping a field. `projectionKeys` is threaded by `validateQueryPlan` (already
-    // excluding any column that IS an aggregation's own pure measure — that column
-    // is projected only inside the aggregate clause, so it produces no separate
-    // key); direct aggregation-only callers omit it (no projection to collide with).
+    // An `agg.alias` colliding with a PROJECTED COLUMN'S RESULT KEY is the same key-collision
+    // hazard across the two SELECT sources — whether that column is a renamed expression field
+    // (SELECT-ed AS its logical id via `?? as ??`) OR a direct dimension column (SELECT-ed under
+    // the last dot-segment of its physical name, e.g. `orders.category` → `category`). Both land on
+    // ONE result-row key that row-object drivers collapse last-wins, silently dropping a field.
+    // `projectionKeys` is threaded by `validateQueryPlan` (already excluding any column that IS an
+    // aggregation's own pure measure — that column is projected only inside the aggregate clause,
+    // so it produces no separate key); direct aggregation-only callers omit it (no projection to
+    // collide with).
     if (projectionKeySet?.has(agg.alias)) {
       throw new Error(
         `MUI X Studio Server: Aggregation alias "${agg.alias}" collides with a projected column. ` +

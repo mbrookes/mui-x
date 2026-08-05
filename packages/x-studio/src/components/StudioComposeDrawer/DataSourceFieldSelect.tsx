@@ -195,7 +195,7 @@ export function DataSourceFieldSelect({
     if (!value) {
       return null;
     }
-    // Finding 5: when the caller passes `valueSourceId`, it is asserting which source the
+    // When the caller passes `valueSourceId`, it is asserting which source the
     // stored value belongs to — resolve STRICTLY against that source. Falling back to a
     // bare-id lookup across every source when the scoped lookup misses (e.g. `valueSourceId`
     // is stale because its source was removed/hidden) can silently match a same-id field from
@@ -208,7 +208,7 @@ export function DataSourceFieldSelect({
     return computedFields.find((f) => f.id === value) ?? null;
   }, [computedFields, value, valueSourceId]);
 
-  // M11: a stored field id that no source resolves (the field was removed/renamed, or its
+  // A stored field id that no source resolves (the field was removed/renamed, or its
   // source was unloaded) used to render a completely blank `required` Autocomplete —
   // pixel-identical to "never configured" — while the canvas showed the widget's
   // unsupported/no-field overlay, so nothing in the UI said WHICH field went missing. Mirror
@@ -265,7 +265,7 @@ export function DataSourceFieldSelect({
   // Rendered via a custom Paper (not as an option) so it stays out of groupBy /
   // getOptionLabel / option-equality, and existing option-based tests are unaffected.
   // onMouseDown preventDefault keeps the click from blurring + closing the popper first.
-  // Finding 6: creating a calculated field from the picker is ONE gesture that necessarily
+  // Creating a calculated field from the picker is ONE gesture that necessarily
   // costs two commits — the dialog commits `addExpressionField` itself, then calls `onSaved`
   // so we can write the config key that selects the new field. Snapshot the doc as the dialog
   // opens (a modal is a clean gesture boundary: nothing else can be edited while it is up) and

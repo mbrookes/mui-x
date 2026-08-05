@@ -87,21 +87,19 @@ const LLM_STREAM_IDLE_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_TOOL_CALLS_PER_REQUEST = 50;
 
 /**
- * Hard ceiling (chars, ~bytes for the ASCII/UTF-8 text a chat model streams) on
- * `turnTextBuffer` — the accumulated `delta.content` text for a SINGLE turn (finding
- * 6, iteration 24). `rateLimit.maxTokensPerRequest` is the intended backstop against
- * a runaway response, but it is OPTIONAL and, per the "KNOWN LIMITATION" note below,
- * silently never trips at all when a gateway omits usage chunks. Without an
- * independent cap here, a misbehaving/malicious gateway that keeps emitting
- * `delta.content` chunks without ever sending `[DONE]` or a usage chunk could grow
- * this buffer (and therefore this process's memory) without bound for the lifetime
- * of a single request. Sized generously — 2,000,000 chars is roughly 500K tokens at
- * ~4 chars/token, far beyond any legitimate single-turn assistant response — so this
+ * Hard ceiling (chars, ~bytes for the ASCII/UTF-8 text a chat model streams) on `turnTextBuffer` —
+ * the accumulated `delta.content` text for a SINGLE turn. `rateLimit.maxTokensPerRequest` is the
+ * intended backstop against a runaway response, but it is OPTIONAL and, per the "KNOWN LIMITATION"
+ * note below, silently never trips at all when a gateway omits usage chunks. Without an independent
+ * cap here, a misbehaving/malicious gateway that keeps emitting `delta.content` chunks without ever
+ * sending `[DONE]` or a usage chunk could grow this buffer (and therefore this process's memory)
+ * without bound for the lifetime of a single request. Sized generously — 2,000,000 chars is roughly
+ * 500K tokens at ~4 chars/token, far beyond any legitimate single-turn assistant response — so this
  * only ever trips for a genuinely runaway stream, mirroring how
- * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` above is a generous-but-bounded default of the
- * same kind. Exceeding it throws, which the enclosing try/catch (below) turns into a
- * clean `{ type: 'error' }` SSE event — the same "must not propagate as an uncaught
- * rejection" contract that governs every other failure in this loop.
+ * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` above is a generous-but-bounded default of the same kind.
+ * Exceeding it throws, which the enclosing try/catch (below) turns into a clean `{ type: 'error' }`
+ * SSE event — the same "must not propagate as an uncaught rejection" contract that governs every
+ * other failure in this loop.
  *
  * Exported (mirroring `LLM_FETCH_TIMEOUT_MS` above) so tests can assert against the
  * exact cap rather than a hardcoded duplicate of this constant.
@@ -144,7 +142,7 @@ export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
 export const MAX_CONVERSATION_CHARS = 2_000_000;
 
 /**
- * T1-2 — state-reading tools whose output would defeat `privateMode`. In private
+ * State-reading tools whose output would defeat `privateMode`. In private
  * mode the `<dashboard_state>` block is withheld from the system prompt so
  * sensitive business data is never sent to the provider, but these tools return
  * that same data (field distinct values, widget configs, filter values, source
@@ -155,7 +153,7 @@ export const MAX_CONVERSATION_CHARS = 2_000_000;
  * private mode must withhold it too, even when `data` is configured. We use
  * approach (a) from the review — exclude them from the advertised built-in list
  * entirely — rather than redacting tool output, keeping the fix self-contained
- * to this file. Combined with the T1-1 dispatch-time gate, an injected call to
+ * to this file. Combined with the dispatch-time gate, an injected call to
  * one of these is rejected as an unadvertised tool.
  *
  * Derived from `STUDIO_AI_TOOL_REGISTRY`'s `privateModeExcluded` fact
@@ -553,7 +551,7 @@ async function* runAgenticLoopTurns(
   const builtInToolNameSet = new Set<string>(STUDIO_AI_TOOL_NAMES);
   const collidesWithBuiltIn = (entry: { mode: string; tool?: { name: string } }): boolean =>
     entry.mode === 'server-tool' && Boolean(entry.tool) && builtInToolNameSet.has(entry.tool!.name);
-  // Finding M6 — `allowedTools` bounds the WHOLE tool surface, `server-tool` skills
+  // `allowedTools` bounds the WHOLE tool surface, `server-tool` skills
   // included, and it does so HERE so the exclusion reaches the prompt as well as the
   // advertised list.
   //
@@ -608,7 +606,7 @@ async function* runAgenticLoopTurns(
       ? STUDIO_AI_TOOLS.filter((t) => (allowedTools as string[]).includes(t.function.name))
       : STUDIO_AI_TOOLS
   ).filter((t) => {
-    // T1-2 — never advertise state-reading tools in private mode.
+    // Never advertise state-reading tools in private mode.
     if (privateMode && PRIVATE_MODE_EXCLUDED_TOOLS.has(t.function.name)) {
       return false;
     }
@@ -647,7 +645,7 @@ async function* runAgenticLoopTurns(
 
   const effectiveTools = [...builtInTools, ...skillToolDefs];
 
-  // T1-1 — the exact set of tool names advertised to the model this request.
+  // The exact set of tool names advertised to the model this request.
   // `dispatchToolCall` rejects any call whose name is not in this set so gating is
   // enforced at execution time, not merely at advertisement time.
   const advertisedToolNames = new Set(effectiveTools.map((t) => t.function.name));
@@ -682,7 +680,7 @@ async function* runAgenticLoopTurns(
     // than the threaded active page, which a same-turn `set_active_page` mutates.
     //
     snapshotPageId: initialState.doc.dashboard.activePageId,
-    // Finding F4 — `PRIVATE_MODE_EXCLUDED_TOOLS` above withdraws the READ tools, which
+    // `PRIVATE_MODE_EXCLUDED_TOOLS` above withdraws the READ tools, which
     // is the whole lever for a tool that exists to return state. It does nothing for a
     // still-advertised WRITE tool that interpolates withheld state into its rejection
     // string, and on this transport a tool result is re-sent to the provider on every
@@ -725,7 +723,7 @@ async function* runAgenticLoopTurns(
     }
 
     let response: Response;
-    // Finding M5 — a REAL abort signal for this fetch. `withTimeout` only races the
+    // A REAL abort signal for this fetch. `withTimeout` only races the
     // promise; it never aborts the in-flight request, so a timed-out turn previously
     // left the upstream completion running (and billed) with its body unread. The
     // linked signal fires on `LLM_FETCH_TIMEOUT_MS` OR on the caller's own abort, so
@@ -762,12 +760,12 @@ async function* runAgenticLoopTurns(
       if (signal?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
         return;
       }
-      // Finding H4 — a transport error's `message` routinely names internal hosts,
+      // A transport error's `message` routinely names internal hosts,
       // ports, and IPs (`connect ECONNREFUSED 10.0.3.11:5432`). Log the detail
       // server-side and give the untrusted client only a correlation id.
       const report = reportProviderFetchError('LLM provider request', err);
       onToolError?.('llm-provider', new Error(report.detail));
-      // Finding F1 — the turns that already ran were billed; report them before ending
+      // The turns that already ran were billed; report them before ending
       // the stream, exactly as the token-budget and max-turns stops do.
       yield usageEvent(usage);
       yield { type: 'error', message: report.clientMessage };
@@ -794,7 +792,7 @@ async function* runAgenticLoopTurns(
         LLM_FETCH_TIMEOUT_MS,
         'LLM provider error response body',
       ).catch(() => undefined);
-      // Finding H4 — the provider's error BODY is never relayed to the client: an
+      // The provider's error BODY is never relayed to the client: an
       // OpenAI 401 body carries the partially-masked key and org, and Azure/APIM and
       // self-hosted gateways echo deployment paths, internal hostnames, and even the
       // received `Authorization` header. A hostile gateway can also return a 100 MB
@@ -808,7 +806,7 @@ async function* runAgenticLoopTurns(
       );
       onToolError?.('llm-provider', new Error(report.detail));
       fetchAbort.dispose();
-      // Finding F1 — see the fetch-error path above.
+      // See the fetch-error path above.
       yield usageEvent(usage);
       yield { type: 'error', message: report.clientMessage };
       return;
@@ -868,7 +866,7 @@ async function* runAgenticLoopTurns(
 
         // Accumulate token usage from the final usage chunk (stream_options: include_usage).
         //
-        // Finding M7 — every field here is RAW PROVIDER JSON, and its declared
+        // Every field here is RAW PROVIDER JSON, and its declared
         // TypeScript type says nothing about what actually arrives (invariant 15). These
         // two numbers are the entire input to `maxTokensPerRequest`, so an unvalidated
         // read hands a hostile/broken gateway the token budget itself:
@@ -888,7 +886,7 @@ async function* runAgenticLoopTurns(
           | { prompt_tokens?: unknown; completion_tokens?: unknown }
           | undefined;
         if (chunkUsage) {
-          // Finding F1 — fold into the request total AS THE CHUNK ARRIVES, by applying
+          // Fold into the request total AS THE CHUNK ARRIVES, by applying
           // the delta against the last value this turn reported, rather than summing at
           // the end of the turn. `usage` is then correct at EVERY suspension point of
           // this generator, so a turn that reports its usage and then fails (or is
@@ -937,7 +935,7 @@ async function* runAgenticLoopTurns(
         if (isUsableDeltaText(delta.content)) {
           yield { type: 'text-delta', delta: delta.content };
           turnTextBuffer += delta.content;
-          // Finding 6 — bound `turnTextBuffer` growth independently of the (optional,
+          // Bound `turnTextBuffer` growth independently of the (optional,
           // and sometimes silently-inert — see the KNOWN LIMITATION note below) token
           // budget. Thrown here, inside the try/catch around this read loop, so it
           // surfaces as a clean `{ type: 'error' }` event rather than an uncaught
@@ -987,7 +985,7 @@ async function* runAgenticLoopTurns(
       // "the stream stalled" vs "the connection dropped" distinction survives.
       const report = reportProviderFetchError('LLM response stream', err);
       onToolError?.('llm-provider', new Error(report.detail));
-      // Finding F1 — a stream that reported its usage chunk and THEN dropped (or hit one
+      // A stream that reported its usage chunk and THEN dropped (or hit one
       // of this package's buffer caps) still billed those tokens.
       yield usageEvent(usage);
       yield { type: 'error', message: report.clientMessage };
@@ -1010,7 +1008,7 @@ async function* runAgenticLoopTurns(
     // (which this same value fills) a plain opaque string, exactly as the wire format
     // requires.
     //
-    // This id no longer keys the shared `approvalPending` map: since round-4 finding F5
+    // This id no longer keys the shared `approvalPending` map: since
     // `runApprovalFlow` mints a separate `approvalId` with its own `randomUUID()`, so
     // the map key is never provider-authored even for the calls the provider DID id.
     // Minting unguessably here still matters — a `call-${turn}-${idx}` scheme would let
@@ -1021,7 +1019,7 @@ async function* runAgenticLoopTurns(
         tc.id = randomUUID();
       }
     }
-    // Finding F1 — collapse any two slots that ended up sharing one `tool_call_id`.
+    // Collapse any two slots that ended up sharing one `tool_call_id`.
     // AFTER the id minting above, so entries the provider left un-id'd (all seeded
     // `''`) are compared by their freshly minted unique ids rather than collapsing
     // into one. The accumulator is what should prevent a split in the first place;
@@ -1160,7 +1158,7 @@ async function* runAgenticLoopTurns(
         currentState = outcome.nextState;
       }
 
-      // Finding H2 — every INPUT to a tool is bounded, but the OUTPUT was not, and a
+      // Every INPUT to a tool is bounded, but the OUTPUT was not, and a
       // tool result is not a one-shot cost: it is appended to `currentMessages` below
       // and re-sent on EVERY remaining turn (O(turns × size)), as well as forwarded to
       // the browser in the `tool-activity` event just below. `capToolOutput` is applied
@@ -1199,7 +1197,7 @@ async function* runAgenticLoopTurns(
       ),
     ];
     currentMessages = [...currentMessages, ...appended];
-    // Finding F2 — the aggregate bound on the in-flight conversation. Measured on the
+    // The aggregate bound on the in-flight conversation. Measured on the
     // SERIALIZED messages, which is exactly what the next turn POSTs.
     conversationChars += appended.reduce((sum, m) => sum + JSON.stringify(m).length, 0);
     if (conversationChars > MAX_CONVERSATION_CHARS) {

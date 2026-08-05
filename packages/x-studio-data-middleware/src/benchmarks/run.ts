@@ -2,9 +2,8 @@
 /**
  * x-studio-data-middleware pipeline benchmarks — standalone runner
  *
- * Mirrors the methodology of packages/x-studio/src/benchmarks/run.ts:
- *   5 warmup iterations  +  50 timed iterations per bench
- *   Outputs hz (ops/s), mean (ms), p75 (ms), p99 (ms)
+ * Mirrors the methodology of packages/x-studio/src/benchmarks/run.ts: 5 warmup iterations + 50
+ * timed iterations per bench Outputs hz (ops/s), mean (ms), p75 (ms), p99 (ms)
  *
  * Layers benchmarked
  * ──────────────────
@@ -12,9 +11,9 @@
  *                                  (maps to A1 buildQueryDescriptor)
  *  B2  LRUCacheProvider.get      — warm hit + miss
  *                                  (maps to A2 cache.get)
- *  B3  LRUCacheProvider set+get  — round-trip write then read (100 rotating keys)
+ * B3 LRUCacheProvider set+get — round-trip write then read (100 rotating keys)
  *                                  (maps to A3)
- *  B4  LRUCacheProvider.invalidatePrefix — N entries (10 / 100 / 1,000)
+ * B4 LRUCacheProvider.invalidatePrefix — N entries (10 / 100 / 1,000)
  *                                  (maps to A4 invalidateSource)
  *  B5  runPreflight              — COUNT(*) + tier-routing at 10k / 100k rows
  *                                  (new; matches server-middleware timing notes)
@@ -22,11 +21,11 @@
  *                                  (maps to L3 cold + L5 combined)
  *  B7  handleBatchQuery (warm)   — full pipeline, cache hit, at 10k / 100k rows
  *                                  (maps to L3 warm)
- *  B8  handleBatchQuery (tier-cache cold) — data cache expired, tier cache hit,
+ * B8 handleBatchQuery (tier-cache cold) — data cache expired, tier cache hit,
  *                                  no COUNT(*) preflight, at 10k / 100k rows
  *
- * Run:  tsx packages/x-studio-data-middleware/src/benchmarks/run.ts
- *   or:  pnpm --filter "@mui/x-studio-data-middleware" bench
+ * Run: tsx packages/x-studio-data-middleware/src/benchmarks/run.ts or: pnpm --filter
+ * "@mui/x-studio-data-middleware" bench
  */
 
 import { performance } from 'node:perf_hooks';

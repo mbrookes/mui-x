@@ -401,7 +401,7 @@ export const STUDIO_AI_TOOLS = [
     type: 'function',
     function: {
       name: 'summarise_page',
-      // Finding H6 — this description used to advise "otherwise call set_active_page
+      // This description used to advise "otherwise call set_active_page
       // first", and that advice steered the model straight into the one sequence that
       // silently returns the WRONG page: `set_active_page(pageB)` then `summarise_page()`
       // with `pageId` omitted. On the chat transport the row data is a `pageSnapshot`

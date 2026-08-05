@@ -661,12 +661,11 @@ export function inferWidgetTitles(
  * drifted from what the grid actually rendered (architecture review finding — grid CSV export
  * drifts from on-screen rendering for expression-field columns).
  *
- * `crossSourceFieldDefs` are the resolved field defs for the widget's cross-source columns
- * (a related source's physical field OR its calculated column), produced by
- * `StudioGridWidget.tsx`'s `resolveCrossSourceFieldDefs` — the SAME defs the on-screen grid's
- * column builder uses. Folding them into the lookup makes a cross-source column's CSV header
- * label and number/currency formatting match the rendered grid instead of drifting to the raw
- * field id with no formatting (architecture review finding 2.6).
+ * `crossSourceFieldDefs` are the resolved field defs for the widget's cross-source columns (a
+ * related source's physical field OR its calculated column), produced by `StudioGridWidget.tsx`'s
+ * `resolveCrossSourceFieldDefs` — the SAME defs the on-screen grid's column builder uses. Folding
+ * them into the lookup makes a cross-source column's CSV header label and number/currency
+ * formatting match the rendered grid instead of drifting to the raw field id with no formatting.
  */
 export function buildCsvContent(
   widget: StudioWidget,
@@ -708,18 +707,16 @@ export function buildCsvContent(
       fieldMap.set(def.id, def);
     }
   }
-  // Header labels always come from user-configured field labels — always text,
-  // so always escaped via `escapeCsvCell` (formula-injection neutralization,
-  // finding 1.8). Row cells are escaped the same way UNLESS the cell's RUNTIME
-  // value is a genuine `number` (finding 1.3 — a "number"-typed column can still
-  // hold a non-numeric runtime value from dirty data or a misbehaving adapter,
-  // and that value must go through the full formula-injection guard, not skip it
-  // based on the column's declared type). A numeric cell is still wrapped in
-  // quotes (finding 1.2 — `Intl.NumberFormat`'s default thousands separator, e.g.
-  // `1,234.50`, would otherwise split the row into an extra unquoted column) but
-  // is exempt from `escapeCsvCell`'s leading-apostrophe rewrite: a genuine number
-  // can never itself be interpreted as a spreadsheet formula, and the apostrophe
-  // would corrupt a legitimate leading `-` (e.g. `-5`).
+  // Header labels always come from user-configured field labels — always text, so always escaped
+  // via `escapeCsvCell` (formula-injection neutralization). Row cells are escaped the same way
+  // UNLESS the cell's RUNTIME value is a genuine `number` (a "number"-typed column can still hold a
+  // non-numeric runtime value from dirty data or a misbehaving adapter, and that value must go
+  // through the full formula-injection guard, not skip it based on the column's declared type). A
+  // numeric cell is still wrapped in quotes (`Intl.NumberFormat`'s default thousands separator,
+  // e.g. `1,234.50`, would otherwise split the row into an extra unquoted column) but is exempt
+  // from `escapeCsvCell`'s leading-apostrophe rewrite: a genuine number can never itself be
+  // interpreted as a spreadsheet formula, and the apostrophe would corrupt a legitimate leading `-`
+  // (e.g. `-5`).
   const headers = visibleColumns.map((col) => escapeCsvCell(fieldMap.get(col)?.label ?? col));
 
   const csvRows = rows.map((row) =>
@@ -743,9 +740,9 @@ export function buildCsvContent(
 }
 
 /**
- * Quote a CSV cell known to come from a genuine runtime `number` value, without
- * applying `escapeCsvCell`'s leading formula-injection apostrophe (see the
- * comment in {@link buildCsvContent} — findings 1.2 & 1.3).
+ * Quote a CSV cell known to come from a genuine runtime `number` value, without applying
+ * `escapeCsvCell`'s leading formula-injection apostrophe (see the comment in {@link
+ * buildCsvContent}.2 & 1.3).
  */
 function quoteNumericCsvCell(value: string): string {
   return `"${value.replace(/"/g, '""')}"`;

@@ -118,10 +118,10 @@ function makeDefaultExpression(): StudioExpression {
   } satisfies StudioFunctionExpression;
 }
 
-// Collision-resistant id generator for newly-created expression fields (finding
-// 3.11): a plain `expr-${Date.now()}` collides whenever two fields are created
-// within the same millisecond. Pairs the timestamp with a module-level monotonic
-// counter, same scheme as `chatIds.ts`/`RelationshipPanel.tsx` elsewhere in x-studio.
+// Collision-resistant id generator for newly-created expression fields: a plain
+// `expr-${Date.now()}` collides whenever two fields are created within the same millisecond. Pairs
+// the timestamp with a module-level monotonic counter, same scheme as
+// `chatIds.ts`/`RelationshipPanel.tsx` elsewhere in x-studio.
 let newExpressionFieldIdCounter = 0;
 function createNewExpressionFieldId(): string {
   newExpressionFieldIdCounter += 1;
@@ -169,7 +169,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   );
   const { label, description, isMeasure, expression, precision } = form;
 
-  // H8: `addExpressionField`/`updateExpressionField` now RETURN a `StudioMutationResult`, so
+  // `addExpressionField`/`updateExpressionField` now RETURN a `StudioMutationResult`, so
   // the dialog branches on the controller's own verdict instead of re-reading the committed
   // doc and guessing. `null` = no rejection to show; otherwise the localized reason.
   const [saveError, setSaveError] = React.useState<string | null>(null);
@@ -185,7 +185,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   }
   const fieldId = existingField?.id ?? newFieldIdRef.current;
 
-  // H6: resync the buffered form whenever the dialog is (re-)opened or the field being
+  // Resync the buffered form whenever the dialog is (re-)opened or the field being
   // edited changes. MUI's `Dialog` keeps its subtree MOUNTED across `open` toggles, so
   // without this the `React.useState` initializer above only ever runs once per mount and
   // the form keeps showing — and, on save, WRITES — the first field it was opened with:
@@ -467,7 +467,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
               precision={parsedPrecision}
             />
 
-            {/* H8: the controller rejected the write; the dialog stays open and says so. */}
+            {/* The controller rejected the write; the dialog stays open and says so. */}
             {saveError !== null && (
               <Alert severity="error" role="alert">
                 {saveError}

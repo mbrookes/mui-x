@@ -28,14 +28,12 @@ import { DEFAULT_QUERY_TIMEOUT_MS, applyQueryTimeout } from '../shared/queryTime
 type RoutingTier = 'client' | 'server' | 'db';
 
 /**
- * Hard server-side ceiling on the number of rows a single widget query may
- * return, applied REGARDLESS of what `limit` the client requests (finding T2 —
- * Tier 2). Before this cap, `limit` was fully optional and entirely
- * client-controlled: a widget descriptor with no `limit` (or an enormous one)
- * against a multi-million-row table could attempt an uncapped SELECT and OOM
- * the server process. The effective limit applied to every executed query is
- * always `min(clientLimit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS)` — see
- * `effectiveLimit()` below.
+ * Hard server-side ceiling on the number of rows a single widget query may return, applied
+ * REGARDLESS of what `limit` the client requests (Tier 2). Before this cap, `limit` was fully
+ * optional and entirely client-controlled: a widget descriptor with no `limit` (or an enormous one)
+ * against a multi-million-row table could attempt an uncapped SELECT and OOM the server process.
+ * The effective limit applied to every executed query is always `min(clientLimit ??
+ * MAX_RESULT_ROWS, MAX_RESULT_ROWS)` — see `effectiveLimit()` below.
  */
 export const MAX_RESULT_ROWS = 100_000;
 
@@ -145,10 +143,9 @@ export function chargeRowBudgetOrThrow(budget: RowBudget | undefined, rowCount: 
 }
 
 /**
- * The LIMIT a widget may ask for on its own: the client's requested `limit`
- * capped at `MAX_RESULT_ROWS`, defaulting to that cap when `limit` is omitted.
- * `limit: 0` (a legitimate "return zero rows" request, finding 3.1) is preserved
- * — `??` only substitutes on `undefined`, never on `0`.
+ * The LIMIT a widget may ask for on its own: the client's requested `limit` capped at
+ * `MAX_RESULT_ROWS`, defaulting to that cap when `limit` is omitted. `limit: 0` (a legitimate
+ * "return zero rows" request) is preserved — `??` only substitutes on `undefined`, never on `0`.
  */
 function widgetLimit(clientLimit: number | undefined): number {
   return Math.max(0, Math.min(clientLimit ?? MAX_RESULT_ROWS, MAX_RESULT_ROWS));
@@ -321,12 +318,11 @@ function normalizeAggregateValues(
  * - 'client': return raw rows (client filters in-browser)
  * - 'server': return raw rows (middleware caches for re-use)
  * - 'db': for an AGGREGATION descriptor, returns aggregated/grouped rows
- *   (DB push-down; `handler.ts` does not cache these). For a NON-aggregation
- *   descriptor whose preflight COUNT(*) exceeded `serverMemoryTier`, falls back
- *   to the SAME plain select/orderBy/limit shape as 'client'/'server' — those
- *   raw rows ARE cached by `handler.ts`, exactly like the other two tiers
- *   (finding 3.2 — this used to say "no caching of raw data" for every 'db'
- *   result, which was only ever true for the aggregation branch).
+ * (DB push-down; `handler.ts` does not cache these). For a NON-aggregation descriptor whose
+ * preflight COUNT(*) exceeded `serverMemoryTier`, falls back to the SAME plain select/orderBy/limit
+ * shape as 'client'/'server' — those raw rows ARE cached by `handler.ts`, exactly like the other
+ * two tiers (this used to say "no caching of raw data" for every 'db' result, which was only ever
+ * true for the aggregation branch).
  *
  * @param plan - Pre-compiled `ValidatedQueryPlan` (request path, threaded from the handler). Direct
  *   callers omit it; a plan is then resolved on the spot from `descriptor`, reproducing the pre-refactor
@@ -389,15 +385,14 @@ export async function executeForTier(
   // SOURCE reference is qualified; the output row KEY (`col.outputAlias`) is
   // unaffected, so client row shapes are unchanged.
   //
-  // NO RESULT-KEY COLLISION GUARD HERE (Tier3, iter24 finding) — deliberately.
-  // Two projected columns whose result key collides (e.g. `orders.category` and
-  // `customers.category`, both keying as `category`) would silently overwrite
-  // one another on the row object built from this function's output, with no
-  // way for THIS function to detect it (it only ever sees one column at a
-  // time). The guard instead runs once, up front, over the whole projection
-  // list: `validateProjectionKeyCollisions` (`shared/columnValidation.ts`),
-  // wired into `validateQueryPlan` — every request-path descriptor is rejected
-  // fail-closed before it ever reaches this function.
+  // NO RESULT-KEY COLLISION GUARD HERE (iter24 finding) — deliberately. Two projected columns whose
+  // result key collides (e.g. `orders.category` and `customers.category`, both keying as
+  // `category`) would silently overwrite one another on the row object built from this function's
+  // output, with no way for THIS function to detect it (it only ever sees one column at a time).
+  // The guard instead runs once, up front, over the whole projection list:
+  // `validateProjectionKeyCollisions` (`shared/columnValidation.ts`), wired into
+  // `validateQueryPlan` — every request-path descriptor is rejected fail-closed before it ever
+  // reaches this function.
   const projectColumn = (col: PlanProjectionColumn): unknown =>
     col.outputAlias !== undefined
       ? db.raw(`?? as ??`, [qualify(col.physical), col.outputAlias])
@@ -524,7 +519,7 @@ export async function executeForTier(
     // fall back to it as-is.
     query.orderBy(orderColumnOf(ob), ob.direction);
   }
-  // Always apply an effective limit — see finding 3.1 / T2 / H2 above.
+  // Always apply an effective limit —.1 / T2 / H2 above.
   const aggregatedRows = await runBounded(query, queryPlan.limit, rowBudget, queryTimeoutMs);
   return normalizeAggregateValues(aggregatedRows, queryPlan.aggregations);
 }

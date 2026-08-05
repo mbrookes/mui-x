@@ -82,17 +82,15 @@ export function useChartWidgetData(
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
-  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source,
-  // mirroring `useWidgetRows`' `relevantSourceIds`/`makeSelectExpressionFieldsForSources`
-  // pattern exactly. `analyzeChartSupport` below (and `ChartSetupPanel`'s own support
-  // check) resolves a related-source calculated field via `findDirectFieldOwner` →
-  // `hasRowLevelField`, which only finds an expression field in this list — an
-  // own-source-only list makes a related-source expression field invisible here, so this
-  // guard falsely disagrees with the setup panel's full-list check.
-  // For a many-to-many relationship the junction (bridge) source is included too, so a
-  // junction-owned expression field used as a chart dimension is resolvable by the guard
-  // and by L4 grain resolution instead of being invisible (mirrors `getReachableSourceIds`;
-  // finding 2.1).
+  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source, mirroring
+  // `useWidgetRows`' `relevantSourceIds`/`makeSelectExpressionFieldsForSources` pattern exactly.
+  // `analyzeChartSupport` below (and `ChartSetupPanel`'s own support check) resolves a
+  // related-source calculated field via `findDirectFieldOwner` → `hasRowLevelField`, which only
+  // finds an expression field in this list — an own-source-only list makes a related-source
+  // expression field invisible here, so this guard falsely disagrees with the setup panel's
+  // full-list check. For a many-to-many relationship the junction (bridge) source is included too,
+  // so a junction-owned expression field used as a chart dimension is resolvable by the guard and
+  // by L4 grain resolution instead of being invisible (mirrors `getReachableSourceIds`).
   const relevantSourceIds = React.useMemo(() => {
     const ids = new Set<string>();
     if (widget.sourceId) {
@@ -142,13 +140,13 @@ export function useChartWidgetData(
     // the live `selectFilters` array. During a `useDeferredValue` window the urgent render would
     // otherwise pair stale L3 rows with a freshly-resolved filter list, so `resolveRowsAtGrain`'s
     // L4 semi-join rendered the intersection of two filter states (a transient flash to empty).
-    // `resolvedFiltersAll` ('all') matches `filteredRows`.
-    // `resolvedFiltersNoChartCross` ('page' + 'widget' + 'interactive') matches
-    // `filteredRowsNoChartCross` — the chart ghost/tooltip "all rows" baseline, AND
-    // is the correct pairing for `effectiveRows` in `'none'` mode (see `effectiveResolvedFilters`
-    // below — finding 1, tier 1). NOTE: `resolvedFiltersNoCross` ('page' + 'widget' only, pairs
-    // with `filteredRowsNoCross`) is deliberately NOT destructured here — `effectiveRows` is never
-    // `filteredRowsNoCross` in this hook, so there is no rows/filters pair it correctly matches.
+    // `resolvedFiltersAll` ('all') matches `filteredRows`. `resolvedFiltersNoChartCross` ('page' +
+    // 'widget' + 'interactive') matches `filteredRowsNoChartCross` — the chart ghost/tooltip "all
+    // rows" baseline, AND is the correct pairing for `effectiveRows` in `'none'` mode (see
+    // `effectiveResolvedFilters` below, tier 1). NOTE: `resolvedFiltersNoCross` ('page' + 'widget'
+    // only, pairs with `filteredRowsNoCross`) is deliberately NOT destructured here —
+    // `effectiveRows` is never `filteredRowsNoCross` in this hook, so there is no rows/filters pair
+    // it correctly matches.
     resolvedFiltersAll,
     resolvedFiltersNoChartCross,
     // The widget's own WIDGET-scoped rank (Top-N) filters, derived from the same deferred filter

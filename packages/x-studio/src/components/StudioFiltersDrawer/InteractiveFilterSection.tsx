@@ -65,7 +65,7 @@ export function InteractiveFilterSection({ filters }: { filters: StudioFilterSta
                   <IconButton
                     size="small"
                     onClick={() => {
-                      // Finding 3.9: interactive filters are deliberately non-undoable
+                      // Interactive filters are deliberately non-undoable
                       // everywhere else (`applyInteractiveFilter`/`clearInteractiveFilter`,
                       // and the widget-pill path via `SliderFilterPill`). This drawer row
                       // used to remove them via the undoable `controller.removeFilter`, so

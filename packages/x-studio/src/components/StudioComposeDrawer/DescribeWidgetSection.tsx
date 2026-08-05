@@ -21,7 +21,7 @@ export function DescribeWidgetSection({ onCreated }: { onCreated: () => void }) 
   const [status, setStatus] = React.useState<'idle' | 'loading' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = React.useState('');
 
-  // M11 — re-entrancy. `status === 'loading'` was the ONLY guard against a double submit,
+  // Re-entrancy. `status === 'loading'` was the ONLY guard against a double submit,
   // and both Cancel and the collapse chevron reset it to `'idle'` while the request was
   // still in flight: the user cancelled, reopened, resubmitted, and got TWO widgets (the
   // first request commits its widget via `controller.addWidget` regardless). Two changes

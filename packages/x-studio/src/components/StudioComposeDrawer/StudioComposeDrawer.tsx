@@ -113,7 +113,7 @@ export function StudioComposeDrawer(props: StudioComposeDrawerProps = {}) {
 
   let content: React.ReactNode = <AddWidgetView />;
   if (selectedWidgetId) {
-    // M2 — the `key` is load-bearing, not decoration. Without it React reconciles the
+    // The `key` is load-bearing, not decoration. Without it React reconciles the
     // whole setup-panel subtree ACROSS a widget switch, so every piece of component-local
     // state below survives: buffered text inputs (`ColorInput`, `AnnotationsEditorSection`,
     // …) whose `useEffect` resync is keyed on `value` alone never fire when the two widgets

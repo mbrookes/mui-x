@@ -12,10 +12,10 @@ interface CollapsibleFeatureSectionProps {
 }
 
 /**
- * A collapsible section with a labeled header row containing a switch toggle on the
- * right and an expand/collapse chevron on the left.  The switch turning ON also
- * expands the panel; turning OFF collapses it.  The chevron (and header row) toggle
- * expanded state independently when the switch is already on.
+ * A collapsible section with a labeled header row containing a switch toggle on the right and an
+ * expand/collapse chevron on the left. The switch turning ON also expands the panel; turning OFF
+ * collapses it. The chevron (and header row) toggle expanded state independently when the switch is
+ * already on.
  */
 export function CollapsibleFeatureSection({
   label,

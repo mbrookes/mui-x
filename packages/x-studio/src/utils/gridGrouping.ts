@@ -12,26 +12,23 @@ import { indexRowsByKey, normalizeJoinKey } from '../internals/joinKeys';
 import { aggregateCellValues } from '../internals/aggregate';
 
 /**
- * Aggregates an array of already-extracted cell values for one field/aggregation
- * combination — the core reducer shared by the row-based grid-grouping path below
- * (`aggregateGridValue`/`buildGroupedGridRows`) and DataGridPremium's native
- * per-column aggregation functions (`StudioGridWidget.tsx`'s `aggregationFunctions`),
- * which extract a `(dedupeKey, value)` pair per row via `getCellValue` and dedupe
- * fanned-out cross-source values by key before calling this on the deduped value
- * list — see `StudioGridWidget.tsx` for why the native grouping path needs the same
- * fan-out-safe dedup this module's `symmetricAggregate` already implements
- * (architecture review finding 2.7).
+ * Aggregates an array of already-extracted cell values for one field/aggregation combination — the
+ * core reducer shared by the row-based grid-grouping path below
+ * (`aggregateGridValue`/`buildGroupedGridRows`) and DataGridPremium's native per-column aggregation
+ * functions (`StudioGridWidget.tsx`'s `aggregationFunctions`), which extract a `(dedupeKey, value)`
+ * pair per row via `getCellValue` and dedupe fanned-out cross-source values by key before calling
+ * this on the deduped value list — see `StudioGridWidget.tsx` for why the native grouping path
+ * needs the same fan-out-safe dedup this module's `symmetricAggregate` already implements.
  */
 export function aggregateValues(
   values: unknown[],
   aggregation: StudioGridSummaryAggregation,
 ): number | null {
-  // Delegates wholesale to the shared `aggregateCellValues` — the single place that decides
-  // what each aggregation NAME means over a row set. Every semantic this
-  // function had is preserved: `count` is `COUNT(*)` (one entry per row, nulls included),
-  // `count_distinct` excludes null/undefined and is measured over the RAW values (finding
-  // 2.23), and `sum`/`avg`/`min`/`max` route through the shared null-skip + boolean/
-  // numeric-string coercion, so an empty set gives `sum` 0 and
+  // Delegates wholesale to the shared `aggregateCellValues` — the single place that decides what
+  // each aggregation NAME means over a row set. Every semantic this function had is preserved:
+  // `count` is `COUNT(*)` (one entry per row, nulls included), `count_distinct` excludes
+  // null/undefined and is measured over the RAW values, and `sum`/`avg`/`min`/`max` route through
+  // the shared null-skip + boolean/ numeric-string coercion, so an empty set gives `sum` 0 and
   // `avg`/`min`/`max` `null` rather than a fabricated 0.
   return aggregateCellValues(values, aggregation);
 }

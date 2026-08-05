@@ -100,7 +100,7 @@ export function FilterValueInput(props: {
     dirtyRef.current = false;
   }
 
-  // M4: an operator switch (from the dropdown, or from `PageFilterRow`'s self-repair effect
+  // An operator switch (from the dropdown, or from `PageFilterRow`'s self-repair effect
   // after a data-source load race) changes the value SHAPE the input is editing, so an
   // uncommitted scalar edit must not survive it — it would otherwise land on e.g. a `between`
   // object filter. Re-sync to what is actually stored, exactly as the value branch does.
@@ -134,7 +134,7 @@ export function FilterValueInput(props: {
   // reuse the same `DateValueInput` picker twice (from + to); numeric fields get a pair of
   // number inputs.
   if (operator === 'between') {
-    // M9: PICK the two bounds rather than spreading the stored value wholesale. Spreading made
+    // PICK the two bounds rather than spreading the stored value wholesale. Spreading made
     // every non-array object the base of the next commit, so editing a `between` on top of a
     // relative date produced `{ relative: true, amount, unit, direction, from }` — a hybrid that
     // is neither shape, that `isRelativeDateValue` then mistook for a scalar relative date, and

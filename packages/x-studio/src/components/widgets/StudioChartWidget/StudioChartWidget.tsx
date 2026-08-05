@@ -122,14 +122,13 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
   const localeText = useStudioLocaleText();
-  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source —
-  // matching `useChartWidgetData`'s identical `relevantSourceIds` computation (and
-  // `useWidgetRows`' pattern), so `getFieldDependencySource`/`isFieldForeignDerived` below
-  // can resolve a related-source calculated field the same way `analyzeChartSupport` does,
-  // instead of only ever seeing this widget's own-source expression fields.
-  // For a many-to-many relationship the junction (bridge) source is included too, so a
-  // junction-owned expression field is resolvable here as well (mirrors
-  // `getReachableSourceIds`; finding 2.1).
+  // Subscribe to the widget's own source PLUS every directly-related (one-hop) source — matching
+  // `useChartWidgetData`'s identical `relevantSourceIds` computation (and `useWidgetRows`'
+  // pattern), so `getFieldDependencySource`/`isFieldForeignDerived` below can resolve a
+  // related-source calculated field the same way `analyzeChartSupport` does, instead of only ever
+  // seeing this widget's own-source expression fields. For a many-to-many relationship the junction
+  // (bridge) source is included too, so a junction-owned expression field is resolvable here as
+  // well (mirrors `getReachableSourceIds`).
   const relevantSourceIds = React.useMemo(() => {
     const ids = new Set<string>();
     if (widget.sourceId) {
@@ -469,7 +468,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
       // mark the filter `fieldType: 'date'` so equals/in cross-filters match L1-normalized
       // date cells at day granularity. Without `fieldType`, compileSingleCondition falls back
       // to a loose `==` against the full ISO string, which never matches an L1 'YYYY-MM-DD'
-      // cell (see ARCHITECTURE_REVIEW.md finding 1.2).
+      // cell.
       const isDateLabel = label instanceof Date;
       const filterValue = isDateLabel ? truncateToGranularity(label, 'day') : label;
       const filterFieldType = isDateLabel ? ('date' as const) : undefined;

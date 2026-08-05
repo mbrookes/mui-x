@@ -615,7 +615,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
   const dataSources = useStudioSelector(selectDataSources);
   const customWidgetMap = useCustomWidgetMap();
   const controller = useStudioController();
-  // Finding 1.4: the canvas root is rendered by one of two mutually exclusive
+  // The canvas root is rendered by one of two mutually exclusive
   // branches below (empty-state vs populated) of this same persistent, memoized
   // component. A plain `React.useRef` never changes identity when the branch
   // flips, so anything that reads `.current` inside a `[ref]`-keyed effect (or a
@@ -746,7 +746,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     ref: emptyDropRef,
     canDrop: canDropOnEmptyPage,
     onDrop: handleEmptyPageDrop,
-    // Finding 1.4: the empty-state `Paper` this ref attaches to is only rendered
+    // The empty-state `Paper` this ref attaches to is only rendered
     // in the `isEmptyPage` branch below — a different DOM node than the populated
     // branch's root. Re-run the registration effect on every empty<->populated
     // transition so it re-reads `emptyDropRef.current` instead of staying wired to
@@ -861,7 +861,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
           return (
             <Box
               key={page.id}
-              // Finding 2.26: an inactive page is only visually hidden (clip-path +
+              // An inactive page is only visually hidden (clip-path +
               // zero height + pointerEvents:none below) — none of that removes it from
               // the tab order or the accessibility tree, so Tab could still reach a
               // hidden page's controls (e.g. a `RowResizeHandle`) that a sighted mouse

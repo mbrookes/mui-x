@@ -13,9 +13,9 @@ import type { JwtSecurityClaims } from './types';
 
 /** JWT payload shape expected by x-studio-data-middleware */
 interface JwtPayload {
-  // `unknown` (not `string`) — see `normalizeSub` (Tier3 iter26 finding 4).
-  // The payload is parsed JSON from a client-controlled bearer token, so the
-  // TS shape is not a runtime guarantee, mirroring every sibling claim below.
+  // `unknown` (not `string`) — see `normalizeSub`. The payload is parsed JSON from a
+  // client-controlled bearer token, so the TS shape is not a runtime guarantee, mirroring every
+  // sibling claim below.
   sub: unknown;
   // `unknown` (not `string`) — the payload is parsed JSON from a
   // client-controlled bearer token, so the TS shape is not a runtime
@@ -31,10 +31,9 @@ interface JwtPayload {
   regionIds?: unknown;
   // `unknown` (not `string`) — see `normalizeDepartment`.
   department?: unknown;
-  // `unknown` (not `number`) — the expiry check below (Tier3 iter26 finding 4)
-  // is the runtime boundary that enforces `number`: `exp: {}` or `exp: "banana"`
-  // used to pass a bare presence check (`payload.exp === undefined`) and then
-  // `payload.exp < now` evaluated to `false` for a non-numeric value (`NaN`
+  // `unknown` (not `number`) — the expiry check below is the runtime boundary that enforces
+  // `number`: `exp: {}` or `exp: "banana"` used to pass a bare presence check (`payload.exp ===
+  // undefined`) and then `payload.exp < now` evaluated to `false` for a non-numeric value (`NaN`
   // comparisons are always `false`), so such a token never expired.
   exp?: unknown;
 }
@@ -67,8 +66,7 @@ function normalizeTenantId(tenantId: unknown): string {
 }
 
 /**
- * Validate + coerce the JWT's `sub` claim to a non-empty `string` (Tier3 iter26
- * finding 4).
+ * Validate + coerce the JWT's `sub` claim to a non-empty `string`.
  *
  * `sub` is typed `string` on `JwtSecurityClaims.userId`, but — like every other
  * claim in this file — nothing previously enforced that at runtime: the
@@ -171,13 +169,11 @@ function normalizeRegionIds(regionIds: unknown): number[] | undefined {
     );
   }
   return regionIds.map((id, index) => {
-    // Accept ONLY a real number or a NON-EMPTY numeric string.
-    // `Number(...)` coerces far too eagerly to lean on `Number.isFinite` alone:
-    // `Number(true) === 1`, `Number('') === 0`, `Number('  ') === 0` all pass, so a
-    // boolean or an empty/whitespace string would silently become a region id (`1`,
-    // `0`, …) and widen or corrupt the caller's region scope. Gate on the INPUT type
-    // first — a number, or a string that is non-empty after trimming — before
-    // coercing.
+    // Accept ONLY a real number or a NON-EMPTY numeric string. `Number(...)` coerces far too
+    // eagerly to lean on `Number.isFinite` alone: `Number(true) === 1`, `Number('') === 0`,
+    // `Number(' ') === 0` all pass, so a boolean or an empty/whitespace string would silently
+    // become a region id (`1`, `0`, …) and widen or corrupt the caller's region scope. Gate on the
+    // INPUT type first — a number, or a string that is non-empty after trimming — before coercing.
     const isNumericString = typeof id === 'string' && id.trim() !== '';
     if (typeof id !== 'number' && !isNumericString) {
       throw new Error(
@@ -271,14 +267,12 @@ export function extractSecurityClaims(
         'Ensure the token issuer sets "exp" to a Unix timestamp (in seconds) for every issued token.',
     );
   }
-  // `exp` must be a FINITE NUMBER, not merely present (Tier3 iter26 finding 4).
-  // `payload.exp` is client JSON — a signed token with `exp: {}` or
-  // `exp: "banana"` previously passed the presence check above, and the
-  // comparison below (`payload.exp < now`) silently evaluated to `false` for a
-  // non-numeric value (any comparison involving `NaN`, or a `<` between an
-  // object and a number, is `false`), so such a token NEVER expired. Treat a
-  // non-finite/non-numeric `exp` as already-expired/invalid — fail closed
-  // rather than granting a permanent token.
+  // `exp` must be a FINITE NUMBER, not merely present. `payload.exp` is client JSON — a signed
+  // token with `exp: {}` or `exp: "banana"` previously passed the presence check above, and the
+  // comparison below (`payload.exp < now`) silently evaluated to `false` for a non-numeric value
+  // (any comparison involving `NaN`, or a `<` between an object and a number, is `false`), so such
+  // a token NEVER expired. Treat a non-finite/non-numeric `exp` as already-expired/invalid — fail
+  // closed rather than granting a permanent token.
   if (typeof payload.exp !== 'number' || !Number.isFinite(payload.exp)) {
     throw new Error(
       `MUI X Studio Server: JWT "exp" claim must be a finite number (a Unix timestamp in seconds), ` +

@@ -135,7 +135,7 @@ export function FilterBody({
             values={fieldValues}
             selected={Array.isArray(filter.value) ? (filter.value as string[]) : []}
             onChange={(v) => onChange({ value: v })}
-            // L17: selection mode is the only mode whose stored `operator` this editor can
+            // Selection mode is the only mode whose stored `operator` this editor can
             // meaningfully express, and `not_in` is reachable here (host `initialState`,
             // persisted docs, the wire `addFilter` mutation, `controller.addFilter`/
             // `updateFilter`, and `applyFilterPreset`, none of which validate operator against
@@ -163,7 +163,7 @@ export function FilterBody({
                 value={selectedDependencies}
                 onChange={(_, next) => onDependencyChange(next.map((opt) => opt.id))}
                 renderInput={(params) => (
-                  // M20: a `placeholder` is only a last-resort accessible-name source (and is
+                  // A `placeholder` is only a last-resort accessible-name source (and is
                   // dropped by several screen readers once a chip is selected). This
                   // Autocomplete has no `label` at all, so point the combobox at the caption
                   // above it — the same rule `StudioWidgetEditDialog/FilterRow` documents and

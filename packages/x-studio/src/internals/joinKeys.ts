@@ -12,8 +12,7 @@ type Row = Record<string, unknown>;
  * against a string PK (`"5"`) joined in the grid path but silently failed in the
  * chart/filter path — the same relationship produced different numbers depending
  * on the widget kind, and a numeric-vs-string mismatch in the many-to-many
- * junction-anchor path dropped ALL rows. See ARCHITECTURE_REVIEW.md Part 3
- * finding #4.
+ * junction-anchor path dropped ALL rows.
  *
  * Policy:
  * - `null` / `undefined` → `null`. A missing key never matches a real key

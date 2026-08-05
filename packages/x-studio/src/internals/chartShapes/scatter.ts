@@ -15,13 +15,12 @@ export interface ScatterDataPoint {
  * Builds one scatter point from a row, or `null` when the row has no plottable
  * coordinate — i.e. either axis value is null/undefined/empty/non-numeric.
  *
- * Such a row must be DROPPED, not defaulted to the origin. `Number(row[field] ?? 0)`
- * fabricated a real data point at 0: a "Revenue vs Cost" scatter with 30% null costs
- * rendered a solid vertical stack on `y = 0`, distorting the very correlation the chart
- * exists to show, and a `'N/A'` cell passed a raw `NaN` straight into `@mui/x-charts`
- * (M13). Dropping matches every other chart family, which discards empty x values via
- * `isEmptyXValue` — a disagreement `chartShapes/heatmap.ts` already called out by name
- *  and fixed on its side.
+ * Such a row must be DROPPED, not defaulted to the origin. `Number(row[field] ?? 0)` fabricated a
+ * real data point at 0: a "Revenue vs Cost" scatter with 30% null costs rendered a solid vertical
+ * stack on `y = 0`, distorting the very correlation the chart exists to show, and a `'N/A'` cell
+ * passed a raw `NaN` straight into `@mui/x-charts`. Dropping matches every other chart family,
+ * which discards empty x values via `isEmptyXValue` — a disagreement `chartShapes/heatmap.ts`
+ * already called out by name and fixed on its side.
  *
  * `sizeValue` deliberately still falls back to 0 rather than dropping the point: a
  * missing bubble size is a missing *decoration*, and the x/y coordinate it carries is
@@ -97,9 +96,9 @@ export function prepareScatterDataGrouped(
   // Build a map from category → points for the current (filtered) rows
   const grouped = new Map<string, ScatterDataPoint[]>(stableCategories.map((cat) => [cat, []]));
   rows.forEach((row, index) => {
-    // Same drop-don't-fabricate rule as the ungrouped path (M13) — applied BEFORE the
-    // category is registered, so a category whose every row lacks a coordinate produces
-    // no empty series rather than a stack of points at the origin.
+    // Same drop-don't-fabricate rule as the ungrouped path — applied BEFORE the category is
+    // registered, so a category whose every row lacks a coordinate produces no empty series rather
+    // than a stack of points at the origin.
     const point = toScatterPoint(row, index, xField, yField, sizeField);
     if (!point) {
       return;

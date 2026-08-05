@@ -5,7 +5,7 @@
  * Outputs a console.table with Hz, mean (ms), p75 (ms), p99 (ms) for each
  * pipeline layer at two scales (10k / 100k rows).
  *
- * Run:  pnpm bench
+ * Run: pnpm bench
  */
 
 import { performance } from 'node:perf_hooks';
@@ -81,7 +81,7 @@ for (const n of SCALES) {
   const scale = n.toLocaleString();
   const { dataSources, relationships, expressionFields } = scenarios.get(n)!;
 
-  // L1 — normalizeDataSourceRows
+  // normalizeDataSourceRows
   results.push(
     runBench(`L1 normalizeDataSourceRows @ ${scale}`, () => {
       const raw: StudioDataSource = { ...dataSources.orders, fieldDistinctValues: undefined };
@@ -99,7 +99,7 @@ for (const n of SCALES) {
     }),
   );
 
-  // L2 — enrichRowsWithExpressions
+  // enrichRowsWithExpressions
   results.push(
     runBench(`L2 enrichRowsWithExpressions @ ${scale}`, () => {
       enrichRowsWithExpressions(
@@ -233,21 +233,21 @@ for (const n of SCALES) {
     }),
   );
 
-  // L5a — aggregateByField
+  // aggregateByField
   results.push(
     runBench(`L5a aggregateByField @ ${scale}`, () => {
       aggregateByField(dataSources.orders.rows!, 'category', 'total');
     }),
   );
 
-  // L5b — aggregateByTwoFields
+  // aggregateByTwoFields
   results.push(
     runBench(`L5b aggregateByTwoFields @ ${scale}`, () => {
       aggregateByTwoFields(dataSources.orders.rows!, 'category', 'status', 'total');
     }),
   );
 
-  // L5c — aggregateMultipleSeries
+  // aggregateMultipleSeries
   results.push(
     runBench(`L5c aggregateMultipleSeries @ ${scale}`, () => {
       aggregateMultipleSeries(dataSources.orders.rows!, 'category', ['total', 'quantity']);
@@ -257,11 +257,10 @@ for (const n of SCALES) {
 
 // ─── Async adapter path benchmarks ───────────────────────────────────────────
 //
-// These measure the synchronous CPU work on the async path:
-//   A1  buildQueryDescriptor — filter tree + stable cacheKey construction
-//   A2  StudioRequestCache.get — warm Map lookup (hot path on every render)
-//   A3  StudioRequestCache set+get — round-trip (simulates fetch completing)
-//   A4  StudioRequestCache.invalidateSource — prefix scan over N entries
+// These measure the synchronous CPU work on the async path: A1 buildQueryDescriptor — filter tree +
+// stable cacheKey construction A2 StudioRequestCache.get — warm Map lookup (hot path on every
+// render) A3 StudioRequestCache set+get — round-trip (simulates fetch completing) A4
+// StudioRequestCache.invalidateSource — prefix scan over N entries
 
 function makeKpiWidget(): StudioWidget {
   return {

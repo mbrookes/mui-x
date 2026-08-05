@@ -53,37 +53,33 @@ export interface QueryToolDeps {
 }
 
 /**
- * Hard upper bound on the number of `fields` a single `compute_field_stats` call
- * may request (Tier 3, iteration 22). Each field fans out into FIVE aggregations
- * (min/max/avg/sum/count — see the `aggregations` build below), so an unbounded
- * `fields` array turns one tool call into an unbounded amount of DB aggregation
- * work in a single query. Rejected with a clear, actionable error rather than
- * silently truncated, so the model learns to split the request instead of
- * silently getting stats for a subset of the fields it asked for.
+ * Hard upper bound on the number of `fields` a single `compute_field_stats` call may request. Each
+ * field fans out into FIVE aggregations (min/max/avg/sum/count — see the `aggregations` build
+ * below), so an unbounded `fields` array turns one tool call into an unbounded amount of DB
+ * aggregation work in a single query. Rejected with a clear, actionable error rather than silently
+ * truncated, so the model learns to split the request instead of silently getting stats for a
+ * subset of the fields it asked for.
  */
 const MAX_COMPUTE_FIELD_STATS_FIELDS = 50;
 
 /**
- * Hard upper bound on the number of entries accepted in each of `query_data_source`'s
- * `columns` / `filters` / `aggregations` / `having` / `orderBy` arrays (Tier 3,
- * iteration 25, finding T2-3). Before this cap, all five arrays were cast and
- * forwarded to `data.queryDataSource` verbatim — only `limit`/`offset` were
- * clamped — even though `compute_field_stats` (above) already rejects an
- * oversized `fields` array with the exact same rationale ("each field/entry fans
- * out into DB aggregation work, so an unbounded array turns one tool call into
- * unbounded work") and `query_data_source` is reachable in exactly one hop with
- * the identical class of unbounded arrays (e.g. 50,000 `aggregations` entries, or
- * a megabyte-sized `filters[].value`). Reuses `MAX_COMPUTE_FIELD_STATS_FIELDS`'s
- * 50-entry convention for all five arrays rather than inventing five separate
- * constants — there is no tool-specific reason `filters` should be allowed a
- * different bound than `aggregations`, say.
+ * Hard upper bound on the number of entries accepted in each of `query_data_source`'s `columns` /
+ * `filters` / `aggregations` / `having` / `orderBy` arrays (3). Before this cap, all five arrays
+ * were cast and forwarded to `data.queryDataSource` verbatim — only `limit`/`offset` were clamped —
+ * even though `compute_field_stats` (above) already rejects an oversized `fields` array with the
+ * exact same rationale ("each field/entry fans out into DB aggregation work, so an unbounded array
+ * turns one tool call into unbounded work") and `query_data_source` is reachable in exactly one hop
+ * with the identical class of unbounded arrays (e.g. 50,000 `aggregations` entries, or a
+ * megabyte-sized `filters[].value`). Reuses `MAX_COMPUTE_FIELD_STATS_FIELDS`'s 50-entry convention
+ * for all five arrays rather than inventing five separate constants — there is no tool-specific
+ * reason `filters` should be allowed a different bound than `aggregations`, say.
  */
 const MAX_QUERY_ARRAY_LENGTH = MAX_COMPUTE_FIELD_STATS_FIELDS;
 
 /**
- * Validate an optional model-supplied array argument to a data-query tool
- * (`query_data_source`'s `columns` / `filters` / `aggregations` / `having` /
- * `orderBy`, and — finding 4, Tier 3 — `compute_field_stats`'s `fields`).
+ * Validate an optional model-supplied array argument to a data-query tool (`query_data_source`'s
+ * `columns` / `filters` / `aggregations` / `having` / `orderBy`, and, Tier 3 —
+ * `compute_field_stats`'s `fields`).
  *
  * Rejects (never silently truncates or coerces) a non-array value outright —
  * mirroring `compute_field_stats`'s own reject-don't-truncate stance — since a
@@ -331,7 +327,7 @@ interface QueryRecordContract {
  * oversized rather than rejected outright, mirroring
  * `validateAndCapStringArrayElements` above.
  *
- * Finding H5 adds the third dimension the first two never covered: a VALUE-DOMAIN
+ * A third dimension the first two never covered: a VALUE-DOMAIN
  * check on the SQL-structural fields (`contract.enums` / `contract.patterns`). A
  * `direction` of `'asc; DROP TABLE t--'` is a 21-character string and so passed both
  * the type and the length check on its way to the host. Out-of-domain values are
@@ -339,7 +335,7 @@ interface QueryRecordContract {
  * silently swapping `count` for `sum`, answers a question the caller did not ask and
  * renders the wrong answer as a right-looking chart.
  *
- * Finding L2 closes the last gap: the returned record is PROJECTED to
+ * The last gap: the returned record is PROJECTED to
  * `contract.keys` only. Numeric/boolean values on listed keys (`having`'s `value`)
  * pass through untouched — deep validation of a bound parameter is the host's job —
  * but an unlisted key never reaches the host at all.
@@ -721,7 +717,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return orderByResult.error;
       }
 
-      // Finding F4: `validateQueryArrayArg` above only validates
+      // `validateQueryArrayArg` above only validates
       // array-ness and overall length — it never inspected individual ELEMENTS,
       // so an object/multi-megabyte string in `columns`, or a non-string
       // `column`/`func`/`alias`/`operator`/`direction`/`field` (or an unbounded
@@ -729,7 +725,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       // `data.queryDataSource` verbatim. Validate + cap each array's elements now
       // that array-shape is already confirmed.
       //
-      // Finding H5: each record array is validated against its contract in
+      // Each record array is validated against its contract in
       // `QUERY_RECORD_CONTRACTS`, which adds the VALUE-DOMAIN check the type + length
       // checks never made (`operator`/`func`/`direction` against their closed sets,
       // `alias` against the safe-identifier pattern) and projects the entry down to
@@ -820,7 +816,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       const truncatedOffset = Math.trunc(Number(offset));
       const clampedOffset =
         Number.isFinite(truncatedOffset) && truncatedOffset > 0 ? truncatedOffset : 0;
-      // Finding L2: `offset` had a lower bound but NO upper one, unlike its sibling
+      // `offset` had a lower bound but NO upper one, unlike its sibling
       // `limit` (capped by `maxQueryRows`). `{ limit: 1, offset: 500000000 }` is a
       // cheap-looking call that makes the database scan and discard half a billion
       // rows. REJECTED rather than clamped: clamping would silently return a
@@ -854,10 +850,9 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // Forward the RESOLVED (capped) id, never the raw argument — see the
         // `sourceId` field on `ResolveSourceResult`.
         const { tableName, sourceId: resolvedSourceId } = resolved;
-        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
-        // own `data.queryDataSource` calls (Tier 3, iteration 22) — without it, a hung host
-        // query implementation leaves this tool call (and the agentic loop turn awaiting it)
-        // pending indefinitely.
+        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its own
+        // `data.queryDataSource` calls — without it, a hung host query implementation leaves this
+        // tool call (and the agentic loop turn awaiting it) pending indefinitely.
         const result = await withTimeout(
           data.queryDataSource({
             sourceId: resolvedSourceId,
@@ -884,7 +879,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
 
         return jsonResult({ sourceId: resolvedSourceId, ...result });
       } catch (err) {
-        // Finding H4: log the host/DB detail server-side; relay only a generic,
+        // Log the host/DB detail server-side; relay only a generic,
         // bounded message + correlation id.
         return redactedHostErrorResult('query_data_source', err, logger);
       }
@@ -916,13 +911,12 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           ? allNumericFields.slice(0, MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS)
           : allNumericFields;
 
-        // Run sample rows and row count in parallel with per-field numeric stats. Each
-        // query is bounded with the same `withTimeout` pattern `mcp/summarisePage.ts`
-        // applies to its own `data.queryDataSource` calls (Tier 3, iteration 22) — a hung
-        // per-field stats query would otherwise stall this tool call indefinitely (the
-        // sample query) or silently never resolve into `statsResults` (the per-field
-        // queries, each already `.catch(() => null)`-guarded against a query error but not
-        // against one that never settles at all).
+        // Run sample rows and row count in parallel with per-field numeric stats. Each query is
+        // bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its own
+        // `data.queryDataSource` calls — a hung per-field stats query would otherwise stall this
+        // tool call indefinitely (the sample query) or silently never resolve into `statsResults`
+        // (the per-field queries, each already `.catch(() => null)`-guarded against a query error
+        // but not against one that never settles at all).
         //
         // The per-field fan-out runs through `mapWithConcurrency` rather than
         // `Promise.all`: `MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS` bounds
@@ -1013,7 +1007,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           true,
         );
       } catch (err) {
-        // Finding H4 — see `query_data_source` above.
+        // See `query_data_source` above.
         return redactedHostErrorResult('describe_data_source', err, logger);
       }
     },
@@ -1035,7 +1029,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || !rawFieldId) {
         return errorResult('sourceId and fieldId are required');
       }
-      // Finding F4: `fieldId` was only truthiness-checked, so a
+      // `fieldId` was only truthiness-checked, so a
       // non-string truthy value (e.g. an object or number) reached
       // `data.queryDataSource` verbatim as a nonsensical "column name". Require a
       // non-empty string and cap it at {@link MAX_FILTER_STRING_LENGTH} — the same
@@ -1067,8 +1061,8 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // (50) on a falsy/`NaN` truncated value.
         const truncatedFieldLimit = Math.trunc(Number(fieldLimit));
         const clampedFieldLimit = Math.min(Math.max(1, truncatedFieldLimit || 50), 200);
-        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
-        // own `data.queryDataSource` calls (Tier 3, iteration 22).
+        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its own
+        // `data.queryDataSource` calls.
         const result = await withTimeout(
           data.queryDataSource({
             sourceId: resolvedSourceId,
@@ -1134,7 +1128,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         }
         return { content: gfvItems };
       } catch (err) {
-        // Finding H4 — see `query_data_source` above.
+        // See `query_data_source` above.
         return redactedHostErrorResult('get_field_values', err, logger);
       }
     },
@@ -1151,7 +1145,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || rawFields === undefined) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
-      // Finding 4: validate `fields` IS an array (not e.g. a bare string,
+      // Validate `fields` IS an array (not e.g. a bare string,
       // which also has `.length` and so previously slipped past the emptiness/size
       // checks below) before touching it further — the same array-shape + size-cap
       // validation `query_data_source`'s five array args already get from
@@ -1170,14 +1164,13 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (rawStatFields.length === 0) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
-      // `validateQueryArrayArg`'s cast only guarantees array-ness, not that every
-      // entry is actually a `string` — a non-string element (e.g. a number or a
-      // nested object) would otherwise be forwarded verbatim as an aggregation
-      // `column` to `data.queryDataSource` below. Run it through the SAME
-      // validate-and-cap helper `query_data_source`'s `columns` uses (finding F5,
-      // Tier 3): a non-string element is rejected, and an oversized-but-valid field id
-      // is truncated to `MAX_FILTER_STRING_LENGTH` — previously the element type was
-      // checked but the string length was NOT capped, unlike `columns`.
+      // `validateQueryArrayArg`'s cast only guarantees array-ness, not that every entry is actually
+      // a `string` — a non-string element (e.g. a number or a nested object) would otherwise be
+      // forwarded verbatim as an aggregation `column` to `data.queryDataSource` below. Run it
+      // through the SAME validate-and-cap helper `query_data_source`'s `columns` uses: a non-string
+      // element is rejected, and an oversized-but-valid field id is truncated to
+      // `MAX_FILTER_STRING_LENGTH` — previously the element type was checked but the string length
+      // was NOT capped, unlike `columns`.
       const statFieldsResult = validateAndCapStringArrayElements(
         'compute_field_stats',
         'fields',
@@ -1194,7 +1187,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           return resolved.error;
         }
         const { tableName, sourceId: resolvedSourceId } = resolved;
-        // Finding M1 — the alias contract is enforced by the builder itself, so it
+        // The alias contract is enforced by the builder itself, so it
         // cannot be skipped by assembling the array inline. See
         // `buildFieldStatAggregations`.
         const aggregationsResult = buildFieldStatAggregations(
@@ -1206,8 +1199,8 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           return aggregationsResult.error;
         }
         const aggregations = aggregationsResult.value;
-        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
-        // own `data.queryDataSource` calls (Tier 3, iteration 22).
+        // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its own
+        // `data.queryDataSource` calls.
         const result = await withTimeout(
           data.queryDataSource({
             sourceId: resolvedSourceId,
@@ -1242,7 +1235,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         }
         return jsonResult({ sourceId: resolvedSourceId, stats: statsOut }, true);
       } catch (err) {
-        // Finding H4 — see `query_data_source` above.
+        // See `query_data_source` above.
         return redactedHostErrorResult('compute_field_stats', err, logger);
       }
     },

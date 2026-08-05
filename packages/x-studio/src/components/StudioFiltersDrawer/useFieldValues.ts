@@ -9,7 +9,7 @@ type Row = Record<string, unknown>;
  * Apply a set of selection-mode or condition-mode filters to rows inline.
  * Used exclusively for cascading-filter option narrowing; does not handle rank/cross filters.
  *
- * `ds` is the data source `rows` were drawn from. T3.4: a parent filter whose field belongs to
+ * `ds` is the data source `rows` were drawn from. A parent filter whose field belongs to
  * a DIFFERENT source (a cross-source "Depends on" pick) can't be resolved by the naive
  * `row[f.field]` comparisons below — the field simply doesn't exist on this source's rows, so
  * every row would read `undefined` and the predicate would always fail, silently emptying the
@@ -97,15 +97,15 @@ export const FIELD_VALUES_CAP = 1000;
  * `filterSourceId` is what disambiguates two sources sharing a field id, and a `fieldType`
  * parameter only added a memo dependency that recomputed an identical list.
  *
- * When `filterSourceId` is provided, the lookup is scoped to that source only (finding
- * 2.15) — a bare field-id scan across every source pollutes the list when two sources share
- * a field id (e.g. both have `status`). When omitted, falls back to the all-sources scan for
- * callers that don't know the owning source.
+ * When `filterSourceId` is provided, the lookup is scoped to that source only — a bare field-id
+ * scan across every source pollutes the list when two sources share a field id (e.g. both have
+ * `status`). When omitted, falls back to the all-sources scan for callers that don't know the
+ * owning source.
  *
  * The result is capped at `FIELD_VALUES_CAP` distinct values; a length equal to the cap
  * signals the caller (`SelectionFilterInput`) that the field is high-cardinality.
  *
- * ## Adapter-backed sources yield no values (H1)
+ * ## Adapter-backed sources yield no values
  *
  * `StudioDataSource.rows` is `undefined` — not `[]` — for a source whose data comes from an
  * `adapter`: rows are resolved per-widget into `studioRequestCache` (`useAdapterRows`) and only
@@ -144,7 +144,7 @@ export function useFieldValues(
       if (!ds || !ds.fields.some((f) => f.id === fieldId)) {
         continue;
       }
-      // H1: `rows === undefined` means the row set was never delivered (see this hook's doc
+      // `rows === undefined` means the row set was never delivered (see this hook's doc
       // comment). `ds.rows ?? []` treated that as a scan that found nothing; skip it explicitly
       // so the intent is legible and a future signature widening has one place to hook into.
       if (getDataSourceRowState(ds) === 'unavailable') {

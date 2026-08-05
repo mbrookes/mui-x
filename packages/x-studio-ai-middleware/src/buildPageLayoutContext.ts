@@ -34,8 +34,8 @@ function getWidget(
 }
 
 /**
- * `Object.hasOwn`-guarded column-span lookup (finding M1, sibling of the guards
- * above and of `buildAISystemPrompt.ts`'s `getDistinctValues`).
+ * `Object.hasOwn`-guarded column-span lookup (sibling of the guards above and of
+ * `buildAISystemPrompt.ts`'s `getDistinctValues`).
  *
  * `widgetColSpans` is a plain object keyed by client-controlled widget ids, so a
  * bare `widgetColSpans[widgetId]` walked the prototype chain: a widget id of

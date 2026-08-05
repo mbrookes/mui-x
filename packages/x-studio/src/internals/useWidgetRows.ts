@@ -205,15 +205,14 @@ export function useWidgetRows(
   const deferredBasePartitioned = React.useDeferredValue(basePartitioned);
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
-  // expressionFields: subscribe to own source + all directly related sources.
-  // Own source is needed for self-enrichment; related sources are needed so that
-  // resolveRows can enrich foreign source rows when evaluating cross-filters
-  // (e.g. expr-order-country on ORDERS when this widget is on ORDER_ITEMS).
-  // For a many-to-many relationship the junction (bridge) source is included too, so a
-  // junction-owned expression field targeted by a filter can be routed/enriched at L3
-  // instead of being invisible here (mirrors `getReachableSourceIds`; finding 2.1).
-  // Completely unrelated sources (e.g. PRODUCTS for an ORDER_ITEMS widget) are
-  // excluded so that adding expressions there doesn't trigger a re-render here.
+  // expressionFields: subscribe to own source + all directly related sources. Own source is needed
+  // for self-enrichment; related sources are needed so that resolveRows can enrich foreign source
+  // rows when evaluating cross-filters (e.g. expr-order-country on ORDERS when this widget is on
+  // ORDER_ITEMS). For a many-to-many relationship the junction (bridge) source is included too, so
+  // a junction-owned expression field targeted by a filter can be routed/enriched at L3 instead of
+  // being invisible here (mirrors `getReachableSourceIds`). Completely unrelated sources (e.g.
+  // PRODUCTS for an ORDER_ITEMS widget) are excluded so that adding expressions there doesn't
+  // trigger a re-render here.
   const relevantSourceIds = React.useMemo(() => {
     const ids = new Set<string>();
     if (widget.sourceId) {
@@ -595,12 +594,11 @@ export function useWidgetRows(
         }
         // Only the RESIDUAL — the filters `buildQueryDescriptor` could NOT put into the wire
         // request, so this client-side pass is their sole enforcement point: rank (top/bottom-N)
-        // reductions of any authored scope, which have no wire representation (findings 1.6 /
-        // 2.1), plus cross-filters and interactive selections, which are deliberately kept off
-        // the descriptor. Non-rank page/widget/date-range filters were already enforced
-        // server-side and must NOT be re-applied — the response only projects
-        // `descriptor.select`, so re-running them evaluates against columns the server never
-        // returned and drops every row.
+        // reductions of any authored scope, which have no wire representation, plus cross-filters
+        // and interactive selections, which are deliberately kept off the descriptor. Non-rank
+        // page/widget/date-range filters were already enforced server-side and must NOT be
+        // re-applied — the response only projects `descriptor.select`, so re-running them evaluates
+        // against columns the server never returned and drops every row.
         //
         // `selectAdapterResidualFilters` (filterScoping.ts) is the ONE implementation of that
         // rule, shared with the CSV export (`widgetExport.ts`), which used to carry a

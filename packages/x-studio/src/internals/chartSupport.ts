@@ -100,9 +100,8 @@ function isManyToManyReachableOwner(
 ): boolean {
   const direct = findDirectRelationship(widgetSourceId, ownerSourceId, relationships);
   if (direct) {
-    // Only a COMPLETE M:N relationship (both junction fields present) is actually reachable
-    // through the junction table — matching `findJoinPath`'s completeness check
-    // (`dataSourceGraph.ts:133`, finding 2.12).
+    // Only a COMPLETE M:N relationship (both junction fields present) is actually reachable through
+    // the junction table — matching `findJoinPath`'s completeness check (`dataSourceGraph.ts:133`).
     return (
       direct.type === 'many-to-many' &&
       Boolean(direct.junctionSourceField) &&
@@ -564,7 +563,7 @@ export function analyzeChartSupport(
       continue;
     }
 
-    // Finding 1.1 (M:1-anchor variant): under a plain many-to-one anchor (the measure lives on a
+    // Under a plain many-to-one anchor (the measure lives on a
     // directly-related many side, distinct from the widget source), a grouping dimension owned by
     // the remote endpoint or junction of an M:N relationship with the widget has no single grain.
     // `isSafeWidgetBridgeOwner` would wave it through and `resolveRowsAtGrain`'s many-to-one branch
@@ -581,7 +580,7 @@ export function analyzeChartSupport(
       return { supported: false, reason: 'mixed_cross_source_fields' };
     }
 
-    // Finding 2: under a JUNCTION-OWNED-MEASURE anchor (the measure is a field on the junction
+    // Under a JUNCTION-OWNED-MEASURE anchor (the measure is a field on the junction
     // table itself), a grouping dimension reachable via a DIFFERENT M:N relationship's remote
     // endpoint or junction has no single grain combining it with this anchor either — the same
     // risk as the plain-many-to-one case above, just one hop further out. `anchorIsPlainManyToOne`
@@ -613,13 +612,11 @@ export function analyzeChartSupport(
 //
 // Two-level WeakMap: widgetRows × anchorRows → configKey → Row[]
 //
-// Why two levels are needed (context):
-//   The old single-level cachedCompute(widgetRows, configKey) relied on
-//   resolvedRowsCache always producing a NEW widgetRows ref whenever ANY
-//   dataSources changed (via module-wide sentinels).  After we fixed
-//   resolvedRowsCache to be per-source, unrelated source changes no longer
-//   affect widgetRows — which is correct for the filter layer but breaks the
-//   assumption here for cross-source charts.
+// Why two levels are needed (context): The old single-level cachedCompute(widgetRows, configKey)
+// relied on resolvedRowsCache always producing a NEW widgetRows ref whenever ANY dataSources
+// changed (via module-wide sentinels). After we fixed resolvedRowsCache to be per-source, unrelated
+// source changes no longer affect widgetRows — which is correct for the filter layer but breaks the
+// assumption here for cross-source charts.
 //
 // Example failure with single-level cache:
 //   - Chart on order_items, Y = orders.amount  (orders is the grain-anchor)

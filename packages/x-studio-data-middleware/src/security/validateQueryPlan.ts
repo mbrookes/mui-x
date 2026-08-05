@@ -437,8 +437,8 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
 }
 
 /**
- * Validate every JOIN `on` against a fail-closed non-empty-array guard (finding
- * 2.1) AND a fail-closed table-qualification convention (Tier3 iter26 finding 2).
+ * Validate every JOIN `on` against a fail-closed non-empty-array guard AND a fail-closed
+ * table-qualification convention.
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), mirroring `validateJoinTypes` /
@@ -454,22 +454,19 @@ function validateJoinTypes(descriptor: BatchWidgetDescriptor): void {
  * results instead of failing at all. Reject fail-closed here instead, before the
  * descriptor ever reaches query construction.
  *
- * TAUTOLOGICAL / SELF-REFERENTIAL `on` PAIRS (Tier3 iter26 finding 2) — closing
- * the empty-`on` CROSS JOIN case above does not stop a NON-empty pair that is
- * degenerate in a different way: `on: [['customers.id', 'customers.id']]`, where
- * BOTH sides are explicitly qualified with the SAME table, passes the schema
- * allowlist (both are real columns on a real, allowlisted table) and the column
- * allowlist (both are real, allowed columns) — but it emits a tautological
- * `customers.id = customers.id` ON condition instead of a real join key, which
- * SQL engines execute as an unconditional match: a cartesian product between
- * `customers` and whatever is already accumulated, still fully within the
- * tenant/region/department-scoped rows (no cross-tenant leak) but silently
- * multiplying every row. `joinNullIndicatorColumn` (`router/queryBuilder.ts`)
- * already fails closed on a related shape for its own narrow consumer (the
- * right side of the FIRST `on` pair must qualify `join.table` itself); this
- * validator generalizes that same left/right table convention to the join-
- * building path as a whole, mirroring `validateDescriptorColumns`'s existing
- * left-is-primary/right-is-joined convention:
+ * TAUTOLOGICAL / SELF-REFERENTIAL `on` PAIRS — closing the empty-`on` CROSS JOIN case above does
+ * not stop a NON-empty pair that is degenerate in a different way: `on: [['customers.id',
+ * 'customers.id']]`, where BOTH sides are explicitly qualified with the SAME table, passes the
+ * schema allowlist (both are real columns on a real, allowlisted table) and the column allowlist
+ * (both are real, allowed columns) — but it emits a tautological `customers.id = customers.id` ON
+ * condition instead of a real join key, which SQL engines execute as an unconditional match: a
+ * cartesian product between `customers` and whatever is already accumulated, still fully within the
+ * tenant/region/department-scoped rows (no cross-tenant leak) but silently multiplying every row.
+ * `joinNullIndicatorColumn` (`router/queryBuilder.ts`) already fails closed on a related shape for
+ * its own narrow consumer (the right side of the FIRST `on` pair must qualify `join.table` itself);
+ * this validator generalizes that same left/right table convention to the join- building path as a
+ * whole, mirroring `validateDescriptorColumns`'s existing left-is-primary/right-is-joined
+ * convention:
  *   - A qualified RIGHT side must name `join.table` — the joined table itself.
  *   - A qualified LEFT side must name the primary table OR a table joined
  *     EARLIER in this same descriptor (a table already available in the
@@ -937,7 +934,7 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *   1a1. `validateAggregationColumns`     — UNCONDITIONAL (throws on a wildcard
  *      in `aggregations[].column`, which `validateWildcardProjection` cannot see
  *      — it reads `columns` only — and which emits `COUNT(<table>.*)`, F3).
- *   1a. `validateProjectionKeyCollisions`  — UNCONDITIONAL (throws when two
+ * 1a. `validateProjectionKeyCollisions` — UNCONDITIONAL (throws when two
  *      projected columns share a result-row key, e.g. `orders.category` and
  *      `customers.category` both keying as `category` — one would silently
  *      overwrite the other, Tier3 iter24 finding). Runs immediately before
@@ -946,7 +943,7 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      a duplicate alias, or an alias colliding with a projected column's key).
  *   3. `validateOutputAliases`       — UNCONDITIONAL (throws on an unsafe
  *      expression-field output alias — the token is interpolated into the SQL
- *      projection via `?? as ??`, finding 3.4).
+ *      projection via `?? as ??`).
  *   4. `validateOrderByDirections`   — UNCONDITIONAL (throws on a non-asc/desc
  *      direction — the token is interpolated into the SQL ORDER BY clause).
  *   5. `validateJoinTypes`           — UNCONDITIONAL (throws on a non-inner/left/
@@ -954,7 +951,7 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      the join to INNER and misplaces the joined table's security predicate).
  *   5a. `validateJoinOnPairs`       — UNCONDITIONAL (throws on a missing/empty
  *      `on` list — some database engines silently execute the resulting
- *      condition-less join as a CROSS JOIN, finding 2.1).
+ *      condition-less join as a CROSS JOIN).
  *   5b. `validateSemiJoins`        — UNCONDITIONAL (throws on a malformed
  *      semi-join descriptor, a `semiJoins` chain nested past
  *      `MAX_SEMI_JOIN_DEPTH`, or a column qualified with a table other than the
@@ -963,7 +960,7 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
  *      fields get).
  *   6. `validateLimit`               — UNCONDITIONAL (throws on a non-integer /
  *      negative `limit` — a malformed value can be silently coerced by the DB
- *      driver into returning every tenant-scoped row, finding 3.1).
+ *      driver into returning every tenant-scoped row).
  *   7. `validateDescriptorColumns`   — ONLY when a `columnAllowlist` is supplied
  *      (throws fail-closed on an unlisted table/column).
  *   8. `validateOrderByTargets`      — UNCONDITIONAL (throws when an AGGREGATION
@@ -1057,11 +1054,10 @@ export function validateQueryPlan(
     }
     return [physical !== column ? column : resultKeyOf(physical)];
   });
-  // Projection-vs-projection collision (Tier3, iter24 finding) — two directly
-  // projected columns from different tables whose result key collides (e.g.
-  // `orders.category` / `customers.category` both keying as `category`) had no
-  // guard before this, unlike the agg-vs-projection/agg-vs-agg guards below.
-  // Runs BEFORE `validateAggregationAliases` so the more fundamental
+  // Projection-vs-projection collision (iter24 finding) — two directly projected columns from
+  // different tables whose result key collides (e.g. `orders.category` / `customers.category` both
+  // keying as `category`) had no guard before this, unlike the agg-vs-projection/agg-vs-agg guards
+  // below. Runs BEFORE `validateAggregationAliases` so the more fundamental
   // projection-vs-projection collision is reported first when both are present.
   validateProjectionKeyCollisions(projectionKeys);
   validateAggregationAliases(descriptor, projectionKeys);

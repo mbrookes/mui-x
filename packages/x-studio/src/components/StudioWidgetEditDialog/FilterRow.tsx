@@ -52,7 +52,7 @@ const NO_VALUE_OPERATORS = new Set<StudioFilterOperator>(['is_empty', 'is_not_em
 const encodeValue = (f: FieldOption) => (f.sourceId ? `${f.sourceId}::${f.id}` : f.id);
 
 // ── Buffered value input ────────────────────────────────────────────────────────
-// Finding 2.3/2.8: the value inputs used to route every keystroke straight to
+// The value inputs used to route every keystroke straight to
 // `controller.updateFilter` (default `undoable: true`), so typing a 6-char value produced
 // 6 undo entries + 6 full pipeline recomputes and Ctrl+Z un-typed one character at a time.
 // Buffer locally and commit on blur / Enter — the pattern already used by
@@ -177,7 +177,7 @@ export function FilterRow(props: {
   // the value may be `null`/`undefined` or a legacy scalar if the filter was authored
   // under a different operator before switching to `between`.
   //
-  // H3/M9: PICK the two bounds rather than keeping the stored object as the spread base.
+  // PICK the two bounds rather than keeping the stored object as the spread base.
   // Spreading made every non-array object the base of the next commit, so editing a
   // `between` on top of a relative date produced
   // `{ relative: true, amount, unit, direction, from }` — a hybrid that is neither shape,

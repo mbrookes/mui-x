@@ -26,7 +26,7 @@ export interface FunnelConfigSectionProps {
   /** The widget's current source id — the `yField` mirror's own-source test. */
   widgetSourceId?: string;
   /**
-   * H3: the ONE write path for this section's field picker, supplied by `ChartSetupPanel`.
+   * The ONE write path for this section's field picker, supplied by `ChartSetupPanel`.
    * It routes through `commitChartConfigWithSource`, so a value-field pick on a source-less
    * funnel adopts that field's source instead of leaving the widget permanently blank.
    */
@@ -38,10 +38,9 @@ export interface FunnelConfigSectionProps {
 }
 
 /**
- * Section-gap numeric input (architecture review finding 2.3): committing
- * `Math.max(0, Math.min(32, Number(v)))` on every keystroke made each digit an
- * undoable commit plus a mutation-log line plus a full pipeline recompute. Buffer
- * the displayed text locally and only parse/clamp/commit on blur/Enter, mirroring
+ * Section-gap numeric input: committing `Math.max(0, Math.min(32, Number(v)))` on every keystroke
+ * made each digit an undoable commit plus a mutation-log line plus a full pipeline recompute.
+ * Buffer the displayed text locally and only parse/clamp/commit on blur/Enter, mirroring
  * `GaugeConfigSection.tsx`'s min/max inputs.
  */
 function FunnelGapInput(props: {
@@ -53,10 +52,10 @@ function FunnelGapInput(props: {
   onCommit: (next: number | undefined) => void;
 }) {
   const { widgetId, value, label, clampedHelperText, onCommit } = props;
-  // Shared dirty-aware buffer (M15). `notice` is set when a commit CHANGED the typed value to
-  // fit the range — without it the clamp is indistinguishable from "nothing happened" and the
-  // user retypes the same rejected value. Advisory only: it explains the already-applied
-  // clamp, mirroring `FilterSetupPanel`'s cross-bound messages.
+  // Shared dirty-aware buffer. `notice` is set when a commit CHANGED the typed value to fit the
+  // range — without it the clamp is indistinguishable from "nothing happened" and the user retypes
+  // the same rejected value. Advisory only: it explains the already-applied clamp, mirroring
+  // `FilterSetupPanel`'s cross-bound messages.
   const {
     value: text,
     dirty,

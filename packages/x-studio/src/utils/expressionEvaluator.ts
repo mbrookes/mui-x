@@ -668,11 +668,10 @@ export function enrichRowsWithExpressions(
 // ─── Measure evaluation ───────────────────────────────────────────────────────
 
 /**
- * Evaluates a measure expression field over a (filtered) dataset.
- * Returns a single aggregate value, or `null` when the expression's own root
- * node is a `divide`/`modulo` by zero (finding 3.16 — matches the row-context
- * policy in `evaluateFunctionExpression`, where a fabricated `0` would be
- * misleading: "no valid result" is `null` in both contexts, not a silent 0).
+ * Evaluates a measure expression field over a (filtered) dataset. Returns a single aggregate value,
+ * or `null` when the expression's own root node is a `divide`/`modulo` by zero (matches the
+ * row-context policy in `evaluateFunctionExpression`, where a fabricated `0` would be misleading:
+ * "no valid result" is `null` in both contexts, not a silent 0).
  */
 export function evaluateMeasure(
   exprField: StudioExpressionField,

@@ -209,10 +209,9 @@ interface BatchRequest {
  * batch window only decides how long requests wait to be coalesced.
  *
  * `fetchFn` is deliberately NOT here — it is per-request (see {@link BatchRequest}). This also
- * subsumes what the old live-reference refresh existed for (finding 3.14, a rotated auth token in
- * a recreated adapter): the new instance's requests carry the new token by construction, and the
- * old instance's carry the token it was actually configured with instead of one belonging to a
- * different source.
+ * subsumes what the old live-reference refresh existed for (a rotated auth token in a recreated
+ * adapter): the new instance's requests carry the new token by construction, and the old instance's
+ * carry the token it was actually configured with instead of one belonging to a different source.
  */
 interface LoaderRegistryEntry {
   loader: BatchLoader<BatchRequest, StudioQueryResult>;
@@ -1914,12 +1913,11 @@ function buildBatchWidgetDescriptor(
   const groupByResolved = d.groupBy ? resolve(d.groupBy) : undefined;
   const groupByIsCrossEndpoint = Boolean(groupByResolved?.skip);
 
-  // Filters — split into server-executable predicates and a client-side residual (OR
-  // conditions / unmappable operators, findings 1.4 / 1.5), then resolve the server predicates'
-  // cross-source column references, using the physical column name (not the logical alias) so
-  // the server WHERE clause references a real column. Predicates whose field cannot be resolved
-  // to any column in this source (unresolved: true) are dropped — applying them would produce
-  // "no such column" SQL errors.
+  // Filters — split into server-executable predicates and a client-side residual (OR conditions /
+  // unmappable operators), then resolve the server predicates' cross-source column references,
+  // using the physical column name (not the logical alias) so the server WHERE clause references a
+  // real column. Predicates whose field cannot be resolved to any column in this source
+  // (unresolved: true) are dropped — applying them would produce "no such column" SQL errors.
   //
   // Partitioning runs BEFORE the aggregation push-down decision below, because "a leaf fell to the
   // client residual" is one of that decision's inputs and a residual cannot be evaluated against a
@@ -2161,11 +2159,10 @@ function mapOperator(op: StudioFilterOperator): FilterPredicate['operator'] | nu
 type StudioFilterLeaf = Extract<StudioFilterNode, { type: 'leaf' }>;
 
 /**
- * Warn (at most once per widget-descriptor build — `dedupe` is a per-build Set, so never once
- * per row) that a filter/aggregation could not be executed faithfully server-side and how it
- * was handled, so the divergence from in-memory behaviour is never silent (findings 1.4 / 1.5 /
- * 2.11). Fires in every environment because the harm (wrong data) is most visible against a
- * real db-tier source in production.
+ * Warn (at most once per widget-descriptor build — `dedupe` is a per-build Set, so never once per
+ * row) that a filter/aggregation could not be executed faithfully server-side and how it was
+ * handled, so the divergence from in-memory behaviour is never silent. Fires in every environment
+ * because the harm (wrong data) is most visible against a real db-tier source in production.
  */
 function warnAdapterDivergence(dedupe: Set<string>, message: string): void {
   if (dedupe.has(message)) {
@@ -2207,7 +2204,7 @@ function isFullyBoundedBetween(value: unknown): boolean {
  *    the wire (the middleware emits `whereIn(col, [])` → `1 = 0`), so pushing it down would be
  *    faithful today — but the in-memory "match nothing" is the SEMANTICS this module pins, and the
  *    predicate selects no rows either way, so it is kept client-side where one evaluator owns the
- *    empty-selection rule (see `leafToClientFilterState`'s `filterMode` note, finding T2.3);
+ *    empty-selection rule (see `leafToClientFilterState`'s `filterMode` note);
  *  - an open-ended `between` (only one bound set) is unbounded in-memory but becomes a
  *    malformed two-arg `whereBetween` on the wire;
  *  - a `boolean` field whose value is not one of the two spellings `toWirePredicateValue` can
@@ -2274,12 +2271,12 @@ function isOpValueServerTranslatable(
  * condition, the two are AND-combined (the wire protocol ANDs every predicate and has no OR).
  */
 function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
-  // An incomplete first condition (e.g. the drawer's `{ operator: 'equals', value: '' }`
-  // add-filter default) has no in-memory effect — `applyFilters` drops it via `isFilterComplete`.
-  // Pushing it down as a real `col = ''` predicate empties a string column / errors a numeric one.
-  // Route it to the client-side residual instead, where `applyFilters` re-drops it (self-healing,
-  // finding T1.1). The normal path also prunes it in `buildQueryDescriptor`; this guards a
-  // host-authored descriptor that bypasses that builder.
+  // An incomplete first condition (e.g. the drawer's `{ operator: 'equals', value: '' }` add-filter
+  // default) has no in-memory effect — `applyFilters` drops it via `isFilterComplete`. Pushing it
+  // down as a real `col = ''` predicate empties a string column / errors a numeric one. Route it to
+  // the client-side residual instead, where `applyFilters` re-drops it (self-healing). The normal
+  // path also prunes it in `buildQueryDescriptor`; this guards a host-authored descriptor that
+  // bypasses that builder.
   if (!isConditionComplete(leaf.op, leaf.value)) {
     return false;
   }
@@ -2527,8 +2524,8 @@ function toPredicatesFor(
 /**
  * Emit the server FilterPredicate(s) for a server-translatable leaf. Mirrors the historical
  * `flattenFilterNode` leaf branch, including the `{ from, to }` → `[lo, hi]` `between`
- * conversion, the faithful day-granular date translation (`toPredicatesFor`, findings T1.3 /
- * T1.3b — note it can emit TWO predicates for a single condition), and
+ * conversion, the faithful day-granular date translation (`toPredicatesFor`,
+ * Note it can emit TWO predicates for a single condition), and
  * the AND-combined second condition (`op2` / `value2`).
  */
 function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
@@ -2543,8 +2540,8 @@ function leafToPredicates(leaf: StudioFilterLeaf): FilterPredicate[] {
   // Handle the AND-combined second condition (op2 / value2) — e.g. a date-range filter emitting two
   // bounds. Gate on `isConditionComplete` (NOT a bare `value2 !== undefined`) so it agrees exactly
   // with `isLeafServerTranslatable`: an `op2` set with an incomplete `value2` (`value2 === ''`) is
-  // NOT a present second condition, so it must not emit a phantom `col = ''` predicate (finding
-  // T1.2). Because translatability already vetted `op2`, the `mapOperator(...)!` below is safe.
+  // NOT a present second condition, so it must not emit a phantom `col = ''` predicate. Because
+  // translatability already vetted `op2`, the `mapOperator(...)!` below is safe.
   if (leaf.op2 !== undefined && isConditionComplete(leaf.op2, leaf.value2)) {
     const op2 = mapOperator(leaf.op2)!;
     const value2 = toWirePredicateValue(op2, leaf.value2, leaf.fieldType);

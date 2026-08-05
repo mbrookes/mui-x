@@ -67,7 +67,7 @@ export function assertTablesAllowed(tables: string[], schemaAllowlist: string[])
  * unqualified column, or one qualifying a table already on the allowlist, is a
  * no-op.
  *
- * RUNTIME SHAPE GUARDS (Tier3 iter26 findings 1 / 6):
+ * RUNTIME SHAPE GUARDS:
  *   - `column` is typed `string` on every descriptor field this is called with
  *     (`FilterPredicate.column`, `AggregationSpec.column`, …), but the wire
  *     value is client JSON, so that type is not a runtime guarantee. A
@@ -110,9 +110,9 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
   if (table === undefined || schemaAllowlist.includes(table)) {
     return;
   }
-  // Mirrors `assertTablesAllowed`'s information-disclosure posture (finding
-  // 3.3): the client-facing error names only the rejected table, never the
-  // full allowlist; the full list is logged server-side for operator debugging.
+  // Mirrors `assertTablesAllowed`'s information-disclosure posture: the client-facing error names
+  // only the rejected table, never the full allowlist; the full list is logged server-side for
+  // operator debugging.
   console.warn(
     `MUI X Studio Server: Rejected qualified column reference "${column}" (in ${context}) — ` +
       `table "${table}" is not in the schema allowlist. Allowed tables: ${schemaAllowlist.join(', ')}`,
@@ -156,11 +156,10 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
  * inconsistency.
  *
  * Originally only checked `columns` / `filters` / `orderBy` / `columnAliases`;
- * `aggregations[].column` and both sides of `joins[].on` were missed (finding
- * 2.2), contradicting this function's own claim above of covering "every table a
- * query can touch" — a qualified `aggregations: [{ column: 'payroll.salary', ... }]`
- * or a qualified `join.on` side naming a non-allowlisted table sailed through on
- * a `schemaAllowlist`-only deployment. Both are now checked with the same
+ * `aggregations[].column` and both sides of `joins[].on` were missed, contradicting this function's
+ * own claim above of covering "every table a query can touch" — a qualified `aggregations: [{
+ * column: 'payroll.salary', ... }]` or a qualified `join.on` side naming a non-allowlisted table
+ * sailed through on a `schemaAllowlist`-only deployment. Both are now checked with the same
  * pattern.
  *
  * @param descriptor - The widget descriptor being validated.

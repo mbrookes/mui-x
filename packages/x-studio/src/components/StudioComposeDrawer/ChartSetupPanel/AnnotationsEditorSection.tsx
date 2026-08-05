@@ -23,16 +23,15 @@ import { useBufferedInput } from '../useBufferedInput';
 const generateAnnotationId = createIdFactory('ann');
 
 /**
- * Reference-line value input (architecture review finding 1.14): re-rendering the
- * controlled `value` from the doc on every keystroke meant a still-typing "10."
- * round-tripped through `Number('10.')` → `10` → back into the field as "10",
- * silently eating the trailing decimal point mid-edit. Buffer the displayed text
- * locally and only parse/commit on blur, mirroring `FormatPanel.tsx`'s grid-height
- * input. `value` may be a non-numeric string (an x-axis annotation on a band-scale
- * chart references an axis label, not a number) — an unparseable commit falls back
- * to the raw string, same as the original per-keystroke behavior.
+ * Reference-line value input: re-rendering the controlled `value` from the doc on every keystroke
+ * meant a still-typing "10." round-tripped through `Number('10.')` → `10` → back into the field as
+ * "10", silently eating the trailing decimal point mid-edit. Buffer the displayed text locally and
+ * only parse/commit on blur, mirroring `FormatPanel.tsx`'s grid-height input. `value` may be a
+ * non-numeric string (an x-axis annotation on a band-scale chart references an axis label, not a
+ * number) — an unparseable commit falls back to the raw string, same as the original per-keystroke
+ * behavior.
  *
- * M2: the resync effect must also depend on `identity` (`${widgetId}:${ann.id}`). `value`
+ * The resync effect must also depend on `identity` (`${widgetId}:${ann.id}`). `value`
  * alone cannot distinguish "no change" from "same value, different annotation" — and
  * `key={ann.id}` is not enough either, because `duplicateWidget` clones `config` by
  * REFERENCE, so a duplicated widget carries identical annotation ids AND identical values.
@@ -87,15 +86,14 @@ function AnnotationValueInput(props: {
 }
 
 /**
- * Reference-line label input (architecture review finding 2.3): the value input
- * above was buffered first; this label field was missed and still called
- * `controller.updateWidgetConfig` on every keystroke — each an undoable commit plus
- * a mutation-log line plus a full pipeline recompute. Buffer the displayed text
- * locally and only commit on blur/Enter, mirroring `AnnotationValueInput` above.
+ * Reference-line label input: the value input above was buffered first; this label field was missed
+ * and still called `controller.updateWidgetConfig` on every keystroke — each an undoable commit
+ * plus a mutation-log line plus a full pipeline recompute. Buffer the displayed text locally and
+ * only commit on blur/Enter, mirroring `AnnotationValueInput` above.
  *
- * M2: `identity` is in the resync deps for the same reason as `AnnotationValueInput`.
+ * `identity` is in the resync deps for the same reason as `AnnotationValueInput`.
  *
- * M15: this was the ONE buffered input in the drawer with no change-check on commit. `dirty`
+ * This was the ONE buffered input in the drawer with no change-check on commit. `dirty`
  * means "was typed in", NOT "differs from the stored value" — typing a character into a
  * reference-line label and deleting it again pushed an undoable commit whose content matched
  * its predecessor (and cleared the redo stack), so a later Ctrl+Z appeared to do nothing at

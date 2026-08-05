@@ -20,8 +20,8 @@ export type AggSpec = { field: string; fn: AggFn; alias: string };
 /**
  * Descriptor for a single chart type (or widget kind).
  *
- * `collectFields` — returns the field IDs that must appear in the SELECT clause
- *   for this type.  Receives:
+ * `collectFields` — returns the field IDs that must appear in the SELECT clause for this type.
+ * Receives:
  *     • `config`          — the widget config object
  *     • `widgetSourceId`  — the widget's own sourceId; required to guard
  *                           foreign-source sparkline / ySeries fields

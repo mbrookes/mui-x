@@ -19,10 +19,9 @@ export interface PieArcLabelsSectionProps {
 }
 
 /**
- * Minimum-angle numeric input (architecture review finding 2.3): committing
- * `Math.max(0, Number(v))` on every keystroke made each digit an undoable commit
- * plus a mutation-log line plus a full pipeline recompute. Buffer the displayed
- * text locally and only parse/clamp/commit on blur/Enter, mirroring
+ * Minimum-angle numeric input: committing `Math.max(0, Number(v))` on every keystroke made each
+ * digit an undoable commit plus a mutation-log line plus a full pipeline recompute. Buffer the
+ * displayed text locally and only parse/clamp/commit on blur/Enter, mirroring
  * `GaugeConfigSection.tsx`'s min/max inputs.
  */
 function MinAngleInput(props: {
@@ -35,10 +34,10 @@ function MinAngleInput(props: {
   onCommit: (next: number) => void;
 }) {
   const { widgetId, value, label, helperText, clampedHelperText, onCommit } = props;
-  // Shared dirty-aware buffer (M15). `notice` is set when a commit CHANGED the typed value to
-  // fit the range — without it the clamp is indistinguishable from "nothing happened" and the
-  // user retypes the same rejected value. Advisory only, and it replaces the standing helper
-  // text so the field never shows two competing hints at once.
+  // Shared dirty-aware buffer. `notice` is set when a commit CHANGED the typed value to fit the
+  // range — without it the clamp is indistinguishable from "nothing happened" and the user retypes
+  // the same rejected value. Advisory only, and it replaces the standing helper text so the field
+  // never shows two competing hints at once.
   const {
     value: text,
     dirty,

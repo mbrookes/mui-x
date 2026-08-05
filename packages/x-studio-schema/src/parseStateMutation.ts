@@ -280,7 +280,7 @@ export function hasUnsafeOwnKeys(record: object): boolean {
  * (not `undefined`) but is not a member of the closed `StudioChartType` union —
  * e.g. `chartType: 'trendline'` or a non-string like `chartType: 42`.
  *
- * Finding 2.2 — the full-widget create path (`validateWidget`, used by
+ * The full-widget create path (`validateWidget`, used by
  * `addWidget`/`applyBulkUpdate.addedWidgets`) already requires an explicit
  * `config.chartType` to pass `isStudioChartType`, but the three UPDATE-shaped
  * config-carrying channels (`updateWidget.args.config`,
@@ -548,7 +548,7 @@ export function isValidFilterScope(scope: unknown): scope is StudioFilterScope {
  * ACTIVE while filtering nothing — silently wrong displayed data, strictly worse than a
  * rejected mutation. The AI-tool boundary already membership-checks this exact value
  * (`invalidFilterOperatorError`), so a string-only check here left the two boundaries
- * disagreeing on an identical payload (architecture review T2-1). Both now share the
+ * disagreeing on an identical payload. Both now share the
  * one `isStudioFilterOperator` list. `operator2` is optional (absent stays legal), but
  * a PRESENT value carries the identical fail-open hazard for a compound filter's second
  * condition, so it is membership-checked the same way when present.
@@ -722,7 +722,7 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         if (!isBoundedValue(args.changes.config)) {
           return unboundedValueError('updateWidget.args.changes.config');
         }
-        // Finding 2.2 — `config`'s interior is deliberately left as an unchecked
+        // `config`'s interior is deliberately left as an unchecked
         // leaf (see the module doc), but `chartType` is the one leaf key every
         // OTHER config-carrying arg in this file already membership-checks on the
         // create path (`validateWidget`). Leaving it unchecked here let an
@@ -745,7 +745,7 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
       if (!isBoundedValue(args.config)) {
         return unboundedValueError('updateWidget.args.config');
       }
-      // Finding 2.2 — see the identical check on `changes.config` above.
+      // See the identical check on `changes.config` above.
       if (hasInvalidChartTypeInConfig(args.config)) {
         return 'updateWidget.args.config.chartType must be one of the known chart types when present';
       }
@@ -885,13 +885,13 @@ const MUTATION_ARG_VALIDATORS: { [M in StateMutation as M['type']]: MutationArgV
         if (!isBoundedValue(update.config)) {
           return unboundedValueError(`${at}.config`);
         }
-        // Finding 2.2 — see the identical check on `updateWidget.args.config` above.
+        // See the identical check on `updateWidget.args.config` above.
         if (hasInvalidChartTypeInConfig(update.config)) {
           return `${at}.config.chartType must be one of the known chart types when present`;
         }
       }
     }
-    // Finding T2-4 (parser half) — `widgetRows`/`widgetColSpans` are OPTIONAL: a
+    // Parser half — `widgetRows`/`widgetColSpans` are OPTIONAL: a
     // bulk update carrying only `updatedWidgets` (no removals, additions, layout
     // op, or colSpans) must be able to omit both entirely. The reducer (fixed in
     // the same round) treats "both absent" as "skip layout replacement, don't

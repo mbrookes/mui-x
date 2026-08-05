@@ -89,7 +89,7 @@ export function StudioDataDrawer({ sx }: StudioDataDrawerProps = {}) {
   /**
    * Row/field counts for a source-preview dialog title.
    *
-   * H1: `rows?.length ?? 0` claimed "0 rows" for any adapter-backed source, whose `rows` stays
+   * `rows?.length ?? 0` claimed "0 rows" for any adapter-backed source, whose `rows` stays
    * `undefined` until the host imperatively calls `setDataSourceRows` — the adapter path resolves
    * rows per-widget into `studioRequestCache` and never writes them back here. A row count that
    * was never taken is reported as unavailable (or as loading while an adapter is expected to

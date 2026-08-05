@@ -105,7 +105,7 @@ const FIELD_BOUND_GRID_CONFIG_KEYS = [
  * the widget's data source changes, while every other (non-field-bound) config key is
  * preserved untouched.
  *
- * M17: `columns` is DELETED, not reset to `[]`. The two are different states — `undefined`
+ * `columns` is DELETED, not reset to `[]`. The two are different states — `undefined`
  * means "unset, show every field of the source", `[]` means "explicitly no columns" — and
  * writing `[]` here would leave the grid showing nothing at all after a source switch instead
  * of the new source's fields.
@@ -169,7 +169,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
     () => (source?.fields ?? []).filter((f) => !f.hidden),
     [source],
   );
-  // M17: `[]` and `undefined` are DIFFERENT states and must not be collapsed. `undefined` is
+  // `[]` and `undefined` are DIFFERENT states and must not be collapsed. `undefined` is
   // "unset — show every field of the source" (a brand-new grid, or one whose source just
   // changed); `[]` is "the user explicitly removed every column". Testing `?.length` treated
   // the second as the first, so removing the last column made every column reappear — the
@@ -327,7 +327,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   // In `implicit` mode the columns block (and so the "Add column" menu) renders BEFORE a
   // source exists, so this gate and the menu entry disagree unless both consult it.
   const canAddCalculatedColumn = Boolean(source && widget?.sourceId);
-  // Finding 4: `calcDialogOpen` must never outlive the gate. Setting it while ungated used to
+  // `calcDialogOpen` must never outlive the gate. Setting it while ungated used to
   // latch — nothing rendered, the flag stayed `true`, and the dialog then appeared unprompted
   // mid-gesture as soon as a normal column adoption supplied a source. The menu entry is
   // disabled while ungated (below), and this clears the flag if the gate closes underneath an
@@ -440,7 +440,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   };
 
   /**
-   * Finding 3: "Add column ▸ Calculated column…" is launched from a menu titled "Add column",
+   * "Add column ▸ Calculated column…" is launched from a menu titled "Add column",
    * so saving the dialog must actually produce a column. The dialog only creates the
    * expression field and reports its id — without this callback nothing was ever written to
    * `config.columns` and the user had to reopen the menu and hunt for the new field.
@@ -584,11 +584,11 @@ export function GridSetupPanel(props: { widgetId: string }) {
             const colKey = columnAggKey(col);
             // Keyed strictly by the composite `colKey`. The old `?? fieldLookup.get(col.fieldId)`
             // fallback was either redundant (a primary-source column's `colKey` IS its bare
-            // `fieldId`) or wrong: for a cross-source column it resolved to the PRIMARY
-            // source's same-id field, so a related-source `id` column rendered the primary
-            // source's label, type icon and numeric/string aggregation menu (H3, bare-id
-            // lookups ignoring `sourceId`). An unresolvable column falls through to the raw-id
-            // display below, which is the honest rendering of schema drift.
+            // `fieldId`) or wrong: for a cross-source column it resolved to the PRIMARY source's
+            // same-id field, so a related-source `id` column rendered the primary source's label,
+            // type icon and numeric/string aggregation menu (bare-id lookups ignoring `sourceId`).
+            // An unresolvable column falls through to the raw-id display below, which is the honest
+            // rendering of schema drift.
             const fieldInfo = fieldLookup.get(colKey);
             const isNumeric = fieldInfo?.type === 'number';
             const availableAggs = isNumeric ? NUMERIC_AGGREGATIONS : STRING_AGGREGATIONS;
@@ -792,7 +792,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
           >
             {features.calculatedFields !== false && features.gridCalculatedFields !== false && (
               <MenuItem
-                // Finding 4: in `implicit` mode this menu renders before the grid has a
+                // In `implicit` mode this menu renders before the grid has a
                 // source, but the dialog below cannot (it needs a source to compute over).
                 // Disable the entry rather than letting the click set a flag that renders
                 // nothing now and pops the dialog open later, unprompted.
@@ -833,7 +833,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
             {addableFields.length === 0 && (
               <MenuItem disabled>{localeText.gridSetupAllColumnsAdded}</MenuItem>
             )}
-            {/* Finding 3: measures created on this source are surfaced here, disabled. A
+            {/* Measures created on this source are surfaced here, disabled. A
                 measure aggregates the whole dataset, so it has no per-row value and can
                 never be a table column — but before this it was excluded from every list in
                 the grid panel, so ticking "measure" in the calculated-column dialog made the
@@ -973,7 +973,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
           expressionFields={expressionFields}
           // BL-180: scope operand fields to sources reachable from this grid's source.
           reachableSourceIds={getReachableSourceIds(widget.sourceId, relationships)}
-          // Finding 3: without this the "Add column" gesture created a field but no column.
+          // Without this the "Add column" gesture created a field but no column.
           onSaved={handleCalculatedColumnSaved}
         />
       )}

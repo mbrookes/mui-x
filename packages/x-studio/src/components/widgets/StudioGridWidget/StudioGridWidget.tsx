@@ -134,10 +134,9 @@ export function resolveAggregationFieldKeys<T>(
  * columns whose value is duplicated across every row sharing the same FK. Mirrors
  * `utils/gridGrouping.ts`'s `crossSourceMeta` construction in `buildGroupedGridRows`.
  *
- * Used by `makeFanoutSafeAggregationFunction` below to dedupe by FK before reducing,
- * so grouping+aggregating a fanned-out column (e.g. summing `orders.total` on an
- * `order_items` grid grouped by category) counts each linked one-side record once,
- * not once per many-side row (architecture review finding 2.7).
+ * Used by `makeFanoutSafeAggregationFunction` below to dedupe by FK before reducing, so
+ * grouping+aggregating a fanned-out column (e.g. summing `orders.total` on an `order_items` grid
+ * grouped by category) counts each linked one-side record once, not once per many-side row.
  *
  * `ownFieldIds` is the widget's own (primary-source + own expression-field) field id
  * set. A cross-source configured column can share a bare `fieldId` with one of the
@@ -177,13 +176,12 @@ export function resolveCrossSourceFkFields(
 }
 
 /**
- * A `GridAggregationFunction` that dedupes fanned-out cross-source values before
- * reducing, so the native DataGridPremium `rowGroupingModel`/`aggregationModel`
- * path no longer double-counts a many-to-one joined column the way a naive per-row
- * sum would (architecture review finding 2.7). Also used for the widget's OWN
- * (non-cross-source) fields — for those, `crossSourceFkFields` has no entry, so the
- * dedupe key falls back to the row's own (always-unique, see the `rows` memo
- * below) id, making the dedupe pass a no-op and preserving prior behaviour exactly.
+ * A `GridAggregationFunction` that dedupes fanned-out cross-source values before reducing, so the
+ * native DataGridPremium `rowGroupingModel`/`aggregationModel` path no longer double-counts a
+ * many-to-one joined column the way a naive per-row sum would. Also used for the widget's OWN
+ * (non-cross-source) fields — for those, `crossSourceFkFields` has no entry, so the dedupe key
+ * falls back to the row's own (always-unique, see the `rows` memo below) id, making the dedupe pass
+ * a no-op and preserving prior behaviour exactly.
  *
  * The own-field fallback key is the row's `__rowId` (the always-unique grid row identity
  * stamped by the `rows` memo below), NOT `row.id` — a nullable/duplicated `id` column
@@ -243,11 +241,10 @@ export function makeFanoutSafeAggregationFunction(
 }
 
 /**
- * Column render order follows the user-configured order (`configColumns`, as
- * authored via drag-and-drop / keyboard reorder in `GridSetupPanel`), not the
- * data-source field order — configured fields first (in their stored order),
- * then any remaining fields not yet added to `config.columns`. (Finding 1.2:
- * `config.columns` used to drive only visibility, never order.)
+ * Column render order follows the user-configured order (`configColumns`, as authored via
+ * drag-and-drop / keyboard reorder in `GridSetupPanel`), not the data-source field order —
+ * configured fields first (in their stored order), then any remaining fields not yet added to
+ * `config.columns`. (`config.columns` used to drive only visibility, never order.)
  *
  * Bare field ids are de-duplicated: two configured columns can share a bare
  * `fieldId` when a cross-source column collides with a primary one (e.g. a primary
@@ -280,20 +277,18 @@ export function computeOrderedFieldIds(
  * `useWidgetRows.ts`'s row enrichment already performs for the VALUES of these
  * columns (see `enrichWithCrossSourceFields`).
  *
- * Before this, `computeOrderedFieldIds` only ever saw the widget's own source's
- * field ids plus expression-field ids (`allFieldIds`), so a configured cross-source
- * column's id never appeared there and was silently filtered out — the column had
- * a real, enriched value on every row, but no `GridColDef` was ever built for it and
- * it never rendered (architecture review finding 1.1). Exported so both the
- * component and its tests exercise the identical resolution.
+ * Before this, `computeOrderedFieldIds` only ever saw the widget's own source's field ids plus
+ * expression-field ids (`allFieldIds`), so a configured cross-source column's id never appeared
+ * there and was silently filtered out — the column had a real, enriched value on every row, but no
+ * `GridColDef` was ever built for it and it never rendered. Exported so both the component and its
+ * tests exercise the identical resolution.
  *
- * A related source's **calculated column** (an expression field owned by `c.sourceId`)
- * is also offered by `GridSetupPanel`, but has no physical field def — it is resolved
- * here by falling back to the related source's non-measure `expressionFields`, normalized
- * to the `StudioDataField` shape (so its label/format/type feed the column def and CSV
- * export the same way a physical cross-source column does). Without this the calculated
- * cross-source column was selectable but produced no column def, so it never rendered
- * (architecture review finding 2.3).
+ * A related source's **calculated column** (an expression field owned by `c.sourceId`) is also
+ * offered by `GridSetupPanel`, but has no physical field def — it is resolved here by falling back
+ * to the related source's non-measure `expressionFields`, normalized to the `StudioDataField` shape
+ * (so its label/format/type feed the column def and CSV export the same way a physical cross-source
+ * column does). Without this the calculated cross-source column was selectable but produced no
+ * column def, so it never rendered.
  */
 export function resolveCrossSourceFieldDefs(
   configColumns: StudioWidgetConfig['columns'],
@@ -358,7 +353,7 @@ function readCellNumber(value: unknown): number | null {
   if (typeof value === 'number') {
     return Number.isNaN(value) ? null : value;
   }
-  // `Number('')` and `Number('  ')` are both `0`, so a blank cell must not become a zero.
+  // `Number('')` and `Number(' ')` are both `0`, so a blank cell must not become a zero.
   if (typeof value === 'string' && value.trim() !== '') {
     const parsed = Number(value);
     return Number.isNaN(parsed) ? null : parsed;
@@ -374,7 +369,7 @@ function readCellNumber(value: unknown): number | null {
  *
  * Exported so a test can assert the production column-def path actually produces a
  * `GridColDef` for a configured cross-source column, without bypassing it via a
- * `slotProps.dataGrid.columns` override (architecture review finding 1.1's
+ * `slotProps.dataGrid.columns` override (the
  * regression-test gap).
  */
 export function buildGridColumnDefs(
@@ -681,12 +676,11 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     () => ({
       sum: makeFanoutSafeAggregationFunction('sum', crossSourceFkFields, ['number']),
       avg: makeFanoutSafeAggregationFunction('avg', crossSourceFkFields, ['number']),
-      // `number` only — the shared reducer routes every value through
-      // `coerceAggregateValue`, which maps a `Date`/date-string to `null` (finding
-      // T3.6). Claiming `date`/`dateTime` here made this fan-out-safe override the
-      // registered function for those columns, so an AI-/host-configured date
-      // min/max resolved to a blank cell instead of the min/max date. The fan-out
-      // dedup is irrelevant for dates (they never coerce), so restrict to `number`.
+      // `number` only — the shared reducer routes every value through `coerceAggregateValue`, which
+      // maps a `Date`/date-string to `null`. Claiming `date`/`dateTime` here made this fan-out-safe
+      // override the registered function for those columns, so an AI-/host-configured date min/max
+      // resolved to a blank cell instead of the min/max date. The fan-out dedup is irrelevant for
+      // dates (they never coerce), so restrict to `number`.
       min: makeFanoutSafeAggregationFunction('min', crossSourceFkFields, ['number']),
       max: makeFanoutSafeAggregationFunction('max', crossSourceFkFields, ['number']),
       // `toGridAggFn` maps our 'count' to the DataGridPremium built-in name 'size'.
@@ -774,17 +768,16 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     (widget.config as StudioWidgetConfig).crossFilterMode ??
     'cross-highlight';
 
-  // In 'none' mode, only chart-click CROSS-FILTERS must be ignored — matching
-  // `useWidgetRows`'s `effectiveRows` resolution (`filteredRowsNoChartCross`).
-  // `crossFilterMode` governs widget-to-widget cross-filtering only; it must NOT
-  // suppress page/widget filters or an explicit Filter-widget (interactive) selection,
-  // which always hard-filter regardless of this widget's cross-filter mode (BI norm —
-  // see `filteredRowsNoChartCross`'s doc in useWidgetRows.ts). Using `filteredRowsNoCross`
-  // here was a bug: it additionally stripped interactive filter-widget filters, so setting
-  // a dashboard's/widget's crossFilterMode to 'none' wrongly made the grid ignore an
-  // explicit Filter-widget selection too (Tier 2 finding — architecture review iteration 22).
-  // In cross-highlight mode, show all baseline rows (hard-filtered by page/widget/interactive)
-  // and dim the non-matching ones. In cross-filter mode, use the fully filtered rows.
+  // In 'none' mode, only chart-click CROSS-FILTERS must be ignored — matching `useWidgetRows`'s
+  // `effectiveRows` resolution (`filteredRowsNoChartCross`). `crossFilterMode` governs
+  // widget-to-widget cross-filtering only; it must NOT suppress page/widget filters or an explicit
+  // Filter-widget (interactive) selection, which always hard-filter regardless of this widget's
+  // cross-filter mode (BI norm — see `filteredRowsNoChartCross`'s doc in useWidgetRows.ts). Using
+  // `filteredRowsNoCross` here was a bug: it additionally stripped interactive filter-widget
+  // filters, so setting a dashboard's/widget's crossFilterMode to 'none' wrongly made the grid
+  // ignore an explicit Filter-widget selection too (Tier 2 finding). In cross-highlight mode, show
+  // all baseline rows (hard-filtered by page/widget/interactive) and dim the non-matching ones. In
+  // cross-filter mode, use the fully filtered rows.
   let baseRows: typeof filteredRows;
   if (crossFilterMode === 'none') {
     baseRows = filteredRowsNoChartCross;

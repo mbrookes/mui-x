@@ -780,10 +780,9 @@ function buildMapWidgetSummary(
   // Merge region spelling variants the same way the rendered map does — `StudioMapWidget`
   // normalizes every row's country value (`normalizeToStateAbbr` for the 'usa' geography,
   // `normalizeToAlpha2` otherwise) before grouping, so 'US'/'USA'/'United States' become one
-  // region. This summary previously grouped by the raw field value with no normalization,
-  // so it reported those as three separate countries while the map merges them (finding
-  // 2.5). Rows whose value doesn't normalize (the widget's `if (!id) continue`) are dropped
-  // the same way.
+  // region. This summary previously grouped by the raw field value with no normalization, so it
+  // reported those as three separate countries while the map merges them. Rows whose value doesn't
+  // normalize (the widget's `if (!id) continue`) are dropped the same way.
   const normalize = cfg.mapGeography === 'usa' ? normalizeToStateAbbr : normalizeToAlpha2;
   const normalizedRows = enrichedRows.reduce<Record<string, unknown>[]>((acc, row) => {
     const normalized = normalize(row[countryField]);
@@ -990,11 +989,10 @@ export function buildWidgetDataSummary(
     state.doc.relationships,
   );
 
-  // Deduplicate and keep only fields that actually exist in the enriched data. Checking
-  // against `rawRows` (pre-L2, pre-cross-source) excluded own-source expression columns
-  // (only ever added by the pipeline's L2 enrichment) and cross-source columns (only added
-  // above) from the sample — the AI was never told about the very column a pivot/grid
-  // widget aggregates.
+  // Deduplicate and keep only fields that actually exist in the enriched data. Checking against
+  // `rawRows` (pre, pre-cross-source) excluded own-source expression columns (only ever added by
+  // the pipeline's L2 enrichment) and cross-source columns (only added above) from the sample — the
+  // AI was never told about the very column a pivot/grid widget aggregates.
   fieldIds = [...new Set(fieldIds)].filter(
     (id) => id && enrichedFilteredRows.some((r: Record<string, unknown>) => id in r),
   );

@@ -24,9 +24,9 @@ export interface BufferedInput<T> {
 }
 
 /**
- * The ONE buffered-input primitive behind every free-text / numeric control in the compose
- * drawer (M15). Two behaviours it centralizes, both previously re-implemented per control —
- * correctly in two places (`FormatPanel`, `TextSetupPanel`) and incorrectly in eleven others:
+ * The ONE buffered-input primitive behind every free-text / numeric control in the compose drawer.
+ * Two behaviours it centralizes, both previously re-implemented per control — correctly in two
+ * places (`FormatPanel`, `TextSetupPanel`) and incorrectly in eleven others:
  *
  *  - **The resync is DIRTY-AWARE.** A naive `useEffect(() => setText(value), [value, id])`
  *    discards in-flight typing on ANY external write to the same widget. That is not

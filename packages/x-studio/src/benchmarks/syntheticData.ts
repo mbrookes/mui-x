@@ -164,7 +164,7 @@ const relationships: StudioRelationship[] = [
 // ─── Expression fields ────────────────────────────────────────────────────────
 
 /**
- * Arithmetic column: orders.total * 1.1  →  expr-revenue-adj (per-row scalar)
+ * Arithmetic column: orders.total * 1.1 → expr-revenue-adj (per-row scalar)
  */
 const exprRevenueAdj: StudioExpressionField = {
   id: 'expr-revenue-adj',
@@ -178,7 +178,7 @@ const exprRevenueAdj: StudioExpressionField = {
 };
 
 /**
- * Join column: pull customers.country onto each order row  →  expr-country
+ * Join column: pull customers.country onto each order row → expr-country
  */
 const exprCountry: StudioExpressionField = {
   id: 'expr-country',

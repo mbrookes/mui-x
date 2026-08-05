@@ -171,10 +171,10 @@ export interface ChartRenderContext<T extends StudioChartType = StudioChartType>
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
   annotationChildren: React.ReactNode;
   /**
-   * Accessible name for the rendered chart — the widget's own (or inferred) title, e.g.
-   * "Revenue by Region". Forwarded to each family's `title` prop (or, for the families whose
-   * underlying x-charts component does not thread `title` through, to an `aria-label` on a
-   * wrapper), so the chart is not an unnamed graphic (WCAG 1.1.1 / 4.1.2, finding M10).
+   * Accessible name for the rendered chart — the widget's own (or inferred) title, e.g. "Revenue by
+   * Region". Forwarded to each family's `title` prop (or, for the families whose underlying
+   * x-charts component does not thread `title` through, to an `aria-label` on a wrapper), so the
+   * chart is not an unnamed graphic (WCAG 1.1.1 / 4.1.2).
    */
   chartAriaTitle: string;
   /**
@@ -182,7 +182,7 @@ export interface ChartRenderContext<T extends StudioChartType = StudioChartType>
    * arrived yet.
    *
    * The orchestrator uses this to suppress the shared no-data guard (an in-flight query is
-   * not "no data"), but until finding M4 it never reached the renderers — so every render
+   * not "no data"), but it never used to reach the renderers — so every render
    * function that owns its OWN empty-result branch had to interpret an empty aggregation as a
    * settled result. That produced two distinct wrong states during a cold fetch: `renderMixed`
    * blamed the author ("configure your fields") for a query that simply had not answered yet,
@@ -633,7 +633,7 @@ function measureFormulaCacheKey(
 // ── heatmap ───────────────────────────────────────────────────────────────────
 
 function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
-  // Aggregate `enrichedRows` (L4-resolved: a cross-source extra dimension like a many-to-one
+  // Aggregate `enrichedRows` (resolved: a cross-source extra dimension like a many-to-one
   // `heatYField` is enriched onto each row, and cross-filter mode is honoured because
   // `enrichedRows` derives from `effectiveRows`) rather than raw, un-enriched `filteredRows`.
   //
@@ -735,8 +735,8 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
 // ── funnel ────────────────────────────────────────────────────────────────────
 
 function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
-  // Aggregate `enrichedRows` (L4-resolved cross-source `funnelReachedField` + cross-filter-mode
-  // aware) rather than raw `filteredRows`.
+  // Aggregate `enrichedRows` (resolved cross-source `funnelReachedField` + cross-filter-mode aware)
+  // rather than raw `filteredRows`.
   const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   const funnelXField = config.xField ?? '';
   const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
@@ -870,8 +870,8 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
 // ── sankey ────────────────────────────────────────────────────────────────────
 
 function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
-  // Aggregate `enrichedRows` (L4-resolved cross-source `sankeyTargetField` + cross-filter-mode
-  // aware) rather than raw `filteredRows`.
+  // Aggregate `enrichedRows` (resolved cross-source `sankeyTargetField` + cross-filter-mode aware)
+  // rather than raw `filteredRows`.
   const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   const sankeySourceField = config.xField ?? '';
   const sankeyTargetField = config.sankeyTargetField ?? '';
@@ -925,8 +925,8 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
 // ── gantt ─────────────────────────────────────────────────────────────────────
 
 function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
-  // Aggregate `enrichedRows` (L4-resolved cross-source `gantt*` fields + cross-filter-mode
-  // aware) rather than raw `filteredRows`.
+  // Aggregate `enrichedRows` (resolved cross-source `gantt*` fields + cross-filter-mode aware)
+  // rather than raw `filteredRows`.
   const { config, enrichedRows, chartHeight } = ctx;
   const labelField = config.ganttLabelField ?? '';
   const startField = config.ganttStartField ?? '';

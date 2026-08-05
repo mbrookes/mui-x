@@ -1,5 +1,5 @@
 /**
- * Hard ceiling on recursion depth for `sortedStringify` (finding Tier3 —
+ * Hard ceiling on recursion depth for `sortedStringify` (
  * ordering bug). `generateCacheKey` → `computeQueryHash` calls this on the RAW
  * widget descriptor — including `filters[].value` — BEFORE the shape guards on
  * filter values (`isScalarComparisonValue` / `isPrimitivePredicateElement` in

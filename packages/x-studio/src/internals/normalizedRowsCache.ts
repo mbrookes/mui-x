@@ -10,9 +10,9 @@ type Row = Record<string, unknown>;
 //   row array is replaced by a new upsertDataSource call, requiring no manual
 //   invalidation).
 //
-// Inner key: fieldSetKey — a sorted, comma-joined string of the field IDs being
-//   normalized.  Callers that pass `usedFieldIds` get a widget-scoped cache slot;
-//   callers that pass nothing (or undefined) get the '*' (all fields) slot.
+// Inner key: fieldSetKey — a sorted, comma-joined string of the field IDs being normalized. Callers
+// that pass `usedFieldIds` get a widget-scoped cache slot; callers that pass nothing (or undefined)
+// get the '*' (all fields) slot.
 //
 // Inner check: dataSource.fields ref — determines which fields are treated as
 //   dates and which get distinct-values indexing. Stable in normal usage; if

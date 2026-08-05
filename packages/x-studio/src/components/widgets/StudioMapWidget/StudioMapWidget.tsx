@@ -348,7 +348,7 @@ export function StudioMapWidget({
 
   // Build region → aggregated value map, plus reverse lookup featureId → EVERY distinct raw
   // value that normalizes into it (e.g. 'US', 'USA', 'United States' all merge into one
-  // display region). Finding 2.21: a merged region's cross-filter must cover every raw variant
+  // display region). A merged region's cross-filter must cover every raw variant
   // it visibly aggregates, not just the first one encountered — so this keeps the full list,
   // in first-seen order (index 0 is used as the single value for the common non-merged case).
   const [regionData, rawKeysByFeatureId] = React.useMemo<
@@ -604,7 +604,7 @@ export function StudioMapWidget({
   const [geography, setGeography] = React.useState<ExtendedFeatureCollection | null>(null);
   const [geographyError, setGeographyError] = React.useState(false);
   const loadedGeoRef = React.useRef<string | null>(null);
-  // Finding 2.20: a plain `loadedGeoRef.current === mapGeography` key comparison isn't enough
+  // A plain `loadedGeoRef.current === mapGeography` key comparison isn't enough
   // to detect a stale response when the SAME geography is requested twice in a row (e.g.
   // world → usa → world) — both requests share the same key, so comparing keys alone can't
   // tell the first (now-stale) 'world' load apart from the second. A monotonically increasing
@@ -676,7 +676,7 @@ export function StudioMapWidget({
       if (!rawValues || rawValues.length === 0) {
         return;
       }
-      // Finding 2.21: a display region can merge several distinct raw encodings (e.g. 'US',
+      // A display region can merge several distinct raw encodings (e.g. 'US',
       // 'USA', 'United States') via `normalize`. Emitting `equals <first variant>` would only
       // match a SUBSET of what the clicked region visibly aggregates downstream. When more than
       // one raw variant merged into this region, emit an `in` filter over all of them so a
@@ -742,7 +742,7 @@ export function StudioMapWidget({
     return <StudioWidgetErrorOverlay />;
   }
 
-  // Finding 2.20: surface a visible, non-silent state when the geography topology failed to
+  // Surface a visible, non-silent state when the geography topology failed to
   // load, rather than a permanent blank widget. `loadedGeoRef` was reset above so the load is
   // retryable, but nothing user-facing forced the effect to run again — the button below drives
   // `handleRetryGeography`, which bumps `geoRetryNonce` (a dependency of the load effect) so

@@ -67,7 +67,7 @@ export interface StudioMixedChartProps {
   formatLabel: (label: string | number) => string;
   /**
    * Accessible name for the chart graphic — forwarded to `ChartsSurface`'s `title` prop, which
-   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2).
    */
   ariaTitle?: string;
   /** Annotation reference lines rendered as chart children. */

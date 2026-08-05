@@ -64,8 +64,7 @@ export function isCacheTier(value: unknown): value is CacheTier {
 }
 
 /**
- * Structural check for a value read back as a `CacheEntry` (finding L5, extended
- * to `tier`/`rowCount`).
+ * Structural check for a value read back as a `CacheEntry` (extended to `tier`/`rowCount`).
  *
  * A stored entry is UNTRUSTED INPUT, not a type guarantee: the backing store is
  * host-pluggable and not exclusively ours. A Redis deployment with no `keyPrefix`
@@ -196,15 +195,14 @@ export interface CacheProvider {
   /**
    * Store a result under the given key.
    *
-   * NO-MUTATION CONTRACT — the WRITE side (finding L3, and the write-then-return
-   * path `get`'s contract above does not cover). An in-process provider may store
-   * `value` BY REFERENCE (the built-in `LRUCacheProvider` does), so the caller
-   * must treat `value` — and every row object inside `value.rows` — as read-only
-   * from the moment it is handed over. `handleBatchQuery` both stores the entry
-   * here and returns the result to the host, so a host that post-processed
-   * `results[i].rows` in place (masking a column, decrypting one) wrote straight
-   * into the process-wide server cache, and every subsequent hit for the whole TTL
-   * served the mutated rows to every user sharing the security profile.
+   * NO-MUTATION CONTRACT — the WRITE side (and the write-then-return path `get`'s contract above
+   * does not cover). An in-process provider may store `value` BY REFERENCE (the built-in
+   * `LRUCacheProvider` does), so the caller must treat `value` — and every row object inside
+   * `value.rows` — as read-only from the moment it is handed over. `handleBatchQuery` both stores
+   * the entry here and returns the result to the host, so a host that post-processed
+   * `results[i].rows` in place (masking a column, decrypting one) wrote straight into the
+   * process-wide server cache, and every subsequent hit for the whole TTL served the mutated rows
+   * to every user sharing the security profile.
    *
    * `handleBatchQuery` now hands over its own `rows` ARRAY (`{ rows: [...rows] }`),
    * so array-level mutation (`push`/`splice`/`sort`/`length = 0`) can no longer
@@ -307,13 +305,12 @@ export interface TierEntry {
  *
  * The host app can provide a Redis-backed implementation for multi-node deployments.
  *
- * Deliberately has NO tag-based invalidation (`deleteByTag`), unlike
- * `CacheProvider`: a stored `TierEntry` is a routing hint plus a preflight
- * COUNT(*), self-expiring within the (short, ~30s) tier TTL. `handleMutation`
- * therefore cannot evict tier entries on a write, so a tier-cache hit's
- * `TierEntry.rowCount` is best-effort within that window after a mutation (finding
- * 3.2). This is accepted rather than growing the interface a tag API that only the
- * `rowCount` total would use — the rows a widget returns are always fetched fresh.
+ * Deliberately has NO tag-based invalidation (`deleteByTag`), unlike `CacheProvider`: a stored
+ * `TierEntry` is a routing hint plus a preflight COUNT(*), self-expiring within the (short, ~30s)
+ * tier TTL. `handleMutation` therefore cannot evict tier entries on a write, so a tier-cache hit's
+ * `TierEntry.rowCount` is best-effort within that window after a mutation. This is accepted rather
+ * than growing the interface a tag API that only the `rowCount` total would use — the rows a widget
+ * returns are always fetched fresh.
  */
 export interface TierCacheProvider {
   get(key: string): Promise<TierEntry | undefined>;

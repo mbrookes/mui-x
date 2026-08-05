@@ -203,18 +203,17 @@ export function buildSecureQuery(
   // risk) and gets the `OR <join-key> IS NULL` relaxation from
   // `applySecurityPredicatesOrNull` instead of a bare WHERE. See that function's
   // doc comment for why this does NOT just move the predicate to the join's own
-  // ON clause (that would reopen the cross-tenant fan-out finding 2.3 closes).
+  // ON clause (that would reopen the cross-tenant fan-out closed above).
   //
-  // TENANT-LEAK FIX (Tier1, iter24 finding) — the relaxation itself is only safe
-  // when its `OR <join-key> IS NULL` indicator column can ONLY read NULL because
-  // of that later null-extension. `joinNullIndicatorColumn` now refuses to supply
-  // one for a join whose OWN type is `right` — that table is itself the
-  // PRESERVED side of ITS OWN join, so its own join-key column can be genuinely
-  // NULL in a legitimately-participating row (no later null-extension involved),
-  // and trusting it as the indicator let a cross-tenant row with a NULL join key
-  // bypass its security predicate entirely. Such a join falls through to the
-  // strict, unconditional `applySecurityPredicates` below instead (fail-closed —
-  // may under-preserve a row in the multi-right-join edge case, never leaks one).
+  // TENANT-LEAK FIX (iter24 finding) — the relaxation itself is only safe when its `OR <join-key>
+  // IS NULL` indicator column can ONLY read NULL because of that later null-extension.
+  // `joinNullIndicatorColumn` now refuses to supply one for a join whose OWN type is `right` — that
+  // table is itself the PRESERVED side of ITS OWN join, so its own join-key column can be genuinely
+  // NULL in a legitimately-participating row (no later null-extension involved), and trusting it as
+  // the indicator let a cross-tenant row with a NULL join key bypass its security predicate
+  // entirely. Such a join falls through to the strict, unconditional `applySecurityPredicates`
+  // below instead (fail-closed — may under-preserve a row in the multi-right-join edge case, never
+  // leaks one).
   const rightJoinIndices = queryPlan.joins.reduce<number[]>((acc, join, index) => {
     if (join.type === 'right') {
       acc.push(index);
@@ -409,29 +408,25 @@ function applySemiJoins(
  * with `join.table` when the resolved column isn't already dotted, mirroring the
  * qualification the ON-clause loop above applies to the same pairs.
  *
- * TENANT-LEAK FIX (Tier1, iter24 finding) — this indicator is only safe when
- * `join.table`'s OWN join REQUIRES a match for `join.table` to appear at all
- * (an inner join: `NULL` never equals anything, so a matched row's join-key
- * column is guaranteed non-null; the ONLY way it later reads NULL is a
- * SUBSEQUENT join null-extending the whole accumulated side, which is exactly
- * the condition this indicator is meant to detect). That guarantee does NOT
- * hold when `join.table` is itself the PRESERVED (right) side of ITS OWN join
- * (`join.type === 'right'`) — a right join keeps every row of `join.table`
- * regardless of whether the `on` match succeeded, so `join.table`'s own
- * join-key column can be genuinely NULL in the raw, legitimately-participating
- * row (e.g. an untouched nullable FK), with no later null-extension involved at
- * all. Trusting that column as the indicator then lets a cross-tenant row with
- * a coincidentally-NULL join key satisfy the `OR <col> IS NULL` escape hatch and
- * bypass its tenant/region/department predicate entirely — a real leak once >= 2
- * right joins are chained (`(A RIGHT JOIN B) RIGHT JOIN C`, tenant predicate
- * relaxed on B). This package has no NOT-NULL schema metadata that would let it
- * pick a genuinely-safe substitute column for a right-joined table, so it fails
- * CLOSED instead: returning `undefined` here for a `right`-typed join routes the
- * caller to the existing "no safe indicator" fallback, which keeps the STRICT,
- * unconditional WHERE predicate for that table. That can, for a multi-right-join
- * shape, drop a row a LATER right join legitimately preserved (the routing/perf
- * cost the iter22 relaxation existed to avoid) — a correctness/perf regression,
- * never a security leak, and the explicitly preferred tradeoff here.
+ * TENANT-LEAK FIX (iter24 finding) — this indicator is only safe when `join.table`'s OWN join
+ * REQUIRES a match for `join.table` to appear at all (an inner join: `NULL` never equals anything,
+ * so a matched row's join-key column is guaranteed non-null; the ONLY way it later reads NULL is a
+ * SUBSEQUENT join null-extending the whole accumulated side, which is exactly the condition this
+ * indicator is meant to detect). That guarantee does NOT hold when `join.table` is itself the
+ * PRESERVED (right) side of ITS OWN join (`join.type === 'right'`) — a right join keeps every row
+ * of `join.table` regardless of whether the `on` match succeeded, so `join.table`'s own join-key
+ * column can be genuinely NULL in the raw, legitimately-participating row (e.g. an untouched
+ * nullable FK), with no later null-extension involved at all. Trusting that column as the indicator
+ * then lets a cross-tenant row with a coincidentally-NULL join key satisfy the `OR <col> IS NULL`
+ * escape hatch and bypass its tenant/region/department predicate entirely — a real leak once >= 2
+ * right joins are chained (`(A RIGHT JOIN B) RIGHT JOIN C`, tenant predicate relaxed on B). This
+ * package has no NOT-NULL schema metadata that would let it pick a genuinely-safe substitute column
+ * for a right-joined table, so it fails CLOSED instead: returning `undefined` here for a
+ * `right`-typed join routes the caller to the existing "no safe indicator" fallback, which keeps
+ * the STRICT, unconditional WHERE predicate for that table. That can, for a multi-right-join shape,
+ * drop a row a LATER right join legitimately preserved (the routing/perf cost the iter22 relaxation
+ * existed to avoid) — a correctness/perf regression, never a security leak, and the explicitly
+ * preferred tradeoff here.
  *
  * CONVENTION VERIFICATION (untrusted-convention finding): nothing upstream
  * actually PROVES the right side names `join.table` — `validateDescriptorColumns`

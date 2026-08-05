@@ -228,7 +228,7 @@ export const BUILTIN_WIDGET_DEFS = {
     setupPanel: FilterSetupPanelRender,
     aiInsight: false,
     capabilities: {
-      // H4: a filter widget CANNOT evaluate a widget-scoped filter. It deliberately never
+      // A filter widget CANNOT evaluate a widget-scoped filter. It deliberately never
       // routes through `useWidgetRows`/`selectFiltersForWidget` — it reads rows straight from
       // `getCachedNormalizedDataSource` (see the "DECLINED here, deliberately" note in
       // `StudioFilterWidget.tsx`) — so a `scope.kind === 'widget'` filter on one is evaluated

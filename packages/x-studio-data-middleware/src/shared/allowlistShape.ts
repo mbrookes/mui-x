@@ -8,7 +8,7 @@
  * row. The realistic misconfiguration is a STRING where an array is expected:
  *
  * ```ts
- * schemaAllowlist: process.env.STUDIO_TABLES  // "orders_public"
+ * schemaAllowlist: process.env.STUDIO_TABLES // "orders_public"
  * ```
  *
  * Every membership check in this package is `Array.prototype.includes`, and on a

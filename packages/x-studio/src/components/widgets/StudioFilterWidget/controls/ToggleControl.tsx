@@ -35,7 +35,7 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
     ? values.filter((v) => v.toLowerCase().includes(search.toLowerCase()))
     : values;
 
-  // M10: a selected value the search term excludes is still ACTIVE — it is filtering the whole
+  // A selected value the search term excludes is still ACTIVE — it is filtering the whole
   // page — so it has to stay on screen and stay deselectable. Append those chips after the
   // matches rather than dropping them, so narrowing the search can never hide a live selection.
   const hiddenSelected = selected.filter((v) => !filtered.includes(v));
@@ -74,7 +74,7 @@ export function ToggleControl(props: StudioFilterToggleControlProps) {
           }}
         />
       )}
-      {/* M10: the chip row and the Clear button are rendered UNCONDITIONALLY. They used to live
+      {/* The chip row and the Clear button are rendered UNCONDITIONALLY. They used to live
           inside a `filtered.length > 0` branch, so typing a search term that matched nothing
           replaced the selected chips AND the only Clear affordance with an italic "No options" —
           stranding a filter that was still filtering the whole page, with no control left to

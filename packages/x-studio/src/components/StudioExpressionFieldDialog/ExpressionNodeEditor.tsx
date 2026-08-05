@@ -210,12 +210,11 @@ function getInputKind(expr: StudioExpression): InputKind {
 }
 
 /**
- * Numeric-literal input for a value expression (architecture review finding 1.14):
- * a `type="number"` input reports `badInput` (and an empty `event.target.value`)
- * while the user is still typing a bare "-" or a trailing "." — reading that
- * per-keystroke used to coerce the in-progress text straight to a committed `0`.
- * Buffer the displayed text locally and only parse/commit on blur, mirroring
- * `FormatPanel.tsx`'s grid-height input.
+ * Numeric-literal input for a value expression: a `type="number"` input reports `badInput` (and an
+ * empty `event.target.value`) while the user is still typing a bare "-" or a trailing "." — reading
+ * that per-keystroke used to coerce the in-progress text straight to a committed `0`. Buffer the
+ * displayed text locally and only parse/commit on blur, mirroring `FormatPanel.tsx`'s grid-height
+ * input.
  */
 function LiteralNumberInput(props: {
   value: number;

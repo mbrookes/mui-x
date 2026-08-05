@@ -2,7 +2,7 @@ import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import type { StudioFilterState, StudioRelationship } from '../../models';
 
 /**
- * Finding 1.5: identify the widget-scoped filters that no longer resolve after a widget
+ * Identify the widget-scoped filters that no longer resolve after a widget
  * switches its data source to `newSourceId`.
  *
  * A widget-scoped filter is applied purely by `widgetId` (`internals/filterScoping.ts`),

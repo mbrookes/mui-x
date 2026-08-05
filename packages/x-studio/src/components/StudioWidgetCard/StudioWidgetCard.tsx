@@ -513,11 +513,11 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   const exportLabel =
     exportKind === 'png' ? localeText.widgetExportPngTooltip : localeText.widgetExportCsvTooltip;
 
-  // The card's visible title and its accessible name must be the SAME string. The heading
-  // below has always had a full fallback chain, but the Paper's `aria-label` interpolated a
-  // bare `widget.title ?? ''` — so every untitled widget on a page announced as an identical
-  // "Widget:, group" while sighted users read "KPI", "Chart", "Revenue by region" (finding
-  // M23). Resolved once, here, and consumed by both.
+  // The card's visible title and its accessible name must be the SAME string. The heading below has
+  // always had a full fallback chain, but the Paper's `aria-label` interpolated a bare
+  // `widget.title ?? ''` — so every untitled widget on a page announced as an identical "Widget:,
+  // group" while sighted users read "KPI", "Chart", "Revenue by region". Resolved once, here, and
+  // consumed by both.
   //
   // `||` (not `??`) throughout: an empty-string title is "untitled", not "titled with nothing".
   // `Object.hasOwn` guards `widgetKindLabels` because `widget.kind` is doc-authored (persisted

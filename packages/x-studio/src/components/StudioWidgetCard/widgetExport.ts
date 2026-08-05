@@ -163,18 +163,17 @@ export function runWidgetExport({
         : state,
     );
 
-    // Adapter-backed sources never populate `source.rows` — fetched rows live only in
-    // the on-screen grid's local `useAdapterRows` state, seeded from (and written back
-    // to) the module-singleton `studioRequestCache`. Exporting `source?.rows ?? []`
-    // unconditionally was therefore always an empty array for an adapter source, with
-    // no indication to the user why the CSV came out empty. Rebuild the
-    // EXACT descriptor `useAdapterRows` builds for the on-screen grid so this reads the
+    // Adapter-backed sources never populate `source.rows` — fetched rows live only in the on-screen
+    // grid's local `useAdapterRows` state, seeded from (and written back to) the module-singleton
+    // `studioRequestCache`. Exporting `source?.rows ?? []` unconditionally was therefore always an
+    // empty array for an adapter source, with no indication to the user why the CSV came out empty.
+    // Rebuild the EXACT descriptor `useAdapterRows` builds for the on-screen grid so this reads the
     // SAME cache entry instead of silently exporting nothing. Go through the shared
-    // `buildWidgetQueryDescriptor` helper (rather than calling `buildQueryDescriptor`
-    // directly) so this can never again omit `relationships` /  `crossFilterAllPages` —
-    // both feed the cacheKey, so omitting either produces a descriptor with a DIFFERENT
-    // cacheKey than the live grid's, and this cache lookup misses despite the exact same
-    // data already being cached under the live path's key.
+    // `buildWidgetQueryDescriptor` helper (rather than calling `buildQueryDescriptor` directly) so
+    // this can never again omit `relationships` / `crossFilterAllPages` — both feed the cacheKey,
+    // so omitting either produces a descriptor with a DIFFERENT cacheKey than the live grid's, and
+    // this cache lookup misses despite the exact same data already being cached under the live
+    // path's key.
     let sourceRows: Record<string, unknown>[];
     let cacheMiss = false;
     if (hasAdapter) {

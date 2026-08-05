@@ -12,8 +12,8 @@ export type XGroupBy = 'day' | 'week' | 'month' | 'quarter' | 'year';
  * '2024-Q1'   → { from: '2024-01-01', to: '2024-03-31' }
  * '2024-01'   → { from: '2024-01-01', to: '2024-01-31' }
  * '2024'      → { from: '2024-01-01', to: '2024-12-31' }
- * '2024-W03'  → { from: '2024-01-15', to: '2024-01-21' }
- * '2024-01-15' → { from: '2024-01-15', to: '2024-01-15' }
+ * '2024-W03' → { from: '2024-01-15', to: '2024-01-21' } '2024-01-15' → { from: '2024-01-15', to:
+ * '2024-01-15' }
  */
 export function periodKeyToDateRange(key: string): { from: string; to: string } | null {
   // Day: '2024-01-15'
@@ -98,7 +98,7 @@ function toLocalYmd(date: Date): string {
  *
  * Exported so callers outside the L1 ingestion pass (`normalizeDataSourceRows` below) can
  * apply the SAME timezone-safe day-string conversion to a raw value that never went through
- * L1 — e.g. a foreign row pulled in during a cross-filter semi-join, or an L4 re-filtered
+ * e.g. a foreign row pulled in during a cross-filter semi-join, or an L4 re-filtered
  * anchor/remote/junction row — instead of reimplementing (and potentially re-breaking) the
  * zoned/local-time distinction (`filterUtils.ts`'s `toComparable`).
  */
@@ -496,13 +496,12 @@ function serializeTemporalLabel(date: Date, kind: TemporalLabelKind, sampleLabel
 /**
  * Hard cap on the number of labels {@link fillTemporalLabelGaps} will synthesize.
  *
- * The endpoints are DATA-DERIVED, so a single bad cell defines the range: one
- * `order_date: '1900-01-05'` typo in an otherwise-2024 dataset grouped by `'day'` asks
- * for ~45 600 labels, each costing a `toISOString()` plus a full `truncateToGranularity`
- * re-parse — then a 45 600-entry Map and value array PER SERIES downstream. The tab
- * locks up (M9). Past this cap the densified axis is unreadable anyway (a chart cannot
- * usefully show 2000 categories), so the only useful behaviour is to stop and hand back
- * the original labels ungapped.
+ * The endpoints are DATA-DERIVED, so a single bad cell defines the range: one `order_date:
+ * '1900-01-05'` typo in an otherwise-2024 dataset grouped by `'day'` asks for ~45 600 labels, each
+ * costing a `toISOString()` plus a full `truncateToGranularity` re-parse — then a 45 600-entry Map
+ * and value array PER SERIES downstream. The tab locks up. Past this cap the densified axis is
+ * unreadable anyway (a chart cannot usefully show 2000 categories), so the only useful behaviour is
+ * to stop and hand back the original labels ungapped.
  */
 const MAX_FILLED_TEMPORAL_LABELS = 2000;
 
@@ -531,10 +530,10 @@ export function fillTemporalLabelGaps(labels: (string | number)[]): (string | nu
   const cursor = new Date(start);
   while (cursor <= end) {
     if (filled.length >= MAX_FILLED_TEMPORAL_LABELS) {
-      // Bail out rather than run the sequence to its data-derived end (M9). Returning the
-      // input unchanged is safe for every caller: gap filling is a presentation nicety,
-      // and `densifyAggregated`/`densifyMultiSeries`/`densifyMultiY` all short-circuit on
-      // reference equality when no gaps were filled.
+      // Bail out rather than run the sequence to its data-derived end. Returning the input
+      // unchanged is safe for every caller: gap filling is a presentation nicety, and
+      // `densifyAggregated`/`densifyMultiSeries`/`densifyMultiY` all short-circuit on reference
+      // equality when no gaps were filled.
       return labels;
     }
     filled.push(serializeTemporalLabel(cursor, kind, stringLabels[0]));

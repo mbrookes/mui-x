@@ -82,16 +82,14 @@ const MAX_DIMENSION = 10000;
 const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
 
 /**
- * Hard upper bound on the number of entries accepted in `render_chart`'s
- * `data` / `xLabels` / `series` arrays, and in each per-series `values` array
- * (Tier 3 finding 3). `renderChartSvg` already bounds dimensions and validates
- * colors/values/text (see `sanitizeDimension`/`sanitizeColors`/`sanitizeValue`/
- * `sanitizeText` above), but — unlike every other untrusted-array tool argument
- * in this package (`MAX_QUERY_ARRAY_LENGTH` in `mcp/queryTools.ts`,
- * `MAX_COMPUTE_FIELD_STATS_FIELDS`, the streaming buffer caps) — had no cap on
- * the NUMBER of entries. An unbounded array turns one tool call into unbounded
- * SVG-generation work (and an unbounded response payload) rather than the
- * bounded chart a legitimate call needs.
+ * Hard upper bound on the number of entries accepted in `render_chart`'s `data` / `xLabels` /
+ * `series` arrays, and in each per-series `values` array. `renderChartSvg` already bounds
+ * dimensions and validates colors/values/text (see
+ * `sanitizeDimension`/`sanitizeColors`/`sanitizeValue`/ `sanitizeText` above), but — unlike every
+ * other untrusted-array tool argument in this package (`MAX_QUERY_ARRAY_LENGTH` in
+ * `mcp/queryTools.ts`, `MAX_COMPUTE_FIELD_STATS_FIELDS`, the streaming buffer caps) — had no cap on
+ * the NUMBER of entries. An unbounded array turns one tool call into unbounded SVG-generation work
+ * (and an unbounded response payload) rather than the bounded chart a legitimate call needs.
  *
  * REJECTED, not truncated: `checkChartArrayLength` throws, and the
  * doc comment here used to claim the opposite ("Truncated (not rejected) … a
@@ -336,12 +334,11 @@ type SanitizedChartInput = ChartRendererInput & { width: number; height: number 
 function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
   return {
     ...input,
-    // `type` is the one model-supplied field this choke point used to skip (finding
-    // L6) — and `renderChartSvg`'s default branch interpolates it RAW into the
-    // thrown "Unknown chart type" error, which `mcp/utilityTools.ts` returns as a
-    // tool result. A 5 MB `type` therefore became a 5 MB conversation message.
-    // Coercing + capping it here bounds that message and keeps every untrusted
-    // field validated at one place.
+    // `type` is the one model-supplied field this choke point used to skip — and `renderChartSvg`'s
+    // default branch interpolates it RAW into the thrown "Unknown chart type" error, which
+    // `mcp/utilityTools.ts` returns as a tool result. A 5 MB `type` therefore became a 5 MB
+    // conversation message. Coercing + capping it here bounds that message and keeps every
+    // untrusted field validated at one place.
     type: sanitizeText(input.type) as ChartRendererInput['type'],
     title: sanitizeOptionalText(input.title),
     width: sanitizeDimension(input.width, DEFAULT_WIDTH),

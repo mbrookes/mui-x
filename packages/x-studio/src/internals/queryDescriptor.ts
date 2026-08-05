@@ -31,7 +31,7 @@ function filterStateToLeaf(f: StudioFilterState): StudioFilterNode {
     fieldType: f.fieldType,
     filterSourceId: f.filterSourceId,
     // Carried so the adapter's client-side residual can distinguish a selection-mode empty `in []`
-    // ("any value" → match everything) from a condition-mode `in []` (match nothing) — finding T2.3.
+    // ("any value" → match everything) from a condition-mode `in []` (match nothing).
     filterMode: f.filterMode,
   };
 }
@@ -375,16 +375,15 @@ export function buildQueryDescriptor(
   // identical queries — same source, filters, select, groupBy, aggregations —
   // share one cache entry and one server request.
   //
-  // `hasIncomingCrossOrInteractiveFilters` is folded into the key ONLY when there is a
-  // server-side aggregation to strip — that is the one case where the flag actually changes the
-  // request shape (aggregated vs. raw rows, finding 2.9). For a widget with no aggregations to
-  // strip, folding the raw flag in unconditionally would churn the cacheKey (and force a spurious
-  // server round-trip) on every chart click / interactive-filter change for widgets that have
-  // nothing to gain from it — exactly the round-trip the architecture deliberately avoids by
-  // excluding cross-filters/interactive filters from the descriptor's `filter` tree in the first
-  // place.
-  // Like `hasIncomingCrossOrInteractiveFilters`, `hasRankFilters` only changes the request shape
-  // (raw rows vs. aggregated) when there is an aggregation to strip — folding it into the key
+  // `hasIncomingCrossOrInteractiveFilters` is folded into the key ONLY when there is a server-side
+  // aggregation to strip — that is the one case where the flag actually changes the request shape
+  // (aggregated vs. raw rows). For a widget with no aggregations to strip, folding the raw flag in
+  // unconditionally would churn the cacheKey (and force a spurious server round-trip) on every
+  // chart click / interactive-filter change for widgets that have nothing to gain from it — exactly
+  // the round-trip the architecture deliberately avoids by excluding cross-filters/interactive
+  // filters from the descriptor's `filter` tree in the first place. Like
+  // `hasIncomingCrossOrInteractiveFilters`, `hasRankFilters` only changes the request shape (raw
+  // rows vs. aggregated) when there is an aggregation to strip — folding it into the key
   // unconditionally would churn the cacheKey for a widget with nothing to gain.
   //
   // `relativeDateBounds` folds in what each relative-date filter value currently RESOLVES to

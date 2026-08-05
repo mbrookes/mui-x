@@ -3,11 +3,11 @@
  * boundary (`parseStateMutation.ts`), and the persistence load boundary
  * (`statePersistence.ts`).
  *
- * These three "trust boundary" files each independently defined byte-for-byte identical
- * copies of `isRecord`/`isPlainRecord`, `repairFilterDependsOn`, and the unsafe-own-key
- * strip (`stripUnsafeConfigKeys`/`stripUnsafeOwnKeys`) — finding 3.2. Consolidating them
- * here means the three boundaries can no longer silently drift apart (e.g. one gaining a
- * tolerance, or a bugfix, the others don't get).
+ * These three "trust boundary" files each independently defined byte-for-byte identical copies of
+ * `isRecord`/`isPlainRecord`, `repairFilterDependsOn`, and the unsafe-own-key strip
+ * (`stripUnsafeConfigKeys`/`stripUnsafeOwnKeys`). Consolidating them here means the three
+ * boundaries can no longer silently drift apart (e.g. one gaining a tolerance, or a bugfix, the
+ * others don't get).
  *
  * NOT exported from the package's public `index.ts` — these are implementation details of
  * the reducer/wire/load boundaries, not part of the package's public API. (`unsafeKeys.ts`

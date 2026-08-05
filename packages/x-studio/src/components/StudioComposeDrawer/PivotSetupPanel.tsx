@@ -25,8 +25,8 @@ import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import type { StudioWidgetConfigForKind } from '../../models';
 import { buildFieldCatalog, buildSourceFieldEntries } from '../../internals/fieldCatalog';
-// The SAME resolver the pivot widget itself applies, so panel and canvas can never disagree
-// about whether a stored `pivotAggregation` is one this build supports (M10).
+// The SAME resolver the pivot widget itself applies, so panel and canvas can never disagree about
+// whether a stored `pivotAggregation` is one this build supports.
 import { resolvePivotAggregation } from '../widgets/StudioPivotWidget/pivotUtils';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 
@@ -47,7 +47,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   // Narrow to the pivot config shape for reading pivot-specific keys.
   const config = (widget?.config ?? {}) as StudioWidgetConfigForKind<'pivot'>;
 
-  // M10: read the aggregation through the SAME allow-list the widget applies
+  // Read the aggregation through the SAME allow-list the widget applies
   // (`StudioPivotWidget` → `resolvePivotAggregation`), not a bare `?? 'sum'`. The key's VALUE
   // is never validated at the load/AI-tool boundary — only its name is — so an imported or
   // AI-authored `pivotAggregation: 'median'` reached the widget, resolved to `null` and

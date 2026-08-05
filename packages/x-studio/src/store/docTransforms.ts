@@ -554,19 +554,18 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
     }
     applied.push(rematerialized);
   }
-  // Identity preservation (M12), the bail every sibling in this file already has. This
-  // function ALWAYS rebuilt `{ ...doc, filters: [...] }`, and the fresh `createFilterId()`s
-  // above guarantee the new array is never reference-equal to the old one — so
-  // `commitDocPatch`'s reference-equality guard could never fire and a value-equal RE-apply
-  // committed a phantom undoable step that also wiped the redo stack. Re-applying the preset a
-  // page already shows is exactly what a user does when they click the chip they are already
-  // on. The compensation used to live in the UI (`StudioFiltersDrawer` gating the click on its
-  // own `filtersEquivalent` comparator); putting the bail here makes it hold for every caller,
-  // including hosts calling `controller.applyFilterPreset` directly.
-  // Pruned against the FINAL array: the apply drops the active page's page-scoped filters,
-  // and a RETAINED filter's `dependsOn` may name one of them. The preset's own
-  // filters are already remapped through `idMap` above, so this only ever touches the
-  // retained set.
+  // Identity preservation, the bail every sibling in this file already has. This function ALWAYS
+  // rebuilt `{ ...doc, filters: [...] }`, and the fresh `createFilterId()`s above guarantee the new
+  // array is never reference-equal to the old one — so `commitDocPatch`'s reference-equality guard
+  // could never fire and a value-equal RE-apply committed a phantom undoable step that also wiped
+  // the redo stack. Re-applying the preset a page already shows is exactly what a user does when
+  // they click the chip they are already on. The compensation used to live in the UI
+  // (`StudioFiltersDrawer` gating the click on its own `filtersEquivalent` comparator); putting the
+  // bail here makes it hold for every caller, including hosts calling
+  // `controller.applyFilterPreset` directly. Pruned against the FINAL array: the apply drops the
+  // active page's page-scoped filters, and a RETAINED filter's `dependsOn` may name one of them.
+  // The preset's own filters are already remapped through `idMap` above, so this only ever touches
+  // the retained set.
   const nextFilters = pruneDependsOnAgainstSelf([...retained, ...applied]);
   if (isSamePresetApplication(doc.filters, nextFilters)) {
     return doc;

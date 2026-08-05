@@ -14,12 +14,12 @@ import type { FocusedItemIdentifier } from '@mui/x-charts/models';
  *    provided one (they hand-roll a `role="img"` wrapper because they are not driven by the
  *    shared chart container); the remaining families shipped with no accessible name at all, so
  *    a screen reader announced nothing but axis tick text — and split-by series / pie slices
- *    were distinguished by hue alone (WCAG 1.1.1 / 4.1.2, finding M10).
+ *    were distinguished by hue alone (WCAG 1.1.1 / 4.1.2).
  *
  * 2. **Keyboard activation.** Cross-filtering was wired exclusively to `onAxisClick` /
  *    `onItemClick`. x-charts ships keyboard navigation that moves a focus ring between data
  *    items, but it never synthesises a click, so Enter / Space did nothing and the primary way
- *    to drive a dashboard was unavailable to keyboard users (WCAG 2.1.1, finding M10).
+ *    to drive a dashboard was unavailable to keyboard users (WCAG 2.1.1).
  *    {@link CHART_KEYBOARD_NAV_PROPS} turns that navigation on (it is opt-in — x-charts
  *    defaults `disableKeyboardNavigation` to `true`) and
  *    {@link chartKeyboardActivationProps} maps Enter / Space on the focused item to the very

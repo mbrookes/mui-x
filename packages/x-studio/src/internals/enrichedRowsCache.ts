@@ -27,7 +27,7 @@ type Row = Record<string, unknown>;
 // Each entry tracks only ITS OWN dependencies:
 //   rows            the rows array at cache time (== outer key; kept for clarity)
 //   fieldRefs       the specific StudioExpressionField objects for this source
-//   joinedSourceDeps  for each JoinFieldExpression: the joined source's rows AND fields refs
+// joinedSourceDeps for each JoinFieldExpression: the joined source's rows AND fields refs
 //   relRefs         the specific StudioRelationship objects where sourceId === X
 //
 // This means changing customers data (or a customers expression field, or an

@@ -158,7 +158,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
         // blocks below already use, for symmetry with how `resources/list` treats the same
         // values.
         //
-        // Finding M7: sanitizing alone left both halves UNBOUNDED — `requestedId` is
+        // Sanitizing alone left both halves UNBOUNDED — `requestedId` is
         // client-supplied prompt-argument text, and the catalogue echo grows with the
         // number of configured sources (400 sources ⇒ a 400-id error message, on every
         // miss). Cap each id via `safeIdentifier` (the shared sanitize-and-cap choke

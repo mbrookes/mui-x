@@ -32,12 +32,11 @@ import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 import { useBufferedInput } from './useBufferedInput';
 
 /**
- * Slider min/max/step numeric input (architecture review finding 2.3): parsing and
- * committing `controller.updateWidgetConfig` on every keystroke made each digit an
- * undoable commit plus a mutation-log line plus a full pipeline recompute, and made
- * an in-progress value (e.g. a bare "-") impossible to type. Buffer the displayed
- * text locally and only parse/commit on blur/Enter, mirroring
- * `GaugeConfigSection.tsx`'s min/max inputs.
+ * Slider min/max/step numeric input: parsing and committing `controller.updateWidgetConfig` on
+ * every keystroke made each digit an undoable commit plus a mutation-log line plus a full pipeline
+ * recompute, and made an in-progress value (e.g. a bare "-") impossible to type. Buffer the
+ * displayed text locally and only parse/commit on blur/Enter, mirroring `GaugeConfigSection.tsx`'s
+ * min/max inputs.
  */
 function SliderBoundInput(props: {
   widgetId: string;
@@ -55,8 +54,8 @@ function SliderBoundInput(props: {
 }) {
   const { widgetId, value, label, error, onCommit } = props;
   const initialText = value !== undefined ? String(value) : '';
-  // Shared dirty-aware buffer (M15), keyed per widget AND per bound so re-pointing at a
-  // different widget/bound holding the same number still discards an uncommitted edit.
+  // Shared dirty-aware buffer, keyed per widget AND per bound so re-pointing at a different
+  // widget/bound holding the same number still discards an uncommitted edit.
   const {
     value: text,
     dirty,
@@ -195,7 +194,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
   // (slider supports both numeric and temporal — filtered via getOptionDisabled)
   const fieldCapability = filterType === 'date-range' ? 'temporal' : undefined;
 
-  // Finding 8: the picker is fed the FULL field catalog (physical + expression fields)
+  // The picker is fed the FULL field catalog (physical + expression fields)
   // rather than the raw `dataSources` record. `DataSourceFieldSelect`'s `dataSources`
   // branch folds `src.fields` only, so a calculated field could never be chosen as a
   // filter-widget field — with nothing in the UI explaining the absence — even though
@@ -271,7 +270,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     const configUpdate: Partial<StudioWidgetConfig> = {
       filterWidgetField: newFieldId,
       filterWidgetSourceId: newSourceId !== widget.sourceId ? newSourceId : undefined,
-      // Finding 7 (architecture review): a slider's explicit min/max/step are scoped to the
+      // A slider's explicit min/max/step are scoped to the
       // PREVIOUS field's value range — re-pointing the filter at a different field (e.g. a
       // 0-1000 price slider re-pointed at a 0-1 rate field) otherwise keeps the stale bounds,
       // rendering a useless slider (the new field's whole value range collapses to a sliver of
@@ -344,7 +343,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
       {/* Combined data source + field picker */}
       <DataSourceFieldSelect
         value={fieldId}
-        // Finding 7: the panel already stores which source the configured field belongs to
+        // The panel already stores which source the configured field belongs to
         // (`config.filterWidgetSourceId`, read by `handleTypeChange` above), so hand it to the
         // picker. Without it the picker resolves the stored id by a bare-id lookup across every
         // source and can display a same-id field from a DIFFERENT source (wrong label, group,

@@ -26,7 +26,7 @@ export function SelectionFilterInput({
   selected: string[];
   onChange: (v: string[]) => void;
   /**
-   * L17: whether the stored `operator` is `not_in` — i.e. the checked values are EXCLUDED.
+   * Whether the stored `operator` is `not_in` — i.e. the checked values are EXCLUDED.
    *
    * This editor used to render a plain checkbox list that never read or wrote `operator`,
    * while `summarizeFilter` branches on `not_in` and `compileRowTest` excludes on it. A
@@ -49,7 +49,7 @@ export function SelectionFilterInput({
   const localeText = useStudioLocaleText();
   const [search, setSearch] = React.useState('');
   const filtered = values.filter((v) => v.toLowerCase().includes(search.toLowerCase()));
-  // Finding 2.15: `useFieldValues` caps distinct values at `FIELD_VALUES_CAP`. A length equal
+  // `useFieldValues` caps distinct values at `FIELD_VALUES_CAP`. A length equal
   // to the cap means the field is high-cardinality and the list is truncated — nudge the user
   // to type in the search box to narrow it, since the truncated tail isn't shown otherwise.
   const isCapped = values.length >= FIELD_VALUES_CAP;
@@ -90,7 +90,7 @@ export function SelectionFilterInput({
         value={search}
         onChange={(event) => setSearch(event.target.value)}
         slotProps={{
-          // M20: a placeholder is only a last-resort accessible-name source — name the input
+          // A placeholder is only a last-resort accessible-name source — name the input
           // explicitly, the same way `MultiSelectControl`'s identical search box does.
           htmlInput: { 'aria-label': localeText.filterSearchValues },
           input: {
@@ -180,7 +180,7 @@ export function SelectionFilterInput({
           </React.Fragment>
         )}
       </Box>
-      {/* L17: surface the include/exclude sense of the checked values. Without it a `not_in`
+      {/* Surface the include/exclude sense of the checked values. Without it a `not_in`
           filter is indistinguishable from an `in` one in this editor, while the card's own
           summary and the pipeline both treat it as an exclusion. Rendered whenever the caller
           can write `operator` back; `MultiSelectControl` uses the same two labels. */}

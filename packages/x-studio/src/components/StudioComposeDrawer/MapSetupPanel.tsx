@@ -174,7 +174,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     [dataSources, expressionFields],
   );
 
-  // Finding 3 (architecture review): both `allStringFields`/`numericFields` previously spanned
+  // Both `allStringFields`/`numericFields` previously spanned
   // EVERY visible source with no reachability filter at all — picking a field from a source with
   // no resolvable relationship to the widget's anchor commits fine but can never be enriched
   // onto the widget's rows (`useWidgetRows`' cross-source join needs a declared relationship —
@@ -190,7 +190,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
     [widget?.sourceId, relationships],
   );
   // Disables a candidate OPTION in the dropdown — exempts the field currently stored for
-  // THIS picker (by id AND sourceId, not id alone — finding 6's lesson applies here too) so
+  // THIS picker (by id AND sourceId, not id alone — the same lesson applies here too) so
   // an already-selected (even if unreachable) value is never itself disabled/hidden.
   const makeGetOptionDisabled = React.useCallback(
     (currentFieldId: string | undefined, currentSourceId: string | undefined) =>
@@ -231,14 +231,14 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   }
 
   /**
-   * Adopt `sourceId` as the map's primary source and write `changes` in the SAME commit, so
-   * the whole gesture is one undo step. Shared by BOTH field pickers: `createDefaultWidget`
-   * never sets `sourceId`, so a map starts source-less and `useWidgetRows` returns no rows
-   * until a pick establishes one. The country picker did this from the start; the value
-   * picker did NOT (H3) — a "measure-first" configuration (add a Map → pick a Value field)
-   * wrote `mapValueField` and a bogus `mapValueSourceId` (bogus because `widget.sourceId` was
-   * `undefined`, so the "is it foreign?" test compared against nothing) and left the widget
-   * permanently blank, with the aggregation Select unlocking to "Sum" and no warning anywhere.
+   * Adopt `sourceId` as the map's primary source and write `changes` in the SAME commit, so the
+   * whole gesture is one undo step. Shared by BOTH field pickers: `createDefaultWidget` never sets
+   * `sourceId`, so a map starts source-less and `useWidgetRows` returns no rows until a pick
+   * establishes one. The country picker did this from the start; the value picker did NOT — a
+   * "measure-first" configuration (add a Map → pick a Value field) wrote `mapValueField` and a
+   * bogus `mapValueSourceId` (bogus because `widget.sourceId` was `undefined`, so the "is it
+   * foreign?" test compared against nothing) and left the widget permanently blank, with the
+   * aggregation Select unlocking to "Sum" and no warning anywhere.
    *
    * The removal of any widget-scoped filter that no longer resolves against the adopted
    * source rides along: a filter added to this source-less map keeps matching by

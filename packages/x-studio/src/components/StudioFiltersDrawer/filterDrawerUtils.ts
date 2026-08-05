@@ -67,9 +67,8 @@ export function getOperators(
 /**
  * Build a flat list of field options across all sources, annotated with source and type info.
  *
- * Thin adapter over the shared `buildFieldCatalog` (see `internals/fieldCatalog.ts`, finding
- * 2.4) — no expression fields, default (skip-hidden) visibility, same `FieldOption` shape as
- * before.
+ * Thin adapter over the shared `buildFieldCatalog` (see `internals/fieldCatalog.ts`) — no
+ * expression fields, default (skip-hidden) visibility, same `FieldOption` shape as before.
  */
 export function buildFieldOptions(dataSources: Record<string, StudioDataSource>): FieldOption[] {
   return buildFieldCatalog(dataSources, [], { expression: 'none', sort: false }).map((entry) => ({
@@ -149,7 +148,7 @@ const RELATIVE_DATE_UNITS: ReadonlySet<string> = new Set<RelativeDateValue['unit
  * True only for a COMPLETE, scalar `RelativeDateValue` (`{ relative: true, amount, unit,
  * direction }`).
  *
- * M9: the predicate used to check `.relative === true` and nothing else, so a `between` value
+ * The predicate used to check `.relative === true` and nothing else, so a `between` value
  * built on top of a relative date — `{ relative: true, amount: 3, unit: 'month', direction:
  * 'past', from: '2024-01-01' }`, which `FilterValueInput`'s between editor could produce by
  * spreading the previous relative value as its `{ from, to }` base — answered `true`. Every
@@ -202,7 +201,7 @@ export function isBetweenShapedValue(value: unknown): boolean {
  * True when switching from `previousOperator` to `nextOperator` crosses the `between` ↔ scalar
  * value-shape boundary and therefore has to reset the value.
  *
- * M8: the reset used to run in ONE direction only — leaving `between` cleared the stranded
+ * The reset used to run in ONE direction only — leaving `between` cleared the stranded
  * `{ from, to }` object, but entering `between` left a scalar in place. `revenue = 500` switched
  * to "Between" rendered two EMPTY bound inputs while `filter.value` was still `500`, so the card
  * read as a half-authored range that the user had in fact never cleared, and the first bound they
@@ -492,14 +491,14 @@ export function defaultValueForMode(mode: FilterMode): StudioFilterState['value'
  * or an `UnresolvedFieldAlert` repoint that drops the row back to its picker. Merge it into the
  * `field`/`fieldType`/`filterSourceId` delta the caller is already committing.
  *
- * M7: a field switch must clear ALL FIVE condition keys together — `operator`, `value`,
+ * A field switch must clear ALL FIVE condition keys together — `operator`, `value`,
  * `operator2`, `value2`, `conjunction`. The drawer rows used to rewrite only `value`/`operator`
  * (phase-1) or nothing at all (repoint), so a second condition authored against the OLD field
  * survived the switch. A string filter reading `contains "north" AND ends_with "ia"` repointed
  * onto numeric `revenue` kept `value2: "ia"`; the operator self-repair then rewrote `contains` →
  * `equals` non-undoably, and the widget silently ANDed `revenue ends_with "ia"`, matching nothing
  * — an empty widget with no second-condition UI on screen to explain or remove it.
- * `StudioWidgetEditDialog/FilterRow` has cleared all five since finding 2.10; this is the same
+ * `StudioWidgetEditDialog/FilterRow` has cleared all five all along; this is the same
  * reset, shared so the two surfaces cannot drift again.
  */
 export function buildFieldRepointReset(mode: FilterMode = 'condition'): Partial<StudioFilterState> {

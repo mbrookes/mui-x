@@ -43,7 +43,7 @@ export function ColorSwatch({
   identity: string;
   size?: number;
 }) {
-  // Finding 2.9: a native `<input type="color">`'s React `onChange` (mapped to the
+  // A native `<input type="color">`'s React `onChange` (mapped to the
   // native `input` event) fires continuously while the user drags around the OS color
   // wheel — wiring it straight to `onChange`/`controller.updateWidgetConfig` committed
   // dozens of undoable steps for a single picker drag. Buffer the live drag value
@@ -53,7 +53,7 @@ export function ColorSwatch({
   // not expose a distinct prop for the native `change` event on this element, so the
   // final-value listener is attached directly via a ref.
   //
-  // M14: this used to be a hand-rolled `useState` + `useEffect(() => setDraft(value), [value])`
+  // This used to be a hand-rolled `useState` + `useEffect(() => setDraft(value), [value])`
   // — precisely the naive resync `useBufferedInput` exists to replace. It was not
   // dirty-aware, so an AI `update_widget` (the compose drawer and the chat panel are usable
   // at the same time) or an undo landing mid-drag silently threw the picker's in-flight

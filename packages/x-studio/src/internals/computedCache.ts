@@ -14,11 +14,10 @@ import { getLruEntry, getOrCreateBucket, setLruEntry } from './rowCacheLru';
  * chart/KPI config edit while the rows array stays alive, and each entry pins a full
  * computed result (series arrays, sparkline data) for the lifetime of those rows.
  *
- * Usage: instead of computing an aggregation unconditionally on every React
- * component mount, wrap the computation with cachedCompute.  If the same Row[]
- * reference comes back from resolvedRowsCache (meaning the data and filters
- * haven't changed), the cached value is returned in O(1) — avoiding O(N)
- * aggregation work on every page switch.
+ * Usage: instead of computing an aggregation unconditionally on every React component mount, wrap
+ * the computation with cachedCompute. If the same Row[] reference comes back from resolvedRowsCache
+ * (meaning the data and filters haven't changed), the cached value is returned in O(1) — avoiding
+ * O(N) aggregation work on every page switch.
  */
 
 type Row = Record<string, unknown>;
@@ -54,10 +53,9 @@ export const MAX_COMPUTED_ENTRIES_PER_ROWS = 64;
  * `rows` must be a Row[] (not null/undefined) — use an early-return guard before
  * calling this when the rows array may be empty or absent.
  *
- * `key` must capture every parameter that affects the computation result
- * (field names, aggregation mode, rank filter, etc.) but MUST NOT include
- * anything that changes on every React render (e.g. inline functions or new
- * object literals).  Primitive values joined into a string are ideal.
+ * `key` must capture every parameter that affects the computation result (field names, aggregation
+ * mode, rank filter, etc.) but MUST NOT include anything that changes on every React render (e.g.
+ * inline functions or new object literals). Primitive values joined into a string are ideal.
  */
 export function cachedCompute<T>(rows: Row[], key: string, compute: () => T): T {
   const byKey = getOrCreateBucket(cacheStore, rows);

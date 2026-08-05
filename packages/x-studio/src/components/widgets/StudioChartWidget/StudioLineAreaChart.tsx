@@ -109,7 +109,7 @@ export interface StudioLineAreaChartProps {
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
   /**
    * Accessible name for the chart graphic — forwarded to the `LineChart`'s `title` prop, which
-   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2).
    */
   ariaTitle?: string;
   /** Spread onto the underlying LineChart. */

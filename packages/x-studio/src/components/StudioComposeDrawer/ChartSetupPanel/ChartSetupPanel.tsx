@@ -156,7 +156,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       : undefined) ??
     dimensionFields.find((f) => f.id === config.xField) ??
     null;
-  // Finding 4 (gantt): gantt hides the X-field picker entirely (`config.xField` is never
+  // Gantt hides the X-field picker entirely (`config.xField` is never
   // set — see `!isGauge && !isGantt` below), so `selectedXField` never resolves and
   // `supportSourceId` stayed `undefined` forever, even after the widget's OWN source was
   // already established by an earlier gantt field pick (`GanttFieldsSection`'s `commitField`
@@ -208,13 +208,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     [reachableDimensionFields],
   );
 
-  // Heatmap Y axis: any field type, but restricted to the primary source so that
-  // aggregateHeatmap() can resolve values directly from the row objects. With no primary
-  // source yet the restriction would match NOTHING (`f.sourceId === undefined` is never
-  // true), leaving this required picker empty on a brand-new heatmap — offer the whole
-  // catalog instead, exactly as the X-field picker does, since the pick establishes the
-  // source it is then restricted to (H3). Drawn from `dimensionFields`: the heatmap row axis
-  // buckets rows by a per-row value, which a measure does not have.
+  // Heatmap Y axis: any field type, but restricted to the primary source so that aggregateHeatmap()
+  // can resolve values directly from the row objects. With no primary source yet the restriction
+  // would match NOTHING (`f.sourceId === undefined` is never true), leaving this required picker
+  // empty on a brand-new heatmap — offer the whole catalog instead, exactly as the X-field picker
+  // does, since the pick establishes the source it is then restricted to. Drawn from
+  // `dimensionFields`: the heatmap row axis buckets rows by a per-row value, which a measure does
+  // not have.
   const heatYFields = React.useMemo(
     () =>
       widgetSourceId
@@ -250,7 +250,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     });
   }, [ySeries]);
 
-  // finding 2.9: blended mixed charts carry foreign-source series
+  // Blended mixed charts carry foreign-source series
   // (`StudioChartSeries.sourceId`). The renderer resolves those separately
   // (`useChartWidgetData.ts` `activeYFields`) and validates only native-source fields
   // against the widget's own source. The panel must validate the SAME field set —
@@ -383,7 +383,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       scatterSizeField?: string | undefined;
       extraFields?: (string | undefined)[];
     }) =>
-      // H4: every optional-string override MUST be merged with a KEY-PRESENCE check, not
+      // Every optional-string override MUST be merged with a KEY-PRESENCE check, not
       // `??`. These overrides are all `string | undefined`, so `??` collapses "explicitly
       // cleared" into "not supplied" and silently re-injects the current config value —
       // defeating the one thing the caller asked for. The X-field picker's unrelated-source
@@ -444,7 +444,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   const staleFilterIdsFor = (sourceId: string) =>
     collectStaleWidgetFilterIds(allFilters, widgetId, sourceId, allFields, relationships);
 
-  // H3: the single commit path for every NON-anchor field pick in this panel and its
+  // The single commit path for every NON-anchor field pick in this panel and its
   // per-type sections (Y measure, split-by, and the scatter / funnel / heatmap / sankey
   // sections' own pickers, which receive it as a required prop).
   //
@@ -488,13 +488,13 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   };
 
   const handleSeriesFieldChange = (index: number, fieldId: string, sourceId: string) => {
-    // finding 2.9: set/clear the series' `sourceId` from the PICKED field's source rather
+    // Set/clear the series' `sourceId` from the PICKED field's source rather
     // than preserving a stale foreign one. An own-source pick clears `sourceId` (native
     // series); a foreign-source pick stamps it (blended series). Preserving the previous
     // foreign `sourceId` after re-pointing at an own-source field made the renderer
     // aggregate the new field against the OLD source's rows → a silent all-zero series.
     //
-    // Architecture review finding 2: `StudioChartSeries.sourceId` is documented
+    // `StudioChartSeries.sourceId` is documented
     // (widgetTypes.ts) and implemented (`useBlendedSeriesRows.ts`'s `isBlended` gate) as
     // ONLY honoured when `chartType === 'mixed'` — that's the one family that independently
     // aggregates a foreign series in its own source and outer-joins it onto the shared x-axis.
@@ -507,7 +507,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     // checks. Restrict the stamp to `mixed` so a non-mixed pick commits the same sourceId-less
     // shape the empty-list Y picker below already uses for the identical gesture.
     //
-    // H3: `widgetSourceId &&` is load-bearing on a source-LESS widget. There the pick adopts
+    // `widgetSourceId &&` is load-bearing on a source-LESS widget. There the pick adopts
     // the field's source (see `commitFieldConfig`), so the series becomes native and stamping
     // it would immediately make it foreign to the source it just established — excluding it
     // from `nativeYFieldIds` and writing `yField: ''`.
@@ -707,7 +707,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           {/* X field */}
           <DataSourceFieldSelect
             value={config.xField ?? ''}
-            // Finding 5: `widgetSourceId` is the natural disambiguator already in scope here
+            // `widgetSourceId` is the natural disambiguator already in scope here
             // (mirrors `selectedXField`'s own own-source-first resolution above) — passing it
             // stops a same-id field from a different, merely-reachable source from being
             // silently displayed as the current X field.
@@ -755,7 +755,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
             // a measure has none of.
             fields={isScatter ? fieldsForCapability(dimensionFields, 'numeric') : dimensionFields}
             getOptionDisabled={(option) => {
-              // Finding 6: exempt the CURRENT selection from validation by id AND sourceId, not
+              // Exempt the CURRENT selection from validation by id AND sourceId, not
               // id alone — an id-only check lets an invalid unrelated-source candidate that
               // merely shares the current X field's id (e.g. two sources both having an `id`
               // field) slip through as "always enabled" regardless of its own validity.
@@ -771,7 +771,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               // validated alone; the post-adoption Y/split-by validity surfaces via the
               // panel's support warning, where the user re-points those fields.
               //
-              // H4: EVERY other field must be explicitly cleared here, `scatterColorField`
+              // EVERY other field must be explicitly cleared here, `scatterColorField`
               // and `scatterSizeField` included — any one of them left anchored on the old
               // source reports `field_not_found_or_not_direct` and disables the candidate,
               // which is exactly the adoption path this branch exists to keep open.
@@ -795,7 +795,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
           />
 
           {/* Group by — shown only when x field is a date/datetime type. Excluded for
-              funnel and scatter (iteration 20 finding 2): neither `buildFunnelStages`
+              funnel and scatter: neither `buildFunnelStages`
               nor `prepareScatterData`/`prepareScatterDataGrouped` take an `xGroupBy`
               argument, so a write here would render with no effect while
               `FUNNEL_CHART_KEYS`/`SCATTER_CHART_KEYS` correctly omit the key — adding
@@ -969,7 +969,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                     <Stack direction="row" spacing={0.5} sx={{ alignItems: 'flex-start' }}>
                       <DataSourceFieldSelect
                         value={s.fieldId ?? ''}
-                        // Finding 5: a blended series already carries its own `sourceId` (falling
+                        // A blended series already carries its own `sourceId` (falling
                         // back to the widget's own source for a native series) — a natural,
                         // already-in-scope disambiguator, so thread it through the same way
                         // `fieldOwners`/`nativeYFieldIds` above already key off it.
@@ -1056,7 +1056,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                       // (sum, or count for non-numeric fields — handled by aggregateByField),
                       // so drop the fieldless-count lock. See BL-186.
                       //
-                      // H3: this is the picker a "measure-first" gesture reaches first on a
+                      // This is the picker a "measure-first" gesture reaches first on a
                       // brand-new chart, so it must adopt the picked field's source — it used
                       // not even to destructure `sourceId`, leaving the widget source-less and
                       // permanently blank.
@@ -1168,7 +1168,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         <GanttFieldsSection
           widgetId={widgetId}
           config={chartConfig}
-          // Finding 4: pass the reachability-filtered catalog (now correctly anchored on
+          // Pass the reachability-filtered catalog (now correctly anchored on
           // the widget's own source for gantt — see `supportSourceId` above), not the raw,
           // unrestricted `allFields` — the label-field picker was the one gantt picker that
           // bypassed the reachable-source filter entirely, offering every field from every
@@ -1192,7 +1192,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
       )}
 
       {/* Annotations — reference lines (not for pie/donut/gauge/gantt/sankey/heatmap/funnel).
-          Funnel excluded per iteration 20 finding 1: `StudioFunnelChart` has no reference-line
+          Funnel excluded because `StudioFunnelChart` has no reference-line
           rendering support at all (unlike bar/line-area/mixed/scatter, the families the section
           above is actually shared by — see `AnnotationsEditorSection`'s own config-prop comment),
           so a write here was silently stripped by `FUNNEL_CHART_KEYS` omitting `annotations` with

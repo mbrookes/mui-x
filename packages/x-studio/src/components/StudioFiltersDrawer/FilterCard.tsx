@@ -33,7 +33,7 @@ interface FilterCardProps {
   disabled?: boolean;
   /**
    * When provided, renders a switch in the card header that enables / disables the filter.
-   * H4: before this, the ONLY toggle in the product was the quick-filter chip, which renders
+   * Before this, the ONLY toggle in the product was the quick-filter chip, which renders
    * in view mode only — so a filter disabled from view mode was, in edit mode, an ordinary
    * looking card counted as active with no way to turn it back on and nothing on screen
    * explaining why its widget showed unfiltered data.

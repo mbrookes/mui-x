@@ -22,7 +22,7 @@ export default function FieldPreviewTooltip({
   };
   rows?: Record<string, unknown>[];
   /**
-   * H1: true when the owning source is adapter-backed and its rows have not been delivered yet
+   * True when the owning source is adapter-backed and its rows have not been delivered yet
    * (`isAwaitingDataSourceRows`). `rows` is then `undefined` for the same reason it is
    * `undefined` for a source that genuinely has none, and dropping the tooltip in both cases
    * renders "not measured yet" as "nothing to show". When set, the tooltip still renders — with

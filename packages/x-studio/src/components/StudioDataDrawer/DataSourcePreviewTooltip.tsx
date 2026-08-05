@@ -42,7 +42,7 @@ export default function DataSourcePreviewTooltip({
   }, [onOpenPreview, source.id]);
 
   const rows = source.rows;
-  // H1: `rows === undefined` is "never delivered", not "delivered and empty" — an adapter-backed
+  // `rows === undefined` is "never delivered", not "delivered and empty" — an adapter-backed
   // source resolves rows per-widget into `studioRequestCache` and only the host's imperative
   // `setDataSourceRows` ever writes them onto the source. Dropping the whole tooltip in that case
   // also removed the ONLY keyboard route to "View source data" (`StudioDataDrawer` gates its
@@ -188,7 +188,7 @@ export default function DataSourcePreviewTooltip({
     </Stack>
   );
 
-  // M11: the "View source" button lives INSIDE the tooltip, and with a single data source the
+  // The "View source" button lives INSIDE the tooltip, and with a single data source the
   // preview dialog has no other entry point ("View lineage" in `StudioDataDrawer` is gated on
   // `sourceList.length >= 2`), so the whole feature used to be mouse-only: the tooltip was
   // portaled to the end of `<body>` (so Tab from the trigger never reached the button) and

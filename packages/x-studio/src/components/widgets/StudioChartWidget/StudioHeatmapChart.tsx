@@ -49,7 +49,7 @@ interface StudioHeatmapChartProps {
   legendPosition: NonNullable<StudioChartConfig['heatLegendPosition']>;
   legendAlign: NonNullable<StudioChartConfig['heatLegendAlign']>;
   /**
-   * Accessible name for the chart graphic (WCAG 1.1.1 / 4.1.2, finding M10).
+   * Accessible name for the chart graphic (WCAG 1.1.1 / 4.1.2).
    *
    * Unlike every sibling family, `HeatmapPremium` does NOT thread `title`/`desc` through to its
    * `ChartsLayerContainer` — it renders `<ChartsLayerContainer>` with no props — so passing

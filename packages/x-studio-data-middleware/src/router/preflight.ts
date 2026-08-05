@@ -4,10 +4,8 @@
  * Runs a low-cost COUNT(*) query with the full security + user filter predicates
  * applied. This determines which routing tier to use for the actual query.
  *
- * Expected timings (SQLite WAL, covering indexes):
- *   10k rows tenant slice: ~0.1–0.3ms
- *   100k rows tenant slice: ~0.2–0.5ms
- *   1M rows tenant slice:  ~0.5–1ms
+ * Expected timings (SQLite WAL, covering indexes): 10k rows tenant slice: ~0.1–0.3ms 100k rows
+ * tenant slice: ~0.2–0.5ms 1M rows tenant slice: ~0.5–1ms
  *
  * This is consistently 5–20× faster than the full aggregation query, making
  * it a safe pre-flight check even for the smallest tier.
@@ -57,13 +55,11 @@ export async function runPreflight(
   plan?: ValidatedQueryPlan,
   queryTimeoutMs: number = DEFAULT_QUERY_TIMEOUT_MS,
 ): Promise<PreflightResult> {
-  // JOIN ROW-MULTIPLICATION (Tier3, iter24 finding, evaluated/not fixed) — for a
-  // descriptor with a 1:many `join` (e.g. one `sales` row matching several
-  // `orders` rows), `COUNT(*)` here counts the JOINED, possibly row-multiplied
-  // result, not distinct primary-table rows. That can mis-route the tier
-  // decision (`tierFromRowCount` in `tierDecision.ts`) — e.g. tripping the
-  // `serverMemoryTier` threshold on join fan-out alone, when the actual primary
-  // rows in play are far fewer.
+  // JOIN ROW-MULTIPLICATION (iter24 finding, evaluated/not fixed) — for a descriptor with a 1:many
+  // `join` (e.g. one `sales` row matching several `orders` rows), `COUNT(*)` here counts the
+  // JOINED, possibly row-multiplied result, not distinct primary-table rows. That can mis-route the
+  // tier decision (`tierFromRowCount` in `tierDecision.ts`) — e.g. tripping the `serverMemoryTier`
+  // threshold on join fan-out alone, when the actual primary rows in play are far fewer.
   //
   // This is ROUTING/PERF ONLY, never a correctness bug: whichever tier gets
   // picked, `execute.ts` still applies the same security predicates, user

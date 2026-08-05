@@ -115,7 +115,7 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
         }
         const svgString = renderChartSvg(chartInput);
         const base64 = Buffer.from(svgString).toString('base64');
-        // Finding M6: the raw SVG used to be returned ALONGSIDE the base64 image
+        // The raw SVG used to be returned ALONGSIDE the base64 image
         // unconditionally, so every render entered the model context twice — for a
         // chart at the input caps (1000 points × 200-char labels, one `<text>` per
         // point) that is ~800 KB per call, none of it useful to a model that already
@@ -156,7 +156,7 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
         // it is bounded: the unknown-type message interpolates
         // `input.type`, capped and sanitized at the renderer's own choke point.
         //
-        // Finding M2: it now routes through `redactedHostErrorResult` like every other
+        // It now routes through `redactedHostErrorResult` like every other
         // relay site in the package instead of relaying `err.message` unconditionally.
         // This was the ONE site that never consulted `isPackageAuthoredError`, so it
         // assumed every throw reaching it was package-authored — an assumption nothing

@@ -17,8 +17,8 @@ import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/ge
 /**
  * Props for `StudioDashboard` — the embed-first entry point to Studio.
  *
- * Use `StudioDashboard` when you want to display a pre-built dashboard with live data
- * but don't need the full authoring UI.  For building and editing dashboards, use `Studio`.
+ * Use `StudioDashboard` when you want to display a pre-built dashboard with live data but don't
+ * need the full authoring UI. For building and editing dashboards, use `Studio`.
  *
  * @example
  * ```tsx
@@ -293,7 +293,7 @@ export const StudioDashboard = React.memo(function StudioDashboard({
   // Tracks the set of source ids registered on the previous run so a key removed from
   // `dataAdapters` gets its adapter cleared. The effect previously iterated only the NEW
   // map, so a removed key kept its previously-registered adapter forever — its last fetched rows
-  // would then keep shadowing freshly-resolved in-memory rows (this is what makes finding 2.2
+  // would then keep shadowing freshly-resolved in-memory rows (this is what makes
   // reachable, addressed together here).
   const prevAdapterSourceIdsRef = React.useRef<Set<string>>(new Set());
   React.useEffect(() => {

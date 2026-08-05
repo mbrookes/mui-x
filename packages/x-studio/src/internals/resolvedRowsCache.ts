@@ -31,8 +31,8 @@ type Row = Record<string, unknown>;
 //   direction, field type, or target source produces a different key → cache miss.
 //   Two widgets sharing the same effective filters get the same key → cache hit.
 //
-// Per-entry deps (checked on every hit):
-//   crossFilterSourceDeps  rows AND fields refs of EVERY foreign source this entry
+// Per-entry deps (checked on every hit): crossFilterSourceDeps rows AND fields refs of EVERY
+// foreign source this entry
 //                          joined against — declared cross-filter sources, derived
 //                          cross-filter sources (a page filter on an expression
 //                          field owned by another source), and many-to-many

@@ -58,8 +58,7 @@ export interface GenerateInsightOptions {
 
 /**
  * Max length of the client-supplied free text these handlers send to the LLM
- * (`handleGenerateTitle`'s `firstMessage`, `handleCreateWidget`'s `description`) —
- * finding H1h.
+ * (`handleGenerateTitle`'s `firstMessage`, `handleCreateWidget`'s `description`).
  *
  * Both are public, client-facing entry points with none of `handleAIChat`'s request
  * caps: the sibling `sources` array in the same request got a full
@@ -128,7 +127,7 @@ export async function readChatCompletionBody(
       // A template string, not `new Error(asString(err))`: the error minifier only accepts
       // literal/template messages, and a bare variable argument is unminifyable.
       //
-      // `asString`, not the raw `String` global (same hazard as finding F7 in
+      // `asString`, not the raw `String` global (the same hazard as in
       // `handleAIChat.ts`): `String(x)` is not total — `String({ toString: 1 })` throws
       // `TypeError: Cannot convert object to primitive value`. This runs in a catch over
       // an arbitrary rejection, so it must not be able to throw a second, worse error out
@@ -197,7 +196,7 @@ export async function handleGenerateTitle(
 ): Promise<{ title: string; description: string }> {
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders, maxTokens = 100 } = options;
 
-  // Finding H1h — cap the client-supplied message BEFORE it becomes LLM input. All
+  // Cap the client-supplied message BEFORE it becomes LLM input. All
   // downstream uses (including the `firstMessage.slice(0, 40)` fallbacks) read this
   // capped value.
   const cappedFirstMessage = capText(firstMessage, MAX_INSIGHT_TEXT_CHARS);
@@ -239,7 +238,7 @@ export async function handleGenerateTitle(
         LLM_FETCH_TIMEOUT_MS,
         'MUI X Studio: Title generation request',
       );
-      // Finding F6 — `clearTimer()` here, `dispose()` in the outer `finally` below.
+      // `clearTimer()` here, `dispose()` in the outer `finally` below.
       // `dispose()` clears the deadline timer AND unsubscribes from `options.signal`
       // (`internal/llmFetch.ts`), and this block runs the moment the fetch RESOLVES — so
       // disposing here disconnected the caller's own signal from headers-received onward
@@ -252,7 +251,7 @@ export async function handleGenerateTitle(
     }
 
     if (!response.ok) {
-      // Finding H4 — status only, never the provider's body (see `reportProviderHttpError`).
+      // Status only, never the provider's body (see `reportProviderHttpError`).
       // This handler already relayed status-only; the report adds a correlation id and
       // routes the body to `onError` so an operator can still diagnose it.
       const errText = await readBodyWithTimeout(
@@ -457,7 +456,7 @@ export async function handleCreateWidget(
   request: CreateWidgetRequest,
   options: GenerateInsightOptions,
 ): Promise<CreateWidgetResponse> {
-  // Finding H1h — cap the client-supplied description BEFORE it becomes LLM input.
+  // Cap the client-supplied description BEFORE it becomes LLM input.
   // The sibling `sources` array in this same request already had a full
   // `capCreateWidgetSources` treatment; this string did not.
   const description = capText(request?.description, MAX_INSIGHT_TEXT_CHARS);
@@ -533,7 +532,7 @@ export async function handleCreateWidget(
         LLM_FETCH_TIMEOUT_MS,
         'MUI X Studio: Widget creation request',
       );
-      // Finding F6 — `clearTimer()` here, `dispose()` in the outer `finally` below.
+      // `clearTimer()` here, `dispose()` in the outer `finally` below.
       // `dispose()` clears the deadline timer AND unsubscribes from `options.signal`
       // (`internal/llmFetch.ts`), and this block runs the moment the fetch RESOLVES — so
       // disposing here disconnected the caller's own signal from headers-received onward
@@ -546,7 +545,7 @@ export async function handleCreateWidget(
     }
 
     if (!response.ok) {
-      // Finding H4 — status + correlation id only; the provider's body goes to
+      // Status + correlation id only; the provider's body goes to
       // `onError` (see `reportProviderHttpError`).
       const errText = await readBodyWithTimeout(
         response,
@@ -598,13 +597,13 @@ export async function handleCreateWidget(
     try {
       parsed = JSON.parse(content);
     } catch {
-      // Finding L4 — this was the one throw in these handlers with neither the mandated
+      // This was the one throw in these handlers with neither the mandated
       // `MUI X Studio:` prefix nor the "what / why / how to fix" shape AGENTS.md requires,
       // so a caller surfacing it to a user got a bare, unattributable sentence. Branded:
       // it is built entirely from package prose, and deliberately quotes NONE of the
       // model-authored `content` it failed to parse (invariant 16).
       //
-      // Finding L3 — the remediation used to tell the operator to check "the
+      // The remediation used to tell the operator to check "the
       // `response_format: json_object` option this request sends", but the request body
       // built above sets no `response_format` at all, so that was a dead end: the
       // operator would go looking for an option that does not exist. The guidance now

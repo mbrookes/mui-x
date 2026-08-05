@@ -19,16 +19,14 @@ import { parseSSEStream, serializeDashboardState } from '../../StudioChatPanel/s
 const CACHE_PREFIX = 'studio:textAI:v1';
 
 /**
- * The only tools this hook's chat request declares via `allowedTools` — this widget
- * runs headless (no chat UI, so no human can review a `tool-approval-request` card
- * the way the main `StudioChatPanel` lets a user do). The SSE `tool-approval-request`
- * handler below auto-approves ONLY requests whose own `toolName` is in this list,
- * as a client-side guard against a server that (whether by bug or by an
- * out-of-sync deploy) sends an approval request for a tool outside the restriction
- * this request itself asked for — see finding 3.15. This is defense in depth, not a
- * replacement for the server enforcing `allowedTools`: a compromised/buggy server
- * could still lie about `toolName` on the wire. Kept as a single source shared with
- * the request body so the two can't drift apart.
+ * The only tools this hook's chat request declares via `allowedTools` — this widget runs headless
+ * (no chat UI, so no human can review a `tool-approval-request` card the way the main
+ * `StudioChatPanel` lets a user do). The SSE `tool-approval-request` handler below auto-approves
+ * ONLY requests whose own `toolName` is in this list, as a client-side guard against a server that
+ * (whether by bug or by an out-of-sync deploy) sends an approval request for a tool outside the
+ * restriction this request itself asked for —. This is defense in depth, not a replacement for the
+ * server enforcing `allowedTools`: a compromised/buggy server could still lie about `toolName` on
+ * the wire. Kept as a single source shared with the request body so the two can't drift apart.
  */
 const READ_ONLY_TOOL_NAMES = ['query_data_source', 'summarise_page'] as const;
 
@@ -185,7 +183,7 @@ export function useTextWidgetAI(
   // `privateMode` doc on `StudioAIConfig` for where the provider-facing boundary
   // actually sits.
   const privateMode = aiConfig?.privateMode === true;
-  // M15: the generation effect below must depend on the VALUES it uses, never on the
+  // The generation effect below must depend on the VALUES it uses, never on the
   // `aiConfig` object. `aiConfig` comes straight from the public `<Studio aiConfig={…}>`
   // prop and is documented as (and routinely passed as) an inline object literal, so its
   // identity changes on every host re-render — see `StudioChatPanel`, which states the same

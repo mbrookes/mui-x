@@ -33,11 +33,11 @@ const OPERATORS = [
 
 type ArithmeticOp = (typeof OPERATORS)[number]['value'];
 
-// Collision-resistant id generator for formula-created expression fields (finding
-// 3.11): a plain `expr_formula_${Date.now()}` collides whenever two formula fields
-// are created within the same millisecond, and `addExpressionField` refuses a duplicate id
-// (it reports `duplicate-id` rather than overwriting the stored field). Pairs the timestamp
-// with a module-level monotonic counter, same scheme as `chatIds.ts`/`RelationshipPanel.tsx`.
+// Collision-resistant id generator for formula-created expression fields: a plain
+// `expr_formula_${Date.now()}` collides whenever two formula fields are created within the same
+// millisecond, and `addExpressionField` refuses a duplicate id (it reports `duplicate-id` rather
+// than overwriting the stored field). Pairs the timestamp with a module-level monotonic counter,
+// same scheme as `chatIds.ts`/`RelationshipPanel.tsx`.
 let formulaFieldIdCounter = 0;
 function createFormulaFieldId(): string {
   formulaFieldIdCounter += 1;

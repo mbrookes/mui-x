@@ -11,9 +11,9 @@ import { CollapsibleSection } from '../../internals/CollapsibleSection';
 
 /**
  * The collapsed-section badge answers "how many filters are actually constraining this page /
- * widget", so it must exclude `disabled` entries — exactly like `selectFiltersForWidget` and
- * every selector that decides "is this filter active" (H4). Counting a toggled-off filter here
- * made the drawer read "Page filters (2)" while only one of the two reached the pipeline.
+ * widget", so it must exclude `disabled` entries — exactly like `selectFiltersForWidget` and every
+ * selector that decides "is this filter active". Counting a toggled-off filter here made the drawer
+ * read "Page filters (2)" while only one of the two reached the pipeline.
  */
 function countActive(filters: StudioFilterState[]): number {
   return filters.reduce((total, filter) => (filter.disabled ? total : total + 1), 0);

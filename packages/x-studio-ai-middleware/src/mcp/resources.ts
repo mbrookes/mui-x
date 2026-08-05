@@ -554,7 +554,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
       const allHealthSources = Object.values(stateBox.current.runtime.dataSources).filter(
         (s) => !s.hidden && s.tableName,
       );
-      // Finding M8: bound the concurrent fan-out — see MAX_DATA_HEALTH_SOURCES.
+      // Bound the concurrent fan-out — see MAX_DATA_HEALTH_SOURCES.
       const sourcesTruncated = allHealthSources.length > MAX_DATA_HEALTH_SOURCES;
       const healthSources = sourcesTruncated
         ? allHealthSources.slice(0, MAX_DATA_HEALTH_SOURCES)
@@ -574,22 +574,20 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
               return;
             }
             const { tableName } = tableNameResult;
-            // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`)
-            // applies before `query_data_source` et al. reach the database (Tier 3,
-            // iteration 24, finding 4): this resource resolves `s.tableName` directly
-            // from `runtime.dataSources` rather than through `resolveSource`, so
-            // without this check it could query a table outside the host's
-            // configured allowlist. Reported per-source via `errors`, exactly like a
-            // query failure below, rather than failing the whole resource read.
+            // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`) applies before
+            // `query_data_source` et al. reach the database: this resource resolves `s.tableName`
+            // directly from `runtime.dataSources` rather than through `resolveSource`, so without
+            // this check it could query a table outside the host's configured allowlist. Reported
+            // per-source via `errors`, exactly like a query failure below, rather than failing the
+            // whole resource read.
             const tableCheckError = checkAllowedTable(s.id, tableName, data.allowedTables);
             if (tableCheckError) {
               errors[s.id] = tableCheckError;
               return;
             }
-            // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to
-            // its own `data.queryDataSource` calls (Tier 3, iteration 22): without it, one
-            // slow/hung source in this per-source `Promise.all` would keep the whole
-            // `data-health` resource read hanging indefinitely.
+            // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its own
+            // `data.queryDataSource` calls: without it, one slow/hung source in this per-source
+            // `Promise.all` would keep the whole `data-health` resource read hanging indefinitely.
             const result = await withTimeout(
               data.queryDataSource({
                 sourceId: s.id,
@@ -612,7 +610,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
             const row = result.rows[0];
             counts[s.id] = Number(row?.count ?? result.rowCount ?? 0);
           } catch (err) {
-            // Finding H4: the raw driver/host error used to be embedded verbatim in
+            // The raw driver/host error used to be embedded verbatim in
             // this payload (which is served to the model), leaking credentials, SQL,
             // and internal hostnames. Log it in full server-side; report only the
             // generic message + correlation id.
@@ -632,7 +630,7 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
               {
                 counts,
                 ...(Object.keys(errors).length > 0 && { errors }),
-                // Finding M8: tell the reader the counts are partial, mirroring
+                // Tell the reader the counts are partial, mirroring
                 // `describe_data_source`'s `statsTruncatedNote`.
                 ...(sourcesTruncated && {
                   truncated: true,
@@ -791,20 +789,19 @@ export function registerResourceHandlers(server: Server, deps: ResourceHandlerDe
         throw new Error(tableNameResult.error);
       }
       const { tableName } = tableNameResult;
-      // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`) applies
-      // before `query_data_source` et al. reach the database (Tier 3, iteration 24,
-      // finding 4): this resource resolves `source.tableName` directly from
-      // `runtime.dataSources` rather than through `resolveSource`, so without this
+      // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`) applies before
+      // `query_data_source` et al. reach the database: this resource resolves `source.tableName`
+      // directly from `runtime.dataSources` rather than through `resolveSource`, so without this
       // check it could query a table outside the host's configured allowlist.
       const tableCheckError = checkAllowedTable(sourceId, tableName, data.allowedTables);
       if (tableCheckError) {
         throw new Error(tableCheckError);
       }
-      // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
-      // own `data.queryDataSource` calls (Tier 3, iteration 22) — otherwise a hung host
-      // query implementation would leave this resource read pending indefinitely.
+      // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its own
+      // `data.queryDataSource` calls — otherwise a hung host query implementation would leave this
+      // resource read pending indefinitely.
       //
-      // Finding H4: this was the one live-query site with NO try/catch at all, so a
+      // This was the one live-query site with NO try/catch at all, so a
       // rejection propagated out of the handler and the MCP SDK returned `err.message`
       // — the raw driver text — to the client. Catch it, log the detail server-side,
       // and surface the same generic message + correlation id every other data path

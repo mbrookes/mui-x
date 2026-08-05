@@ -8,7 +8,7 @@ import { useBufferedInput } from '../useBufferedInput';
 import { buildSingleMeasurePatch } from './commitMeasureSeries';
 
 /**
- * Scatter min/max radius numeric input (architecture review finding 2.3): committing
+ * Scatter min/max radius numeric input: committing
  * `Number(v) || 4` (or `|| 40`) on every keystroke made each digit an undoable commit
  * plus a mutation-log line plus a full pipeline recompute, AND snapped a momentarily
  * cleared input straight to the fallback default instead of allowing an in-progress
@@ -16,7 +16,7 @@ import { buildSingleMeasurePatch } from './commitMeasureSeries';
  * exists to prevent. Buffer the displayed text locally and only parse/commit on
  * blur/Enter, mirroring `GaugeConfigSection.tsx`'s min/max inputs.
  *
- * Finding 8 (architecture review): the previous version parsed and committed ANY finite
+ * The previous version parsed and committed ANY finite
  * number — the `min`/`max` passed via `slotProps.htmlInput` only constrain the spinner
  * BUTTONS (native browser behavior), not typed keyboard input, and there was no
  * `minRadius <= maxRadius` cross-check at all, so typing could commit e.g.
@@ -42,11 +42,11 @@ function RadiusInput(props: {
 }) {
   const { widgetId, value, label, min, max, otherBound, kind, revertedHelperText, onCommit } =
     props;
-  // Shared dirty-aware buffer (M15): in-flight typing survives an external write to the same
-  // widget, and re-pointing at a different widget/bound discards it. `notice` is set when a
-  // commit REJECTED the typed value and snapped the field back — the revert is otherwise
-  // indistinguishable from "nothing happened", so the user retypes the same out-of-range
-  // value and watches it vanish again.
+  // Shared dirty-aware buffer: in-flight typing survives an external write to the same widget, and
+  // re-pointing at a different widget/bound discards it. `notice` is set when a commit REJECTED the
+  // typed value and snapped the field back — the revert is otherwise indistinguishable from
+  // "nothing happened", so the user retypes the same out-of-range value and watches it vanish
+  // again.
   const {
     value: text,
     dirty,
@@ -105,7 +105,7 @@ export interface ScatterConfigSectionProps {
   /** The widget's current source id — the `yField` mirror's own-source test. */
   widgetSourceId?: string;
   /**
-   * H3: the ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
+   * The ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
    * It routes through `commitChartConfigWithSource`, so a pick on a source-less chart adopts
    * the picked field's source instead of leaving the widget permanently blank. Required —
    * a field picker added here cannot reach for `controller.updateWidgetConfig` by accident.

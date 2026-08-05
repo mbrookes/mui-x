@@ -50,7 +50,7 @@ export function RelationshipDialog(props: {
   initial?: RelationshipFormState;
   dataSources: Record<string, StudioDataSource>;
   /**
-   * H8: message shown when the controller silently rejected the write, so the dialog can stay
+   * Message shown when the controller silently rejected the write, so the dialog can stay
    * open with the user's edits intact instead of closing as if it had saved.
    */
   error?: string | null;

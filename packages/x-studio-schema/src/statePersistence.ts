@@ -613,7 +613,7 @@ export function serializeDoc(doc: StudioDoc): SerializedStudioState {
     // good.
     //
     //   live        f1.dependsOn = ['x1', 'f2']   (x1 = a cross-filter entry)
-    //   serialized  f1.dependsOn = ['x1', 'f2']
+    // serialized f1.dependsOn = ['x1', 'f2']
     //   loaded      f1.dependsOn = ['f2']
     //
     // Pruning HERE makes the serialized doc self-consistent, so what a reload restores is

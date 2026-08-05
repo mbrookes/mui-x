@@ -517,7 +517,7 @@ export function buildStudioMcpServer(
       data,
       logger,
       maxQueryRows: MAX_QUERY_ROWS,
-      // Finding H3: the source-agnostic consult below (see MULTI_SOURCE_RAW_ROW_TOOLS)
+      // The source-agnostic consult below (see MULTI_SOURCE_RAW_ROW_TOOLS)
       // only catches a BLANKET `query_data_source` deny. `summarise_page`'s source set
       // is MODEL-controlled — `add_widget` accepts any `sourceId` and performs no
       // existence or authorization check — and each widget yields 5 real rows, so a
@@ -662,7 +662,7 @@ export function buildStudioMcpServer(
         customWidgets,
         transport: 'mcp',
         usage: sessionUsage,
-        // Finding H1: bound the host policy consult. Defaults to
+        // Bound the host policy consult. Defaults to
         // `TOOL_POLICY_TIMEOUT_MS`; `signal` is the SDK's per-request
         // `RequestHandlerExtra.signal`, so a cancelled request stops waiting at once.
         signal,
@@ -681,7 +681,7 @@ export function buildStudioMcpServer(
 
       return jsonResult({ output: outcome.result.output });
     } catch (err) {
-      // Finding H4: never relay raw error text — a `toolPolicy` / `approvalHandler`
+      // Never relay raw error text — a `toolPolicy` / `approvalHandler`
       // implementation is host code and its throw can carry credentials, SQL, or
       // internal hostnames exactly like a driver error. Full detail to the log, a
       // generic message + correlation id to the caller.
@@ -862,7 +862,7 @@ export function buildStudioMcpServer(
         // advertised / allow-listed under their OWN names (the `isToolAllowed` check
         // above is unchanged); only the policy-consult and approval-bridge tool name
         // is remapped. `summarise_page` is remapped the same way but SOURCE-AGNOSTIC
-        // (it spans every widget source on the page — finding T2-α; see
+        // (it spans every widget source on the page; see
         // MULTI_SOURCE_RAW_ROW_TOOLS). Every other dispatch-table tool consults under
         // its own name with its full args, as before.
         const isRawRowDataTool = RAW_ROW_DATA_TOOLS.has(toolName);
@@ -886,7 +886,7 @@ export function buildStudioMcpServer(
             policy: sessionToolPolicy,
             transport: 'mcp',
             usage: sessionUsage,
-            // Finding H1 — see `runReadOnlyTool`.
+            // See `runReadOnlyTool`.
             signal,
           },
         );
@@ -929,7 +929,7 @@ export function buildStudioMcpServer(
             customWidgets,
             transport: 'mcp',
             usage: sessionUsage,
-            // Finding H1: THE consult this bound exists for — it runs inside the
+            // THE consult this bound exists for — it runs inside the
             // `mutationChain` critical section below, so an unsettled host policy used
             // to wedge every subsequent mutating call in the session forever. Denying on
             // the deadline (or on an abandoned request) keeps the queue advancing.
@@ -962,7 +962,7 @@ export function buildStudioMcpServer(
           // Allowed — commit exactly like today, just gated now.
           return await commitMutation(outcome.result, toolName);
         } catch (err) {
-          // Finding H4 — see `runReadOnlyTool` above.
+          // See `runReadOnlyTool` above.
           return redactedHostErrorResult(`tool "${safeIdentifier(toolName)}"`, err, logger);
         }
       };
@@ -978,7 +978,7 @@ export function buildStudioMcpServer(
       // Sanitized like the entry log above — this line also runs for a name that never
       // passed `isToolAllowed`, so the raw value must not reach the operator's log.
       // `describeErrorForLog`, not a hand-rolled `err instanceof Error ? … : String(err)`
-      // (finding F7's class, and the last raw `String` in this family): `String(x)` is
+      // (the same class, and the last raw `String` in this family): `String(x)` is
       // not total, and a logging line inside a catch must not be able to throw a second,
       // worse error over the one it is reporting. The helper keeps the stack for a real
       // `Error` and degrades through `asString` → JSON → runtime shape for anything else,
@@ -987,7 +987,7 @@ export function buildStudioMcpServer(
       logger?.error(
         `[mcp] ${safeToolName} threw after ${Date.now() - t0}ms: ${describeErrorForLog(err)}`,
       );
-      // Finding H4: the full detail is already in the log line above; the result the
+      // The full detail is already in the log line above; the result the
       // model sees carries only the generic message + correlation id.
       return redactedHostErrorResult(`tool "${safeToolName}"`, err, logger);
     } finally {
@@ -1051,7 +1051,7 @@ export function buildStudioMcpServer(
       policy: sessionToolPolicy,
       transport: 'mcp',
       usage: sessionUsage,
-      // Finding H1: bound the host policy here too. This gate is reached from
+      // Bound the host policy here too. This gate is reached from
       // `resources/read` and from `summarise_page`'s per-source fan-out, neither of
       // which had any bound on the consult before.
       signal,
@@ -1074,7 +1074,7 @@ export function buildStudioMcpServer(
    * `projectStateForAI` JSON), `studio://dashboard/system-prompt` (that state
    * rendered as prompt text), `studio://schema/{id}` (a per-source slice), and the
    * `query_data_source_examples` MCP prompt (a further-reduced per-source schema
-   * slice; finding T2-2). The tool-call path rejects `get_dashboard_state` when it
+   * slice). The tool-call path rejects `get_dashboard_state` when it
    * is excluded from `allowedTools`, but these other read surfaces served
    * equivalent payloads ungated. This runs the SAME
    * `isToolAllowed` + args-only policy consult + approval bridge the tool path
@@ -1099,7 +1099,7 @@ export function buildStudioMcpServer(
       policy: sessionToolPolicy,
       transport: 'mcp',
       usage: sessionUsage,
-      // Finding H1 — see `authorizeResourceDataAccess`.
+      // See `authorizeResourceDataAccess`.
       signal,
     });
     if (gate.kind === 'denied') {
@@ -1135,7 +1135,7 @@ export function buildStudioMcpServer(
     // `query_data_source_examples` serves a per-source schema slice of the same
     // payload family, so it must honor the same allowedTools/toolPolicy chokepoint.
     authorizeStateAccess: authorizeResourceStateAccess,
-    // Finding H2: the gate reaches host code (`toolPolicy`, `approvalHandler`), and a
+    // The gate reaches host code (`toolPolicy`, `approvalHandler`), and a
     // throw from it must be redacted rather than returned verbatim through
     // `prompts/get`. The redaction writes the full detail here.
     logger,

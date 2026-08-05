@@ -142,12 +142,11 @@ export function createSummarisePageHandler(deps: {
   data: StudioMcpData;
   logger?: StudioMcpLogger;
   /**
-   * Hard upper bound applied to the per-widget anomaly aggregation query's
-   * `limit` (Tier 3 finding 6), mirroring `QueryToolDeps.maxQueryRows` (the same
-   * host-configured bound `query_data_source` respects). Optional for backward
-   * compatibility with existing callers/tests that don't pass it — falls back to
-   * the shared `DEFAULT_MAX_QUERY_ROWS` (`./helpers`) when omitted, same default
-   * `mcp.ts` uses for `MAX_QUERY_ROWS` when the host supplies none.
+   * Hard upper bound applied to the per-widget anomaly aggregation query's `limit`, mirroring
+   * `QueryToolDeps.maxQueryRows` (the same host-configured bound `query_data_source` respects).
+   * Optional for backward compatibility with existing callers/tests that don't pass it — falls back
+   * to the shared `DEFAULT_MAX_QUERY_ROWS` (`./helpers`) when omitted, same default `mcp.ts` uses
+   * for `MAX_QUERY_ROWS` when the host supplies none.
    */
   maxQueryRows?: number;
   /**
@@ -178,7 +177,7 @@ export function createSummarisePageHandler(deps: {
   authorizeSourceDataAccess?: (input: { sourceId: string }) => Promise<string | null>;
 }): ToolHandler {
   const { stateBox, data, logger, authorizeSourceDataAccess } = deps;
-  // Finding L2: a host-supplied `maxQueryRows` was taken on trust, so an
+  // A host-supplied `maxQueryRows` was taken on trust, so an
   // unparseable one (`Number(process.env.MAX_QUERY_ROWS)` on an unset variable is
   // `NaN`) made the anomaly query's `Math.min(20_000, maxQueryRows)` evaluate to
   // `NaN` and handed the host `LIMIT NaN` — the exact failure the clamp exists to
@@ -189,7 +188,7 @@ export function createSummarisePageHandler(deps: {
   return async (args) => {
     const state = stateBox.current;
     // Accept optional pageId arg; fall back to active page.
-    // Finding M7: `pageId` was never type-checked — a non-string truthy value (an
+    // `pageId` was never type-checked — a non-string truthy value (an
     // object, an array) reached the `Object.hasOwn` lookup and the not-found message
     // verbatim. Reject it the same way every sibling identifier arg in
     // `queryTools.ts` is rejected, rather than stringifying something nonsensical.
@@ -231,14 +230,14 @@ export function createSummarisePageHandler(deps: {
     }
 
     const widgetIds = (activePage.widgetRows ?? []).flat();
-    // `Object.hasOwn`-guarded lookup (finding T3-1, for parity with the pageId /
-    // sourceId guards): a widget-row id that is an `Object.prototype` member
-    // (`"constructor"`, `"toString"`, …) would otherwise resolve to an inherited
-    // function via the prototype chain instead of being dropped as absent.
+    // `Object.hasOwn`-guarded lookup (1, for parity with the pageId / sourceId guards): a
+    // widget-row id that is an `Object.prototype` member (`"constructor"`, `"toString"`, …) would
+    // otherwise resolve to an inherited function via the prototype chain instead of being dropped
+    // as absent.
     const allWidgets = widgetIds
       .filter((id) => Object.hasOwn(state.doc.widgets, id))
       .map((id) => state.doc.widgets[id]);
-    // Finding F5: truncate (not reject) an oversized widget fan-out —
+    // Truncate (not reject) an oversized widget fan-out —
     // see `MAX_SUMMARISE_PAGE_WIDGETS`'s doc comment.
     const widgetsTruncated = allWidgets.length > MAX_SUMMARISE_PAGE_WIDGETS;
     const widgets = widgetsTruncated ? allWidgets.slice(0, MAX_SUMMARISE_PAGE_WIDGETS) : allWidgets;
@@ -249,7 +248,7 @@ export function createSummarisePageHandler(deps: {
     // regardless of which query settles first.
     const results: (SectionItem | null)[] = new Array(widgets.length).fill(null);
 
-    // Finding H3: consult the per-source gate ONCE per distinct `sourceId`, not once
+    // Consult the per-source gate ONCE per distinct `sourceId`, not once
     // per widget. The consult increments the session's tool-call usage and may bridge
     // to the host's approval channel, so a page with 20 widgets on one source must not
     // spend 20 budget units or prompt a human 20 times. Memoised on the in-flight
@@ -291,7 +290,7 @@ export function createSummarisePageHandler(deps: {
       if (!sourceId) {
         return;
       }
-      // Finding M1: EVERYTHING per-widget runs inside this try, not just the queries.
+      // EVERYTHING per-widget runs inside this try, not just the queries.
       // The source resolution below reaches `validateTableName` / `checkAllowedTable`,
       // which read client-supplied state and host-supplied configuration — and a throw
       // from either (`allowedTables: null` used to make `null.includes` throw) escaped
@@ -299,13 +298,12 @@ export function createSummarisePageHandler(deps: {
       // summary instead of skipping one widget. Per-widget isolation is the contract
       // this handler already states for every other kind of per-widget failure.
       try {
-        // `Object.hasOwn`-guarded lookup (finding T2-1, for parity with the
-        // `pageId` guard above): `widget.sourceId` is model-settable
-        // (`add_widget`/`update_widget` accept any string with no existence
-        // check), so a bare `dataSources[sourceId]` would otherwise walk the
-        // prototype chain on an id like `"__proto__"`. This site was already
-        // safe by accident (`Object.prototype.tableName === undefined`), but
-        // the guard makes that explicit rather than incidental.
+        // `Object.hasOwn`-guarded lookup (1, for parity with the `pageId` guard above):
+        // `widget.sourceId` is model-settable (`add_widget`/`update_widget` accept any string with
+        // no existence check), so a bare `dataSources[sourceId]` would otherwise walk the prototype
+        // chain on an id like `"__proto__"`. This site was already safe by accident
+        // (`Object.prototype.tableName === undefined`), but the guard makes that explicit rather
+        // than incidental.
         const source = Object.hasOwn(state.runtime.dataSources, sourceId)
           ? state.runtime.dataSources[sourceId]
           : undefined;
@@ -328,13 +326,12 @@ export function createSummarisePageHandler(deps: {
           return;
         }
         const { tableName } = tableNameResult;
-        // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`)
-        // applies before `query_data_source` et al. reach the database (Tier 3,
-        // iteration 24, finding 4): `summarise_page` resolves `source.tableName`
-        // directly from `runtime.dataSources` rather than through `resolveSource`,
-        // so without this it could query a table outside the host's configured
-        // allowlist. Skip the widget (like the missing-`tableName` case above)
-        // rather than failing the whole page summary.
+        // Same `allowedTables` allowlist check `resolveSource` (`queryTools.ts`) applies before
+        // `query_data_source` et al. reach the database: `summarise_page` resolves
+        // `source.tableName` directly from `runtime.dataSources` rather than through
+        // `resolveSource`, so without this it could query a table outside the host's configured
+        // allowlist. Skip the widget (like the missing-`tableName` case above) rather than failing
+        // the whole page summary.
         const tableCheckError = checkAllowedTable(sourceId, tableName, data.allowedTables);
         if (tableCheckError) {
           logger?.error(
@@ -446,7 +443,7 @@ export function createSummarisePageHandler(deps: {
 
         // Time-series aggregation: GROUP BY query for anomaly detection and charting.
         // Skip blended charts — the y-field belongs to a different source's table.
-        // Finding H2 — `Array.isArray`, and a per-element guard inside the predicate.
+        // `Array.isArray`, and a per-element guard inside the predicate.
         // `(chartCfg.ySeries ?? [])` only defends against nullish: a committed
         // `ySeries: 'x'` (an allowed chart config key whose non-scalar value no write
         // gate validates) has no `.some`, and `ySeries: [null]` throws on `s.sourceId`.
@@ -463,7 +460,7 @@ export function createSummarisePageHandler(deps: {
           const yField = chartCfg.yField ?? (ySeries[0]?.fieldId as string | undefined);
           const yAgg = (chartCfg.yAggregation ?? 'sum') as 'sum' | 'avg' | 'count' | 'min' | 'max';
           const xGroupBy = chartCfg.xGroupBy!;
-          // Finding M4: `xField`/`yField` come straight off the widget config, which
+          // `xField`/`yField` come straight off the widget config, which
           // `add_widget`/`update_widget` accept from the model —
           // `capConfigStringValues` caps string LENGTH but preserves non-string types,
           // and only truthiness was checked here. An `xField: ['a','b']` /
@@ -494,7 +491,7 @@ export function createSummarisePageHandler(deps: {
                 tableName,
                 columns: [safeXField],
                 aggregations: [{ column: safeYField, func: yAgg, alias: 'y_agg' }],
-                // Finding 6: this hardcoded 20,000 previously ignored the
+                // This hardcoded 20,000 previously ignored the
                 // host's configured `maxQueryRows` bound entirely. Cap at whichever
                 // is smaller, matching `query_data_source`'s own
                 // `Math.min(limit, maxQueryRows)` clamp.
@@ -521,7 +518,7 @@ export function createSummarisePageHandler(deps: {
               .filter((i) => i > 0 && i < lastIdx)
               .map((i) => tsLabels![i]);
             if (anomalyLabels.length > 0) {
-              // Finding L4: cap how many labels are spelled out — see
+              // Cap how many labels are spelled out — see
               // MAX_ANOMALY_LABELS. The total is still reported when truncated.
               const shownLabels = anomalyLabels.slice(0, MAX_ANOMALY_LABELS);
               const omittedLabels = anomalyLabels.length - shownLabels.length;
@@ -573,7 +570,7 @@ export function createSummarisePageHandler(deps: {
     // completion order — see the `results` array above).
     // (Splitting into separate content items fragments the summary for MCP
     // clients that render only the first.)
-    // Finding F5: note the widget-fan-out truncation in the summary
+    // Note the widget-fan-out truncation in the summary
     // itself, mirroring `describe_data_source`'s `statsTruncatedNote` pattern, so
     // the model knows this summary doesn't cover every widget on the page.
     const truncationNote = widgetsTruncated

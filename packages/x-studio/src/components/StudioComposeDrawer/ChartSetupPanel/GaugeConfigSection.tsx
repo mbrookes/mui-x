@@ -44,16 +44,15 @@ export function GaugeConfigSection({
   const gaugeMin = config.gaugeMin ?? 0;
   const gaugeMax = config.gaugeMax ?? 100;
 
-  // Local text buffers for the min/max inputs (architecture review finding 1.14):
-  // validating on every keystroke against the OTHER committed bound made it
-  // impossible to type a multi-digit min/max one keystroke at a time whenever an
-  // intermediate digit transiently violated the bound, and made the field
-  // impossible to clear. Buffer the displayed text locally and only parse/
-  // validate/commit on blur, through the shared dirty-aware `useBufferedInput` (M15) so
-  // an external write (the AI chat panel's `update_widget`, an undo) can't discard the
-  // half-typed bound. `notice` is set when a commit REJECTED the typed value and snapped the
-  // field back — the revert is otherwise indistinguishable from "nothing happened", so the
-  // user retypes the same out-of-range value and watches it vanish again.
+  // Local text buffers for the min/max inputs: validating on every keystroke against the OTHER
+  // committed bound made it impossible to type a multi-digit min/max one keystroke at a time
+  // whenever an intermediate digit transiently violated the bound, and made the field impossible to
+  // clear. Buffer the displayed text locally and only parse/ validate/commit on blur, through the
+  // shared dirty-aware `useBufferedInput` so an external write (the AI chat panel's
+  // `update_widget`, an undo) can't discard the half-typed bound. `notice` is set when a commit
+  // REJECTED the typed value and snapped the field back — the revert is otherwise indistinguishable
+  // from "nothing happened", so the user retypes the same out-of-range value and watches it vanish
+  // again.
   const min = useBufferedInput(String(gaugeMin), `${widgetId}:gaugeMin`);
   const max = useBufferedInput(String(gaugeMax), `${widgetId}:gaugeMax`);
 

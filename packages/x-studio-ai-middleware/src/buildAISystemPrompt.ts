@@ -112,9 +112,9 @@ export function sanitizeForPromptLine(value: unknown): string {
 }
 
 /**
- * Tagged template for a prompt line, and the STRUCTURAL answer to the sanitizer-variant
- * mismatch this file keeps re-growing (findings M2, then the `pageLayout.colSpan`
- * relapse, then H3's `richContext.omitted`).
+ * Tagged template for a prompt line, and the STRUCTURAL answer to the sanitizer-variant mismatch
+ * this file keeps re-growing (then the `pageLayout.colSpan` relapse, then H3's
+ * `richContext.omitted`).
  *
  * All three were the same shape: a single-line position that reached for the
  * angle-bracket-only `sanitizeForPrompt` while every one of its siblings used
@@ -245,7 +245,7 @@ function describeSource(source: StudioDataSource): string {
 
 function describeWidget(widget: StudioWidget, sources: Record<string, StudioDataSource>): string {
   const source = widget.sourceId ? getSource(sources, widget.sourceId) : undefined;
-  // Finding M3 — a widget with no `config` at all (unvalidated client JSON) made
+  // A widget with no `config` at all (unvalidated client JSON) made
   // every kind branch below throw an opaque `TypeError` (`resolveChartType(undefined)`
   // → "Cannot read properties of undefined (reading 'chartType')", and the same hole
   // for kpi/grid/filter/pivot/map), killing every chat request for that dashboard.
@@ -266,7 +266,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
   // the trusted punctuation (`()[],"`) is preserved while any embedded angle bracket
   // from an attacker-influenced sub-value is escaped wherever it sits.
   //
-  // Finding M2: that stringifier is now `sanitizeForPromptLine`, not
+  // That stringifier is now `sanitizeForPromptLine`, not
   // `sanitizeForPrompt`. Every entry in `parts` becomes one `", "`-separated field on
   // a SINGLE line, so escaping `<`/`>` alone left the format's own delimiters wide
   // open — a title of `A", source: "Payroll DB" (src-hr), kind: "text` forged a
@@ -280,8 +280,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     parts.push(`${key}: "${sanitizeForPromptLine(value)}"`);
   };
   /*
-   * The ARRAY sibling of `pushField`/`pushQuoted`, and the structural answer to
-   * finding H2.
+   * The ARRAY sibling of `pushField`/`pushQuoted`.
    *
    * Four array-typed config fields (`ySeries`, `funnelCategoryOrder`,
    * `funnelStageSequence`, grid `columns`) were read behind a bare `value?.length`
@@ -389,7 +388,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushChartField('chartSortBy', chartCfg.chartSortBy);
     pushChartField('chartSortDirection', chartCfg.chartSortDirection);
     if (allowed.has('ySeries')) {
-      // Finding H2 — via `pushList`, so a `ySeries` that is not an array (or whose
+      // Via `pushList`, so a `ySeries` that is not an array (or whose
       // entries are not objects) is skipped/blanked instead of throwing on `.map`.
       pushList('ySeries', chartCfg.ySeries, (entry) => {
         const series = (entry ?? {}) as { fieldId?: unknown; yAggregation?: unknown };
@@ -411,12 +410,12 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushChartField('ganttEndField', chartCfg.ganttEndField);
     pushChartField('ganttColorField', chartCfg.ganttColorField);
     if (allowed.has('funnelCategoryOrder')) {
-      // Finding H2 — `'xy'?.length` was truthy, so a string here reached `.join`.
+      // `'xy'?.length` was truthy, so a string here reached `.join`.
       pushList('funnelCategoryOrder', chartCfg.funnelCategoryOrder, (entry) => entry);
     }
     pushChartField('funnelReachedField', chartCfg.funnelReachedField);
     if (allowed.has('funnelStageSequence')) {
-      // Finding H2 — same shape as `funnelCategoryOrder` above.
+      // Same shape as `funnelCategoryOrder` above.
       pushList('funnelStageSequence', chartCfg.funnelStageSequence, (entry) => entry);
     }
     pushChartField('funnelLabelFormat', chartCfg.funnelLabelFormat);
@@ -455,7 +454,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     }
   } else if (isWidgetOfKind(widget, 'grid')) {
     const gridCfg = (widget.config ?? {}) as typeof widget.config;
-    // Finding H2 — `update_widget({config: {columns: 'x'}})` passes every write gate
+    // `update_widget({config: {columns: 'x'}})` passes every write gate
     // (`columns` is an allowed grid key and a non-scalar value is left unvalidated),
     // commits to `doc.widgets`, and then `'x'?.length` was truthy while `'x'.map` is
     // undefined — a `TypeError` on EVERY subsequent request for that dashboard.
@@ -1181,7 +1180,7 @@ function buildRichContextBlock(
 
   if (richContext) {
     const inner: string[] = [];
-    // Finding 2: `richContext` is client-supplied and only NOMINALLY typed
+    // `richContext` is client-supplied and only NOMINALLY typed
     // `StudioAIRichContext` — a hand-crafted request body can shape any of these
     // fields however it likes (a string instead of an array, `null` array entries,
     // objects missing expected sub-fields, …). Cast to `unknown` here so every shape
@@ -1261,7 +1260,7 @@ function buildRichContextBlock(
       }
     }
     if (Array.isArray(rc.omitted) && rc.omitted.length > 0) {
-      // Finding H3 — this was the one entry in this function still using the
+      // This was the one entry in this function still using the
       // MULTI-LINE `sanitizeForPrompt`, in a `", "`-joined SINGLE-LINE position, while
       // all four siblings above used the line variant. `sanitizeForPrompt` escapes only
       // `<`/`>`, so newlines and `"` passed through: `omitted` is fully client-supplied
@@ -1456,7 +1455,7 @@ export function buildAISystemPrompt(
       : `\n\n${buildDashboardState(state, customWidgets, focusedWidgetId, advertisedToolNames)}`) +
     (privateMode ? '' : buildRichContextBlock(richContext, enrichedContext));
 
-  // Finding H1e — the aggregate backstop. Truncated (not thrown) because this runs
+  // The aggregate backstop. Truncated (not thrown) because this runs
   // on the READ path with no caller to report a validation error to, and because a
   // partial-but-marked prompt still lets the user's request succeed. The slice is
   // re-closed so truncation cannot leave a region tag unbalanced and

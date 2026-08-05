@@ -146,13 +146,13 @@ export async function generateFieldDescriptions(
     return [];
   }
 
-  // Finding H1i — bound the field COUNT before anything derives from it: both the
+  // Bound the field COUNT before anything derives from it: both the
   // user message built below and the `max_tokens` budget scale linearly off it.
   const cappedFields = fields.slice(0, MAX_FIELDS_PER_REQUEST);
 
   const { endpoint, apiKey, model = 'gpt-4o', headers: extraHeaders } = options;
 
-  // Finding L4 — `GenerateInsightOptions.maxTokens` is documented as "a hard cap on
+  // `GenerateInsightOptions.maxTokens` is documented as "a hard cap on
   // output tokens, sent as `max_tokens`", and this function accepts that options object
   // while hardcoding its own budget: the option was silently ignored here, which is the
   // exact bug already found and fixed in the sibling `handleGenerateInsight.ts`
@@ -235,7 +235,7 @@ export async function generateFieldDescriptions(
         LLM_FETCH_TIMEOUT_MS,
         'MUI X Studio: Field description generation request',
       );
-      // Finding F6 — `clearTimer()` here, `dispose()` in the outer `finally` below.
+      // `clearTimer()` here, `dispose()` in the outer `finally` below.
       // `dispose()` clears the deadline timer AND unsubscribes from `options.signal`
       // (`internal/llmFetch.ts`), and this block runs the moment the fetch RESOLVES — so
       // disposing here disconnected the caller's own signal from headers-received onward
@@ -257,7 +257,7 @@ export async function generateFieldDescriptions(
         LLM_FETCH_TIMEOUT_MS,
         'Field description generation error response body',
       ).catch(() => undefined);
-      // Finding H4 — the provider's error body was previously relayed VERBATIM and
+      // The provider's error body was previously relayed VERBATIM and
       // UNBOUNDED in the thrown message (an OpenAI 401 body carries the partially
       // masked key and org; a hostile gateway can return a 100 MB body). It now goes to
       // `options.onError` for the server log; the thrown error carries status +
@@ -303,7 +303,7 @@ export async function generateFieldDescriptions(
     try {
       parsed = JSON.parse(raw);
     } catch {
-      // Finding L4 — this previously interpolated 200 chars of the raw completion into the
+      // This previously interpolated 200 chars of the raw completion into the
       // thrown message: PROVIDER-authored text relayed verbatim to the caller (and, in a
       // typical host, on to an end user), contrary to invariant 16, with no `MUI X Studio:`
       // prefix to attribute it. The excerpt is dropped rather than sanitized: it was never
@@ -330,7 +330,7 @@ export async function generateFieldDescriptions(
     }
 
     if (!Array.isArray(parsed)) {
-      // Same finding L4 treatment as the parse failure above: prefixed, branded, and
+      // Same treatment as the parse failure above: prefixed, branded, and
       // carrying no provider-authored text (it never did — only the prefix was missing).
       throw markPackageAuthored(
         new Error(
@@ -353,10 +353,10 @@ export async function generateFieldDescriptions(
       )
       .map((item) => ({
         // The model can echo back an arbitrary `id` string; cap it with the same
-        // identifier bound the rest of the package uses (finding L7's sibling — the
+        // identifier bound the rest of the package uses (the sibling case — the
         // returned object is stored wholesale by callers).
         id: capText(item.id, MAX_FILTER_STRING_LENGTH),
-        // Finding L7 — cap AND strip newlines at the SOURCE. This string is stored on
+        // Cap AND strip newlines at the SOURCE. This string is stored on
         // `StudioDataField.aiDescription` and merged into every future system prompt,
         // which this file's own comments already identify as a stored, second-order
         // injection vector — yet it was returned with no length cap and no newline

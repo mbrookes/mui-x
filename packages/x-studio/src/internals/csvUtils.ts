@@ -1,12 +1,11 @@
 /**
  * Shared CSV cell escaping.
  *
- * A CSV downloaded from Studio is routinely opened in Excel / Google Sheets, which
- * interpret any cell whose text begins with `=`, `+`, `-`, `@`, tab or carriage
- * return as a live formula. A label sourced from user data such as
- * `=HYPERLINK("http://evil","click")` therefore executes on open — CSV formula
- * injection (review finding 1.8). {@link escapeCsvCell} neutralizes that class of
- * value while also applying standard CSV quoting.
+ * A CSV downloaded from Studio is routinely opened in Excel / Google Sheets, which interpret any
+ * cell whose text begins with `=`, `+`, `-`, `@`, tab or carriage return as a live formula. A label
+ * sourced from user data such as `=HYPERLINK("http://evil","click")` therefore executes on open —
+ * CSV formula injection. {@link escapeCsvCell} neutralizes that class of value while also applying
+ * standard CSV quoting.
  */
 
 // Tab (\t) and carriage return (\r) are legitimate formula-injection lead characters

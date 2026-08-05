@@ -25,7 +25,7 @@ export function BuiltinWidgetPreview({ widgetId }: { widgetId: string }) {
   const source = useStudioSelector(selectSource);
   const pages = useStudioSelector(selectPages);
   const activePageId = useStudioSelector(selectActivePageId);
-  // M11: the widget's OWN page, not whichever page happens to be active. `pageId` is the
+  // The widget's OWN page, not whichever page happens to be active. `pageId` is the
   // page SCOPE the widget renders under: `StudioFilterWidget` reads its own interactive
   // filter back with it (`makeSelectActiveInteractiveFilter(widgetId, pageId)`) while the
   // write side stamps the widget's actual page via `StudioController.resolveWidgetPageId`, so

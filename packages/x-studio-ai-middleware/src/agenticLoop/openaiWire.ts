@@ -69,8 +69,8 @@ interface DynamicToolPart {
  * it produced a doubly-encoded result on replay:
  *
  * ```
- * in-flight : "content": "{\"success\":true,\"pageId\":\"page-1\"}"
- * replayed  : "content": "\"{\\\"success\\\":true,\\\"pageId\\\":\\\"page-1\\\"}\""
+ * in-flight : "content": "{\"success\":true,\"pageId\":\"page-1\"}" replayed : "content":
+ * "\"{\\\"success\\\":true,\\\"pageId\\\":\\\"page-1\\\"}\""
  * ```
  *
  * which defeats the whole point of rebuilding the turn structure faithfully (the
@@ -88,7 +88,7 @@ function toolResultContent(output: unknown): string {
  * Serialises the client's `ChatMessage[]` history back into the OpenAI
  * chat-completions shape the next request replays.
  *
- * Finding F3 — an assistant message's `parts` are walked IN ORDER, starting a new
+ * An assistant message's `parts` are walked IN ORDER, starting a new
  * assistant turn at every text→tool transition, rather than being flattened into one
  * message. A multi-turn agentic run comes back as a SINGLE assistant `ChatMessage`:
  * `x-chat-headless` appends parts to the same message for the whole stream, so a
@@ -429,7 +429,7 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
       idx = POSITIONAL_INDEX_BASE + i;
     }
     if (!acc.reqToolCalls[idx]) {
-      // Finding T2-1 — bound the NUMBER of distinct tool-call slots this turn's
+      // Bound the NUMBER of distinct tool-call slots this turn's
       // accumulator may hold. Checked before minting a NEW slot (an update to an
       // existing slot never grows the count), and thrown here — rather than
       // silently dropped or truncated — so the caller's enclosing try/catch turns
@@ -506,7 +506,7 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
     }
     if (fnArgs !== undefined) {
       const nextArgsBuffer = acc.reqToolCalls[idx].argsBuffer + fnArgs;
-      // Finding 6 — bound `argsBuffer` growth per tool call. Thrown here (rather than
+      // Bound `argsBuffer` growth per tool call. Thrown here (rather than
       // silently truncated) so the caller's enclosing try/catch turns this into a
       // clean `{ type: 'error' }` SSE event, exactly like the idle-timeout and
       // turn-text-buffer caps this mirrors, instead of a slow, unbounded memory leak.

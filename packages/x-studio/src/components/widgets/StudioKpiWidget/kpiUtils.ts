@@ -355,9 +355,8 @@ export interface KpiDateFieldResolution {
 /**
  * THE single "which date field does this KPI use?" rule.
  *
- * There used to be three independent answers to that question — the sparkline's, the
- * fixed-period trend's, and the setup panel's — and they disagreed in ways users could see
- * (M5):
+ * There used to be three independent answers to that question — the sparkline's, the fixed-period
+ * trend's, and the setup panel's — and they disagreed in ways users could see:
  *
  * - The sparkline took the active date filter's field only when it was NATIVE to the widget's
  *   source, and otherwise fell through to `kpiSparklineField`. A page filter on a RELATED
@@ -403,7 +402,7 @@ export function resolveKpiDateField(params: {
 
   const dateFilter = dataSource ? findDateFilter(scopedFilters, widgetId, dataSource) : undefined;
 
-  // Tier 1 — the active date filter. `filterSourceId` names the owning source for a
+  // The active date filter. `filterSourceId` names the owning source for a
   // cross-source filter; its absence means the filter targets the widget's own source.
   if (dateFilter?.field) {
     const sourceId = dateFilter.filterSourceId ?? widgetSourceId;
@@ -416,7 +415,7 @@ export function resolveKpiDateField(params: {
     };
   }
 
-  // Tier 2 — the explicitly configured time field. `kpiSparklineSourceId` is written by the
+  // The explicitly configured time field. `kpiSparklineSourceId` is written by the
   // panel's picker whenever the chosen field belongs to a related source, so it — not a
   // separately-derived guess — is the authority on where the field lives.
   if (config.kpiSparklineField) {
@@ -430,7 +429,7 @@ export function resolveKpiDateField(params: {
     };
   }
 
-  // Tier 3 — last resort: the first date/datetime column declared on the widget's own source.
+  // Last resort: the first date/datetime column declared on the widget's own source.
   const ownDateField = dataSource?.fields.find((f) => f.type === 'date' || f.type === 'datetime');
   if (ownDateField) {
     return {
@@ -456,7 +455,7 @@ export function resolveKpiDateField(params: {
  * round-trips through UTC and day-shifts the boundary for any non-UTC viewer
  * (backward for UTC+, forward for UTC-). Formatting the local Y/M/D components keeps
  * the serialized bound on the same calendar day the boundary math produced
- * (finding 1.12 / the package's documented anti-day-shift policy).
+ * (the package's documented anti-day-shift policy).
  */
 export function toLocalYmd(date: Date): string {
   const year = date.getFullYear();
@@ -610,14 +609,13 @@ export function computeAggregate(
  * string; reading UTC components achieves the equivalent — the day the canonical string
  * names — without needing a separate raw-string special case.
  *
- * This DELEGATES to `@mui/x-studio-schema`'s `truncateToPeriod` rather than repeating its
- * logic. The hand-rolled version had drifted from it in two ways for years below 1000
- * (R4-F5): its `week` arm rebuilt the date with `new Date(Date.UTC(y, m, d))`, which
- * silently reads a year in [0, 99] as `1900 + year` — the very quirk schema's
- * `utcDateFromYMD` exists to avoid — and it never zero-padded the year, so `0099-12-31`
- * produced the mutually contradictory pair `99-12-31` (day) and `1999-W52` (week). Only
- * observable for pre-1000 CE data, but a parallel implementation of a shared helper is how
- * that kind of divergence appears in the first place, so the copy is gone.
+ * This DELEGATES to `@mui/x-studio-schema`'s `truncateToPeriod` rather than repeating its logic.
+ * The hand-rolled version had drifted from it in two ways for years below 1000 (R4): its `week` arm
+ * rebuilt the date with `new Date(Date.UTC(y, m, d))`, which silently reads a year in [0, 99] as
+ * `1900 + year` — the very quirk schema's `utcDateFromYMD` exists to avoid — and it never
+ * zero-padded the year, so `0099-12-31` produced the mutually contradictory pair `99-12-31` (day)
+ * and `1999-W52` (week). Only observable for pre-1000 CE data, but a parallel implementation of a
+ * shared helper is how that kind of divergence appears in the first place, so the copy is gone.
  *
  * `Granularity`'s five members are exactly the granularities `truncateToPeriod` recognises,
  * and the sole caller (`computeSparklineData`) discards an unparseable date before calling,
@@ -688,16 +686,16 @@ export function computeSparklineData(
     if (!bucketRows) {
       return null;
     }
-    // A bucket that HAS rows but yields `null` is still an UNMEASURED period, not a
-    // measured zero — `computeAggregate` returns `null` for an avg/min/max over rows whose
-    // values are all null/non-numeric, and `evaluateMeasure` returns `null` for a
-    // root-level divide/modulo-by-zero. This used to collapse to `0`, which drew a real
-    // data point at zero: for an `avg` KPI a month where every row's value was blank read
-    // as "the average was 0 that month". That is the same "null means not measured, not
-    // zero" violation as the trend's `computePeriodValue` (M3), and the sparkline already
-    // has a first-class representation for it — the `null` gap the empty-period branch
-    // above emits. Note this is NOT the "aggregates to zero" case: `sum`/`count` over rows
-    // return a real `0` and still plot a point (see the `kpiUtils.test.ts` case pinning that).
+    // A bucket that HAS rows but yields `null` is still an UNMEASURED period, not a measured zero —
+    // `computeAggregate` returns `null` for an avg/min/max over rows whose values are all
+    // null/non-numeric, and `evaluateMeasure` returns `null` for a root-level
+    // divide/modulo-by-zero. This used to collapse to `0`, which drew a real data point at zero:
+    // for an `avg` KPI a month where every row's value was blank read as "the average was 0 that
+    // month". That is the same "null means not measured, not zero" violation as the trend's
+    // `computePeriodValue`, and the sparkline already has a first-class representation for it — the
+    // `null` gap the empty-period branch above emits. Note this is NOT the "aggregates to zero"
+    // case: `sum`/`count` over rows return a real `0` and still plot a point (see the
+    // `kpiUtils.test.ts` case pinning that).
     const value = measureExprField
       ? evaluateMeasure(measureExprField, bucketRows, expressionFields ?? [])
       : computeAggregate(bucketRows, valueField, aggregation);

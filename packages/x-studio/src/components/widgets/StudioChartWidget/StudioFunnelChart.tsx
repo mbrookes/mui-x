@@ -34,8 +34,8 @@ interface StudioFunnelChartProps {
   /** Native sort applied by FunnelChart. 'none' means data is already ordered. */
   sort?: 'ascending' | 'descending' | 'none';
   /**
-   * Accessible name for the chart graphic — forwarded to the `FunnelChart`'s `title` prop,
-   * which becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2, finding M10).
+   * Accessible name for the chart graphic — forwarded to the `FunnelChart`'s `title` prop, which
+   * becomes the chart container's `aria-label` (WCAG 1.1.1 / 4.1.2).
    */
   ariaTitle?: string;
 }

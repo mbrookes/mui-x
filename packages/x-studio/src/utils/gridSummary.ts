@@ -36,13 +36,12 @@ export function columnAggKey(col: Pick<StudioGridColumn, 'fieldId' | 'sourceId'>
 /**
  * Extract the value list to aggregate for one summary field.
  *
- * For a plain (own-source or expression) column this is simply `row[fieldId]` for every
- * row. For a fanned-out cross-source column (a many-to-one joined column whose value is
- * duplicated onto every widget row sharing the same FK — see `useWidgetRows.ts`'s
- * `enrichWithCrossSourceFields`), the footer must dedupe by FK first, otherwise summing
- * counts each linked one-side record once per many-side row — exactly the double-count the
- * grid's *group* totals already avoid via `makeFanoutSafeAggregationFunction` /
- * `symmetricAggregate` (architecture review finding 1.2). A missing/unlinked FK
+ * For a plain (own-source or expression) column this is simply `row[fieldId]` for every row. For a
+ * fanned-out cross-source column (a many-to-one joined column whose value is duplicated onto every
+ * widget row sharing the same FK — see `useWidgetRows.ts`'s `enrichWithCrossSourceFields`), the
+ * footer must dedupe by FK first, otherwise summing counts each linked one-side record once per
+ * many-side row — exactly the double-count the grid's *group* totals already avoid via
+ * `makeFanoutSafeAggregationFunction` / `symmetricAggregate`. A missing/unlinked FK
  * (null/undefined) never joins and contributes nothing, matching those paths.
  */
 function extractSummaryValues(

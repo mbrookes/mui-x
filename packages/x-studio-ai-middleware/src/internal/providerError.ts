@@ -75,7 +75,7 @@ export function reportProviderHttpError(
   body?: string,
 ): ProviderErrorReport {
   const correlationId = randomUUID();
-  // Finding F5 — sanitize + cap before interpolation, not after. `safeIdentifier`
+  // Sanitize + cap before interpolation, not after. `safeIdentifier`
   // coerces through the total `asString` (a `statusText` typed `string` still arrives
   // off the wire), caps at `MAX_ECHOED_IDENTIFIER_LENGTH`, and neutralizes the line
   // breaks, angle brackets and quotes that would otherwise let this one field forge
@@ -113,7 +113,7 @@ export function reportProviderHttpError(
  */
 export function reportProviderFetchError(context: string, err: unknown): ProviderErrorReport {
   const correlationId = randomUUID();
-  // `asString`, not the raw `String` global (same hazard as finding F7 in
+  // `asString`, not the raw `String` global (the same hazard as in
   // `handleAIChat.ts`): `String(x)` is not total — `String({ toString: 1 })` throws
   // `TypeError: Cannot convert object to primitive value`. A reporter that throws on
   // the input class it exists to neutralize is worse than no reporter, and this one

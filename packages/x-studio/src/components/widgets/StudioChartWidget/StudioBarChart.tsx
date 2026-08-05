@@ -45,8 +45,8 @@ import {
 const CROSS_FILTER_AXIS_ID = 'cross-filter-axis';
 const CROSS_FILTER_SERIES_ID = 'cross-filter-series';
 
-// Upper bound for `barMinBandSize` (finding: architecture review, Tier 3) — see the sanitization
-// block near the top of `StudioBarChart` for why this is needed.
+// Upper bound for `barMinBandSize` (finding: architecture review) — see the sanitization block near
+// the top of `StudioBarChart` for why this is needed.
 const MAX_BAR_MIN_BAND_SIZE = 500;
 
 /**
@@ -135,8 +135,8 @@ export interface StudioBarChartProps {
   onItemClick: (label: string | number | Date, shiftKey: boolean) => void;
   /**
    * Accessible name for the chart graphic — forwarded to the `BarChart`'s `title` prop, which
-   * becomes the chart container's `aria-label`. Without it the chart is an unnamed graphic
-   * (WCAG 1.1.1 / 4.1.2, finding M10).
+   * becomes the chart container's `aria-label`. Without it the chart is an unnamed graphic (WCAG
+   * 1.1.1 / 4.1.2).
    */
   ariaTitle?: string;
   /** Spread onto the underlying BarChart. */
@@ -385,9 +385,9 @@ export function StudioBarChart({
     // `preserveXFieldBaseline` is true. Passing `allSeries.values` through unaligned (its natural
     // order matches `allBarMultiYData.labels`, not `effectiveMultiYData.labels`) misindexed the
     // ghost baseline/ratio against the rendered bar in a multi-Y chart whenever the two label sets
-    // differ in order or membership, e.g. after a cross-filter narrows one label set (Tier 2
-    // finding 3). `alignFilteredToAllLabels` re-projects by LABEL (not position), so it's correct
-    // even when the two label arrays differ in length or ordering.
+    // differ in order or membership, e.g. after a cross-filter narrows one label set.
+    // `alignFilteredToAllLabels` re-projects by LABEL (not position), so it's correct even when the
+    // two label arrays differ in length or ordering.
     const multiYBarContext =
       shouldShowGhost && allBarMultiYData
         ? buildGhostBarContext(

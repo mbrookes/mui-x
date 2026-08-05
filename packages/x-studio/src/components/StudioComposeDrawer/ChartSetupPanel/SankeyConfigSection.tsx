@@ -24,7 +24,7 @@ export interface SankeyConfigSectionProps {
   /** The widget's current source id — the `yField` mirror's own-source test. */
   widgetSourceId?: string;
   /**
-   * H3: the ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
+   * The ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
    * It routes through `commitChartConfigWithSource`, so a target-node or value pick on a
    * source-less sankey adopts that field's source instead of leaving the widget blank.
    */

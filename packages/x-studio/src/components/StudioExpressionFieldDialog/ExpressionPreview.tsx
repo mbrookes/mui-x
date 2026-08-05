@@ -29,7 +29,7 @@ export function ExpressionPreview({
   const previewResult = React.useMemo(() => {
     const rows = dataSource.rows;
     const otherExprFields = expressionFields.filter((ef) => ef.id !== currentFieldId);
-    // H1: `dataSource.rows ?? []` fed an EMPTY row array to `evaluateMeasure`, which returns the
+    // `dataSource.rows ?? []` fed an EMPTY row array to `evaluateMeasure`, which returns the
     // identity of the aggregation — `0` for a `sum` — and the dialog rendered that as a confident
     // "the total is 0" preview. `rows` is `undefined` for every adapter-backed source (rows are
     // resolved per-widget into `studioRequestCache`; only the host's imperative

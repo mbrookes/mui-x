@@ -146,8 +146,8 @@ export function getReachableSourceIds(
 /**
  * Describes how to join widgetSource to filterSource:
  * - hops:1 — direct relationship (many-to-one or one-to-one), OR filterSource IS the junction
- *   source of an M:N relationship touching widgetSource (a genuine one-hop semi-join against the
- *   junction's own rows/fields — see the dedicated junction-source loop below, finding 3)
+ * source of an M:N relationship touching widgetSource (a genuine one-hop semi-join against the
+ * junction's own rows/fields — see the dedicated junction-source loop below)
  * - hops:2 — many-to-many via a junction source, filtering on the REMOTE endpoint
  */
 export type JoinPath =
@@ -549,22 +549,20 @@ export function resolveRows(
  * For one-hop joins: builds a lookup map (relatedJoinValue → fieldValue) and
  * copies the value onto each widget row.
  *
- * For many-to-many two-hop joins: builds a lookup
- * (widgetJoinValue → firstMatchingTargetFieldValue) via the junction table.
- * Uses the **first** matching junction row per widget row — this is DISPLAY-column
- * semantics only (one representative related value per widget row). It is deliberately
- * lossy for aggregation: an order linked to tags A+B collapses to a single arbitrary tag.
- * Aggregate/chart queries whose grouping dimension is owned by an M:N remote endpoint must
- * NOT rely on this path for the number — `analyzeChartSupport` either junction-anchors that
- * topology (so `resolveRowsAtGrain` fans each widget row out to one row per matching junction
- * entry, when the measure is widget-owned) or fails the chart closed as
- * `mixed_cross_source_fields` (when the measure anchors on a DIFFERENT many side and there is no
- * single combined grain — finding 1.1). This lookup is therefore reached for aggregation only in
- * the no-re-anchor (`anchorSourceId === widgetSourceId`) branch, where each widget row IS its own
- * group and a single representative related value per row is exactly right; every fan-out-unsafe
- * topology is anchored or rejected upstream before it can get here. (Earlier revisions of this
- * comment claimed "display columns only", which the M:1-anchor topology falsified before the
- * finding 1.1 guard was added — see review note D.2.)
+ * For many-to-many two-hop joins: builds a lookup (widgetJoinValue → firstMatchingTargetFieldValue)
+ * via the junction table. Uses the **first** matching junction row per widget row — this is
+ * DISPLAY-column semantics only (one representative related value per widget row). It is
+ * deliberately lossy for aggregation: an order linked to tags A+B collapses to a single arbitrary
+ * tag. Aggregate/chart queries whose grouping dimension is owned by an M:N remote endpoint must NOT
+ * rely on this path for the number — `analyzeChartSupport` either junction-anchors that topology
+ * (so `resolveRowsAtGrain` fans each widget row out to one row per matching junction entry, when
+ * the measure is widget-owned) or fails the chart closed as `mixed_cross_source_fields` (when the
+ * measure anchors on a DIFFERENT many side and there is no single combined grain). This lookup is
+ * therefore reached for aggregation only in the no-re-anchor (`anchorSourceId === widgetSourceId`)
+ * branch, where each widget row IS its own group and a single representative related value per row
+ * is exactly right; every fan-out-unsafe topology is anchored or rejected upstream before it can
+ * get here. (Earlier revisions of this comment claimed "display columns only", which the M:1-anchor
+ * topology falsified before that guard was added.)
  */
 export function enrichRowsWithRelatedFields(
   rows: Row[],

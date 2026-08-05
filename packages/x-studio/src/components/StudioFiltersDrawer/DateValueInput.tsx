@@ -90,7 +90,7 @@ export function DateValueInput({
           label={label ?? localeText.filterDateLabel}
           value={dayjsVal?.isValid() ? dayjsVal : null}
           onChange={(d, context) => {
-            // M9: a MUI date field publishes `onChange` once per SECTION, and while the user
+            // A MUI date field publishes `onChange` once per SECTION, and while the user
             // retypes over an already-filled date each intermediate publish carries an INVALID
             // date (see `useFieldState`'s "publish the date as newActiveDate to prevent error
             // state oscillation" branch). Committing those straight through wrote `value: ''`

@@ -118,15 +118,15 @@ interface ComputePeriodValueParams {
  *
  * Returns `null` — never a fabricated `0` — for a period that could not be measured: an
  * `avg`/`min`/`max` over a period with no usable values, or a measure whose root-level
- * divide/modulo-by-zero yields no result. This is the package's documented
- * "null means not measured, not zero" policy (`internals/aggregate.ts`), which every one of
- * the three return points below used to break with `?? 0` (M3). The consequence was a
- * confident, red **−100%**: a KPI with `aggregation: avg` and a fixed-period trend whose
- * CURRENT window happens to contain no rows collapsed to `0`, and `(0 − 4.2) / 4.2` reads as
- * "the average crashed to nothing" when the truth is "there is no current measurement at
- * all". Both trend branches therefore suppress the badge on a `null` period rather than
- * comparing against a number that was never measured. Note `count` and `sum` legitimately
- * return `0` for an empty period (a real count/total of nothing) and are unaffected.
+ * divide/modulo-by-zero yields no result. This is the package's documented "null means not
+ * measured, not zero" policy (`internals/aggregate.ts`), which every one of the three return points
+ * below used to break with `?? 0`. The consequence was a confident, red **−100%**: a KPI with
+ * `aggregation: avg` and a fixed-period trend whose CURRENT window happens to contain no rows
+ * collapsed to `0`, and `(0 − 4.2) / 4.2` reads as "the average crashed to nothing" when the truth
+ * is "there is no current measurement at all". Both trend branches therefore suppress the badge on
+ * a `null` period rather than comparing against a number that was never measured. Note `count` and
+ * `sum` legitimately return `0` for an empty period (a real count/total of nothing) and are
+ * unaffected.
  */
 function computePeriodValue(
   periodRows: Record<string, unknown>[],
@@ -145,8 +145,8 @@ function computePeriodValue(
   } = params;
 
   if (measureExprField) {
-    // A root-level divide/modulo-by-zero yields `null` — propagate it, so the
-    // caller suppresses the badge instead of comparing against a fabricated 0 (M3).
+    // A root-level divide/modulo-by-zero yields `null` — propagate it, so the caller suppresses the
+    // badge instead of comparing against a fabricated 0.
     return evaluateMeasure(measureExprField, periodRows, expressionFields);
   }
   if (isGrainAnchored) {
@@ -162,8 +162,8 @@ function computePeriodValue(
       undefined,
       widgetFilters,
     );
-    // `computeAggregate` returns `null` for an all-null avg/min/max period — propagate it
-    // for the same reason as the measure branch above (M3).
+    // `computeAggregate` returns `null` for an all-null avg/min/max period — propagate it for the
+    // same reason as the measure branch above.
     return computeAggregate(anchoredRows, valueField, aggregation);
   }
   return computeAggregate(periodRows, valueField, aggregation);
@@ -207,10 +207,10 @@ function computeFixedPeriodTrend(
   const currentPeriodValue = computePeriodValue(currentPeriodRows, periodValueParams);
   const previousValue = computePeriodValue(prevPeriodRows, periodValueParams);
 
-  // Either period being UNMEASURABLE (`null` — see `computePeriodValue`) means there is no
-  // delta to state, not a delta of −100%/∞. Unlike the filter-based branch, this one windows
-  // independently of the headline, so a `hasData` headline says nothing about whether the
-  // fixed 30/90/365-day window contains anything measurable — this is the only guard (M3).
+  // Either period being UNMEASURABLE (`null` — see `computePeriodValue`) means there is no delta to
+  // state, not a delta of −100%/∞. Unlike the filter-based branch, this one windows independently
+  // of the headline, so a `hasData` headline says nothing about whether the fixed 30/90/365-day
+  // window contains anything measurable — this is the only guard.
   if (currentPeriodValue === null || previousValue === null) {
     return null;
   }
@@ -284,16 +284,15 @@ function computeFilterBasedTrend(params: {
   const previousKpiValueField = config.kpiValueField!;
 
   // `scopedFilters` arrives already resolved by the caller (`kpiScopedFilters`), from the SAME
-  // deferred snapshot `currentRows`/`currentValue` came from — it is no longer re-derived here
-  // from the live `selectFilters` array (M6). Re-deriving compared a previous-period value
-  // computed under a NEWER filter list against a `currentValue` still computed from the older,
-  // deferred rows. Everything the previous derivation enforced is preserved by the shared
-  // resolution: the `pageId`/`disabled`/`dashboard-date-range`-sourceId checks, the
-  // `include` mode mirroring the rendered row scope ('no-chart-cross' for
-  // `filteredRowsNoChartCross`, 'all' for `effectiveRows`), and the widget-scoped Top-N rank
-  // filter (which
-  // `selectFiltersForWidget` drops by default, so a ranked current total would otherwise be
-  // compared against an unranked previous one — finding 1).
+  // deferred snapshot `currentRows`/`currentValue` came from — it is no longer re-derived here from
+  // the live `selectFilters` array. Re-deriving compared a previous-period value computed under a
+  // NEWER filter list against a `currentValue` still computed from the older, deferred rows.
+  // Everything the previous derivation enforced is preserved by the shared resolution: the
+  // `pageId`/`disabled`/`dashboard-date-range`-sourceId checks, the `include` mode mirroring the
+  // rendered row scope ('no-chart-cross' for `filteredRowsNoChartCross`, 'all' for
+  // `effectiveRows`), and the widget-scoped Top-N rank filter (which `selectFiltersForWidget` drops
+  // by default, so a ranked current total would otherwise be compared against an unranked previous
+  // one).
   const dateFilter = findDateFilter(scopedFilters, widget.id, dataSource);
   if (!dateFilter) {
     return null;
@@ -387,10 +386,10 @@ function computeFilterBasedTrend(params: {
     () => computePeriodValue(prevRows, prevPeriodValueParams),
   );
 
-  // An UNMEASURABLE previous period (`null` — see `computePeriodValue`) is not a previous
-  // value of 0, so there is no delta to state (M3). The current side needs no such guard here:
-  // it is the headline `rawValue`, and the caller gates this whole hook on `hasData`, which is
-  // already false when the headline itself could not be measured.
+  // An UNMEASURABLE previous period (`null` — see `computePeriodValue`) is not a previous value of
+  // 0, so there is no delta to state. The current side needs no such guard here: it is the headline
+  // `rawValue`, and the caller gates this whole hook on `hasData`, which is already false when the
+  // headline itself could not be measured.
   if (previousValue === null) {
     return null;
   }
@@ -697,8 +696,8 @@ function useKpiSparkline(params: {
   widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource | undefined;
   /**
-   * The widget's fully resolved/scoped filter set, from the same deferred snapshot
-   * `currentRows` came from — see `kpiScopedFilters` at the call site (M6).
+   * The widget's fully resolved/scoped filter set, from the same deferred snapshot `currentRows`
+   * came from — see `kpiScopedFilters` at the call site.
    */
   scopedFilters: StudioFilterState[];
   currentRows: Record<string, unknown>[];
@@ -736,17 +735,17 @@ function useKpiSparkline(params: {
     let kpiSparklineTimeField: string | null = null;
 
     // ONE date-field rule, shared with the fixed-period trend below: `resolveKpiDateField`
-    // (`kpiUtils.ts`). `scopedFilters` is the caller-resolved, deferred-snapshot set (M6) —
-    // `findDateFilter` inside the resolver performs no `pageId`/`disabled`/source check of its
-    // own, so passing anything unscoped would let another page's (or a disabled) date filter
-    // drive the time axis.
+    // (`kpiUtils.ts`). `scopedFilters` is the caller-resolved, deferred-snapshot set —
+    // `findDateFilter` inside the resolver performs no `pageId`/`disabled`/source check of its own,
+    // so passing anything unscoped would let another page's (or a disabled) date filter drive the
+    // time axis.
     //
-    // A CROSS-SOURCE date filter is no longer discarded here (M5). It used to fall through to
-    // an often-unset `kpiSparklineField`, so a page filter on a related source's date column
-    // rendered NO sparkline — while the setup panel matched that same filter, hid the
-    // time-field picker, and announced it was being used. The resolver reports the field's
-    // owning `sourceId` instead, and the cross-source join below (which already existed for a
-    // manually picked related-source field) makes it render.
+    // A CROSS-SOURCE date filter is no longer discarded here. It used to fall through to an
+    // often-unset `kpiSparklineField`, so a page filter on a related source's date column rendered
+    // NO sparkline — while the setup panel matched that same filter, hid the time-field picker, and
+    // announced it was being used. The resolver reports the field's owning `sourceId` instead, and
+    // the cross-source join below (which already existed for a manually picked related-source
+    // field) makes it render.
     const dateResolution = resolveKpiDateField({
       config,
       widgetId: widget.id,
@@ -775,9 +774,9 @@ function useKpiSparkline(params: {
       }
 
       let sparklineRows = rows;
-      // Whether the time field lives on the widget's own rows comes from the SAME resolution
-      // that chose the field — it is no longer re-derived from `config.kpiSparklineSourceId`,
-      // which could name a source the resolved field doesn't even come from (M5).
+      // Whether the time field lives on the widget's own rows comes from the SAME resolution that
+      // chose the field — it is no longer re-derived from `config.kpiSparklineSourceId`, which
+      // could name a source the resolved field doesn't even come from.
       const timeFieldIsNative = dateResolution.isNative;
       if (isGrainAnchored) {
         // The value field is on a related (anchor) source. The grain-anchored rows are at
@@ -872,8 +871,8 @@ function useKpiTrend(params: {
   widget: StudioWidgetOf<'kpi'>;
   dataSource: StudioDataSource | undefined;
   /**
-   * The widget's fully resolved/scoped filter set, from the same deferred snapshot
-   * `currentRows` came from — see `kpiScopedFilters` at the call site (M6).
+   * The widget's fully resolved/scoped filter set, from the same deferred snapshot `currentRows`
+   * came from — see `kpiScopedFilters` at the call site.
    */
   scopedFilters: StudioFilterState[];
   currentRows: Record<string, unknown>[];
@@ -914,11 +913,11 @@ function useKpiTrend(params: {
     // The existing filter-based mode still requires an active date filter to define the
     // current period (shown as a warning badge when missing).
     //
-    // `scopedFiltersForBadge` is the caller-resolved, deferred-snapshot set (M6) rather than a
-    // fresh `selectFiltersForWidget(filters, …)` over the LIVE store array. It feeds
-    // `periodValueParams.widgetFilters` — re-applied as an anchor semi-join against the
-    // DEFERRED `currentRows` — so re-deriving it from the live array made a grain-anchored
-    // KPI's trend render the intersection of two filter states during a deferred window, and
+    // `scopedFiltersForBadge` is the caller-resolved, deferred-snapshot set rather than a fresh
+    // `selectFiltersForWidget(filters, …)` over the LIVE store array. It feeds
+    // `periodValueParams.widgetFilters` — re-applied as an anchor semi-join against the DEFERRED
+    // `currentRows` — so re-deriving it from the live array made a grain-anchored KPI's trend
+    // render the intersection of two filter states during a deferred window, and
     // `computeFilterBasedTrend` compare a new-filter previous value against an old-filter
     // `currentValue`. It still carries everything the local derivation enforced, including the
     // widget-scoped Top-N rank filter — see `kpiScopedFilters` at the call site.
@@ -1012,13 +1011,13 @@ function useKpiTrend(params: {
           widgetFilters: nonDateScopedFilters,
         };
 
-        // SAME canonical date-field rule the sparkline uses (`resolveKpiDateField`), so a card
-        // can no longer bucket its sparkline on one date column while windowing its trend on
-        // another (M5). This branch accepts every tier including `'source-default'` — the
-        // trend section of the setup panel has no date-field picker, so the first own-source
-        // date column is its only fallback. `scopedFiltersForBadge` (not the date-stripped
-        // `nonDateScopedFilters`) is passed deliberately: the active date filter names WHICH
-        // field to window on even though the fixed period ignores its RANGE.
+        // SAME canonical date-field rule the sparkline uses (`resolveKpiDateField`), so a card can
+        // no longer bucket its sparkline on one date column while windowing its trend on another.
+        // This branch accepts every tier including `'source-default'` — the trend section of the
+        // setup panel has no date-field picker, so the first own-source date column is its only
+        // fallback. `scopedFiltersForBadge` (not the date-stripped `nonDateScopedFilters`) is
+        // passed deliberately: the active date filter names WHICH field to window on even though
+        // the fixed period ignores its RANGE.
         const fixedDateResolution = resolveKpiDateField({
           config,
           widgetId: widget.id,
@@ -1040,11 +1039,11 @@ function useKpiTrend(params: {
           // value back to 0. Measures aggregate their own (widget-source) rows and cannot
           // be re-anchored this way, so they keep the direct path.
           //
-          // "Is it cross-source?" now comes from the SAME resolution that chose the field. It
-          // used to read `config.kpiSparklineSourceId` independently, so a config with a stale
+          // "Is it cross-source?" now comes from the SAME resolution that chose the field. It used
+          // to read `config.kpiSparklineSourceId` independently, so a config with a stale
           // `kpiSparklineSourceId` but no `kpiSparklineField` fell back to an OWN-source date
-          // column while still reporting `isCrossSourceDate: true` — re-anchoring against a
-          // field that is not cross-source at all (M5, hedged sub-finding).
+          // column while still reporting `isCrossSourceDate: true` — re-anchoring against a field
+          // that is not cross-source at all (hedged sub-finding).
           const isCrossSourceDate = !fixedDateResolution.isNative && !measureExprField;
           if (isCrossSourceDate) {
             const fixedPeriodRows = resolveChartRowsForAggregation(
@@ -1222,19 +1221,18 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // The widget's own WIDGET-scoped rank (Top-N) filters, from the same deferred snapshot.
     // `useWidgetRows` builds `resolvedFiltersAll`/`resolvedFiltersNoChartCross` WITHOUT
     // `includeWidgetRank`, so a widget-scoped `filterMode: 'rank'` filter is absent from both —
-    // even though the rows those sets are documented to pair with WERE produced with it (KPI is
-    // a non-chart kind, so `shouldApplyWidgetRankAtL3` is `true`). Re-adding them here is what
-    // lets every KPI filter derivation move to the deferred sets (M6) without regressing
-    // finding 3 (a ranked current period compared against an unranked previous one).
+    // even though the rows those sets are documented to pair with WERE produced with it (KPI is a
+    // non-chart kind, so `shouldApplyWidgetRankAtL3` is `true`). Re-adding them here is what lets
+    // every KPI filter derivation move to the deferred sets without regressing the ranked case (a ranked
+    // current period compared against an unranked previous one).
     widgetScopedRankFilters,
   } = useWidgetRows(widget, dataSource, pageId);
   const currentRows = crossFilterMode === 'none' ? filteredRowsNoChartCross : effectiveRows;
   // True during a cold async-adapter fetch that hasn't produced any rows yet. Gates the
-  // headline/sparkline rendering below so a fetch-in-progress never shows a confident
-  // "0"/"$0" (`computeAggregate([], ...)` legitimately returns 0 for an empty row set,
-  // which is indistinguishable from a real zero total) before the first response lands
-  // (finding 4 — KPI had no loading affordance, unlike Grid/Pivot's Skeleton and Map's
-  // `isLoading` gating).
+  // headline/sparkline rendering below so a fetch-in-progress never shows a confident "0"/"$0"
+  // (`computeAggregate([], ...)` legitimately returns 0 for an empty row set, which is
+  // indistinguishable from a real zero total) before the first response lands (KPI had no loading
+  // affordance, unlike Grid/Pivot's Skeleton and Map's `isLoading` gating).
   const isInitialLoading = isLoading && currentRows.length === 0;
 
   // THE widget's resolved/scoped filter set — the single one every KPI derivation uses
@@ -1350,12 +1348,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     }
     // Lists EXACTLY the filters the headline was computed under, by consuming the very same
     // `kpiScopedFilters` value the headline/sparkline/trend consume — not a fifth
-    // `selectFiltersForWidget(filters, …)` re-derivation off the live store array (M6). Two
-    // classes of bug are structurally impossible as a result rather than fixed-by-repetition:
-    // a scoping option drifting out of sync (the `pageId`/`disabled` checks,
-    // `crossFilterAllPages`, and the widget Top-N rank filter each had to be added here
-    // separately once — findings 2.5 and 3), and, during a deferred window, the tooltip
-    // advertising a filter list the rendered value was not actually computed under.
+    // `selectFiltersForWidget(filters, …)` re-derivation off the live store array. Two classes of
+    // bug are structurally impossible as a result rather than fixed-by-repetition: a scoping option
+    // drifting out of sync (the `pageId`/`disabled` checks, `crossFilterAllPages`, and the widget
+    // Top-N rank filter each had to be added here separately once.5 and 3), and, during a deferred
+    // window, the tooltip advertising a filter list the rendered value was not actually computed
+    // under.
     const relevant = kpiScopedFilters;
     if (relevant.length === 0) {
       return '';
@@ -1399,13 +1397,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
           <Skeleton variant="text" width={72} height={40} sx={{ flexShrink: 0 }} />
         ) : (
           <Tooltip
-            // `describeChild` (M6): without it MUI puts the title on the child as `aria-label`,
-            // which names nothing on a roleless `<span>` — assistive tech ignores `aria-label`
-            // outside the roles that take a name from the author, so the list of filters the
-            // value was computed under was reachable by hovering mouse only. `describeChild`
-            // emits a real `title` attribute (and `aria-describedby` while open), so the
-            // explanation is programmatically determinable without any pointer interaction
-            // (WCAG 1.3.1).
+            // `describeChild`: without it MUI puts the title on the child as `aria-label`, which
+            // names nothing on a roleless `<span>` — assistive tech ignores `aria-label` outside
+            // the roles that take a name from the author, so the list of filters the value was
+            // computed under was reachable by hovering mouse only. `describeChild` emits a real
+            // `title` attribute (and `aria-describedby` while open), so the explanation is
+            // programmatically determinable without any pointer interaction (WCAG 1.3.1).
             describeChild
             title={filterSubtitle || ''}
             disableHoverListener={!filterSubtitle}

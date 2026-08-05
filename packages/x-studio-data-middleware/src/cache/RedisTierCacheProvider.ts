@@ -51,8 +51,8 @@
  * For a fully shared multi-node cache stack, use both — safely, EVEN on one
  * shared Redis client with no `keyPrefix` on either provider:
  * ```ts
- * const dataCache  = new RedisCacheProvider(redis, { defaultTtlSeconds: 30 });
- * const tierCache  = new RedisTierCacheProvider(redis, { defaultTtlSeconds: 300 });
+ * const dataCache = new RedisCacheProvider(redis, { defaultTtlSeconds: 30 }); const tierCache = new
+ * RedisTierCacheProvider(redis, { defaultTtlSeconds: 300 });
  *
  * await handleBatchQuery(body, claims, {
  *   db,
@@ -152,7 +152,7 @@ export class RedisTierCacheProvider implements TierCacheProvider {
   async invalidatePrefix(prefix: string): Promise<void> {
     // Escape Redis glob metacharacters in the literal prefix so a tenant id containing
     // `*`/`?`/`[` can't widen the SCAN glob into a cross-tenant over-eviction — the same
-    // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix` (finding 3.1
+    // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix` (the
     // sibling site). The trailing `*` stays the only wildcard; stored key format unchanged.
     const pattern = `${escapeRedisGlob(this.prefix)}${escapeRedisGlob(prefix)}*`;
     // Stream one SCAN page at a time and delete in fixed-size batches — the same

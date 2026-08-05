@@ -10,9 +10,9 @@
  * 3. Deterministic: same query + same security context → same key (no clock drift)
  * 4. Opaque to the client: HMAC prevents clients from guessing other users' keys
  *
- * Key format: `studio:v1:<encodeURIComponent(tenantId)>:<securityHash>:<queryHash>`
- * (the tenant segment is URL-encoded so a colon in the id cannot shift the segment
- * boundaries — see finding 3.2 in `generateCacheKey`).
+ * Key format: `studio:v1:<encodeURIComponent(tenantId)>:<securityHash>:<queryHash>` (the tenant
+ * segment is URL-encoded so a colon in the id cannot shift the segment boundaries —.2 in
+ * `generateCacheKey`).
  */
 import { createHmac, createHash } from 'node:crypto';
 import type { JwtSecurityClaims, BatchWidgetDescriptor } from './types';
@@ -189,13 +189,11 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
  *   (e.g. unit tests) that don't pass one stay deterministic and match a
  *   single-tenant deployment.
  * @param cacheScope - Optional host-provided identity for the DATA SOURCE behind
- *   this request (`HandleBatchQueryOptions.cacheScope`, finding 2.4). Beyond the
- *   table-set separation the policy digest now provides, this is what separates two
- *   data sources that expose the SAME table names (e.g. one database per region with
- *   an identical schema): without it they produce identical keys for the same
- *   (claims, policy, descriptor) and one DB's rows are served for the other. Supply
- *   a stable per-database string. Omitted → byte-identical to the pre-2.4 key
- *   (backward compatible).
+ * this request (`HandleBatchQueryOptions.cacheScope`). Beyond the table-set separation the policy
+ * digest now provides, this is what separates two data sources that expose the SAME table names
+ * (e.g. one database per region with an identical schema): without it they produce identical keys
+ * for the same (claims, policy, descriptor) and one DB's rows are served for the other. Supply a
+ * stable per-database string. Omitted → byte-identical to the pre-2.4 key (backward compatible).
  */
 export function generateCacheKey(
   claims: JwtSecurityClaims,

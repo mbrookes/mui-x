@@ -77,7 +77,7 @@ export const MAX_ECHOED_IDENTIFIER_LENGTH = 200;
  * client-supplied — so it is capped first, matching the cap `resolveSource`
  * applies to `sourceId`.
  *
- * (Corrected under finding M2: this comment used to claim `resolveSource` was
+ * (Corrected: this comment used to claim `resolveSource` was
  * "the ONLY site doing both". It was not doing both — it length-capped `sourceId`
  * and then interpolated the CAPPED-but-UNSANITIZED value into its own
  * `Unknown data source: "…"` message. Every identifier echoed into model- or

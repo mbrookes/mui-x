@@ -158,7 +158,7 @@ export interface ApprovalRegistration {
  * Registers a destructive tool's pending approval and starts its timeout/abort race,
  * returning a handle to await.
  *
- * Split out of `waitForApproval` for finding F6: `runApprovalFlow` must be able to
+ * Split out of `waitForApproval`: `runApprovalFlow` must be able to
  * make the `approvalPending` entry visible BEFORE it yields the
  * `tool-approval-request` event. When registration happened inside the await, a
  * consumer driving `runAgenticLoop` directly (the documented "consumers who want to
@@ -227,7 +227,7 @@ export function registerApproval(
   const settled = new Promise<ApprovalOutcome>((resolve) => {
     approvalPending.set(approvalId, {
       resolve: (a, r, resolvingThreadId) => {
-        // Finding F8 — enforce the binding here, not merely record it. Only when the
+        // Enforce the binding here, not merely record it. Only when the
         // resolver ASSERTS a thread id: `isApprovalThreadIdAuthorized` also denies a
         // MISSING one, which is right for a host route (an attacker can drop a field)
         // but wrong here, where an omitted argument is indistinguishable from a host
@@ -502,19 +502,18 @@ export function extractToolErrorMessage(output: string): string {
  * `approvalHandler` — otherwise the two transports would disagree and the MCP path
  * would forward the raw, spoofable model label.
  *
- * Every id read here goes through `asString`, never the raw `String` global (finding
- * H1). `toolInput` is un-narrowed `JSON.parse` output straight off the model's
- * tool-call buffer, and `String({"toString": 1})` throws `TypeError: Cannot convert
- * object to primitive value`. That mattered here more than anywhere else in the
- * package: `createDefaultToolPolicy` gates by tool NAME, so
- * `remove_widget({"widgetId":{"toString":1}})` — which the executor rejects cleanly —
- * still routed to approval and reached this function, whose caller in
- * `dispatchToolCall` sat OUTSIDE the try wrapping `executeToolWithPolicy`. The throw
- * propagated past the SSE try block in `agenticLoop.ts` and closed the whole stream
- * with one generic error frame. `apply_bulk_update({widgetRemovals:[{toString:1}]})`
- * did the same through the `widgetRemovals` branch. The call site is now inside that
- * try as well, so neither this function nor `buildApprovalEffectsSummary` can escape
- * as a stream-killing throw even if a future edit reintroduces one.
+ * Every id read here goes through `asString`, never the raw `String` global. `toolInput` is
+ * un-narrowed `JSON.parse` output straight off the model's tool-call buffer, and
+ * `String({"toString": 1})` throws `TypeError: Cannot convert object to primitive value`. That
+ * mattered here more than anywhere else in the package: `createDefaultToolPolicy` gates by tool
+ * NAME, so `remove_widget({"widgetId":{"toString":1}})` — which the executor rejects cleanly —
+ * still routed to approval and reached this function, whose caller in `dispatchToolCall` sat
+ * OUTSIDE the try wrapping `executeToolWithPolicy`. The throw propagated past the SSE try block in
+ * `agenticLoop.ts` and closed the whole stream with one generic error frame.
+ * `apply_bulk_update({widgetRemovals:[{toString:1}]})` did the same through the `widgetRemovals`
+ * branch. The call site is now inside that try as well, so neither this function nor
+ * `buildApprovalEffectsSummary` can escape as a stream-killing throw even if a future edit
+ * reintroduces one.
  */
 export function buildApprovalDisplayInput(
   toolName: string,
@@ -625,13 +624,12 @@ type ApprovalFlowResult =
  * supplied; `'allow'` preserves that historical behavior but fires `onToolError` as a
  * loud warning that a require-approval decision was auto-approved.
  *
- * `policyReason` (Tier 3, iteration 22) is the POLICY's own stated reason for
- * requiring approval (`ToolPolicyDecision`'s `{ action: 'require-approval', reason
- * }`), when the configured policy supplied one — previously computed by
- * `toolPolicy.ts` but dropped before ever reaching this function, so it could not
- * be surfaced to a human approver NOR relayed back to the LLM on the no-channel
- * auto-deny fallback below. Threaded into the `tool-approval-request` event for the
- * former, and appended to the fallback denial message for the latter.
+ * `policyReason` is the POLICY's own stated reason for requiring approval (`ToolPolicyDecision`'s
+ * `{ action: 'require-approval', reason }`), when the configured policy supplied one — previously
+ * computed by `toolPolicy.ts` but dropped before ever reaching this function, so it could not be
+ * surfaced to a human approver NOR relayed back to the LLM on the no-channel auto-deny fallback
+ * below. Threaded into the `tool-approval-request` event for the former, and appended to the
+ * fallback denial message for the latter.
  *
  * The `approvalPending` key is minted HERE with `randomUUID()`,
  * independently of `toolCallId`. Keying the map by the provider's `tool_calls[].id`
@@ -670,7 +668,7 @@ async function* runApprovalFlow(
       }),
     };
   }
-  // Finding F6 — register BEFORE the event is observable, not after. A consumer
+  // Register BEFORE the event is observable, not after. A consumer
   // driving `runAgenticLoop` directly resumes this generator only after handling the
   // yielded event, so registering inside the await below meant the entry did not exist
   // at the one moment the consumer had the `toolCallId` in hand: an in-process
@@ -799,7 +797,7 @@ export async function* dispatchToolCall(
     ctx.usage.toolCalls += 1;
     const rawArgs = tc.argsBuffer ?? '';
     const snippet = rawArgs.length > 200 ? `${rawArgs.slice(0, 200)}…` : rawArgs;
-    // Finding F7 — carries the `MUI X Studio:` prefix every sibling budget denial in
+    // Carries the `MUI X Studio:` prefix every sibling budget denial in
     // this file already carries, and tells the model what to do next rather than only
     // naming the fault. A tool result is the model's ONLY feedback channel, so a bare
     // fragment is a wasted turn.
@@ -814,7 +812,7 @@ export async function* dispatchToolCall(
     };
   }
 
-  // T1-1 — enforce the effective tool set at dispatch time, not just at
+  // Enforce the effective tool set at dispatch time, not just at
   // advertisement time. `allowedTools`/`privateMode`/data-config filtering only
   // controls what is offered to the model; without this gate a prompt-injected
   // call to an unadvertised tool (e.g. `remove_page` in a read-only assistant, or
@@ -833,7 +831,7 @@ export async function* dispatchToolCall(
     // label and the `executeToolOnState` label), all of which already route through the
     // shared sanitize-AND-cap chokepoint. This site was the outlier. `mcp.ts`'s two
     // `Unknown tool:` messages do the same.
-    // Finding F7 — same prefix and same remediation-carrying shape as the
+    // Same prefix and same remediation-carrying shape as the
     // parse-failure result above.
     return {
       kind: 'result',
@@ -988,7 +986,7 @@ export async function* dispatchToolCall(
             'Pass a `data` config in AgenticLoopOptions to enable this tool.',
         });
       } else if (ctx.data.allowedTables === undefined) {
-        // Finding F1: FAIL-CLOSED table scoping on the chat transport. Here
+        // FAIL-CLOSED table scoping on the chat transport. Here
         // `currentState.runtime.dataSources` descends from the CLIENT-SUPPLIED request
         // body, so trusting an omitted allowlist would let a hostile caller point an
         // innocuous `sourceId` at any table the DB connection can reach and have the
@@ -1060,7 +1058,7 @@ export async function* dispatchToolCall(
     .some((s) => s.tool!.name === name);
 
   if (isUnregisteredSkillTool) {
-    // Finding F3: same accounting rationale as the parse-failure and
+    // Same accounting rationale as the parse-failure and
     // unadvertised-tool early returns above — this happens before any policy
     // consult increments `usage.toolCalls`, so a skill declared in `body.skills`
     // with no `skillHandlers` entry would otherwise dispatch for free against the
@@ -1070,7 +1068,7 @@ export async function* dispatchToolCall(
     return {
       kind: 'result',
       output: JSON.stringify({
-        // Finding F7 — prefixed and remediation-carrying like its siblings above. The
+        // Prefixed and remediation-carrying like its siblings above. The
         // audience here is really the OPERATOR reading it back off the transcript: the
         // model cannot register a handler, so name the option that fixes it.
         error:
@@ -1116,7 +1114,7 @@ export async function* dispatchToolCall(
       // not a title the (possibly prompt-injected) model chose. See
       // `buildApprovalDisplayInput`.
       displayInput = buildApprovalDisplayInput(name, toolInput, currentState);
-      // T2-2: attach a state-derived structural-effects summary (which widgets/pages/filters
+      // Attach a state-derived structural-effects summary (which widgets/pages/filters
       // get removed, which widgets get orphaned) so the human isn't approving a layout op
       // blind. `outcome.effects` is always present on the built-in needs-approval path.
       effectsSummary = buildApprovalEffectsSummary(outcome.effects, currentState);

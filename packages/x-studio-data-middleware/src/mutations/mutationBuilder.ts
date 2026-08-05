@@ -291,13 +291,11 @@ function validateSecurityColumnValues(
     }
   }
 
-  // `!== undefined` (not truthiness) — finding 3.3, mirrors the region
-  // `undefined`-vs-`[]` distinction above. `claims.department === ''` used to
-  // be indistinguishable from "no department scoping" (both falsy), so a
-  // caller with an empty-string department claim could stamp ANY department
-  // value into `values` unchecked — fail OPEN. Gating on `undefined` instead
-  // means a defined (even empty-string) department claim always enforces the
-  // scope check below.
+  // `!== undefined` (not truthiness), mirrors the region `undefined`-vs-`[]` distinction above.
+  // `claims.department === ''` used to be indistinguishable from "no department scoping" (both
+  // falsy), so a caller with an empty-string department claim could stamp ANY department value into
+  // `values` unchecked — fail OPEN. Gating on `undefined` instead means a defined (even
+  // empty-string) department claim always enforces the scope check below.
   //
   // Compare as strings on both sides, mirroring the region dimension above
   // (`String(id) === String(region)`). `claims.department` is typed `string`,
@@ -330,7 +328,7 @@ function validateSecurityColumnValues(
 /**
  * INSERT-only: ensure a region/department-restricted caller writes an IN-SCOPE row.
  *
- * Finding 2.2 — tenant is force-stamped on insert, but region/department were only
+ * Tenant is force-stamped on insert, but region/department were only
  * validated WHEN PRESENT (`validateSecurityColumnValues` gates on the key existing).
  * A region-restricted caller that simply OMITTED `region_id` therefore inserted a
  * region-NULL / DB-default (out-of-scope) row, escaping its own row-level read
@@ -369,8 +367,8 @@ function resolveInsertScopeStamps(
         // Exactly one authorized region — the server can safely derive it.
         [stamps[cols.region]] = claims.regionIds;
       } else {
-        // Same non-disclosure split as `validateSecurityColumnValues` (finding
-        // L3): the column name goes to the server log, never to the client.
+        // Same non-disclosure split as `validateSecurityColumnValues`: the column name goes to the
+        // server log, never to the client.
         console.warn(
           `MUI X Studio Server: An insert into region-scoped table "${table}" did not set the region column ` +
             `"${cols.region}", and the caller is authorized for ` +
@@ -389,9 +387,9 @@ function resolveInsertScopeStamps(
     }
   }
 
-  // `!== undefined` (not truthiness) — finding 3.3. An empty-string department
-  // claim is a defined (if unusual) scope, not "unscoped"; auto-stamping it is
-  // just as valid as stamping any other single-valued department.
+  // `!== undefined` (not truthiness). An empty-string department claim is a defined (if unusual)
+  // scope, not "unscoped"; auto-stamping it is just as valid as stamping any other single-valued
+  // department.
   if (cols.department && claims.department !== undefined) {
     const present = Object.prototype.hasOwnProperty.call(values, cols.department);
     if (!present) {
@@ -447,18 +445,15 @@ export function validateMutation(
   // department) — independent of the writable-columns allowlist.
   const values = descriptor.values ?? {};
 
-  // Reject an "update" mutation whose `values` is empty (Tier3 iter26 finding
-  // 5). `values: {}` (or an omitted `values`) has zero keys, so it passes
-  // every check in this function (zero keys means zero writable-column
-  // checks) and previously reached Knex's `query.update({})` unfiltered — Knex
-  // itself throws its own "Empty .update() call detected" error there, an
-  // unsanitized, driver-adjacent message from a layer this package's own
-  // validation is supposed to guard. Checked from the CLIENT's perspective:
-  // this runs on `descriptor.values` before any internal tenant-column
-  // stripping (`buildUpdateMutation` only ever REMOVES the tenant key from
-  // update values, never adds one), so an empty object here means the client
-  // genuinely sent nothing to set. An update-by-definition sets at least one
-  // column, so fail closed here instead with a clear, actionable error.
+  // Reject an "update" mutation whose `values` is empty. `values: {}` (or an omitted `values`) has
+  // zero keys, so it passes every check in this function (zero keys means zero writable-column
+  // checks) and previously reached Knex's `query.update({})` unfiltered — Knex itself throws its
+  // own "Empty .update() call detected" error there, an unsanitized, driver-adjacent message from a
+  // layer this package's own validation is supposed to guard. Checked from the CLIENT's
+  // perspective: this runs on `descriptor.values` before any internal tenant-column stripping
+  // (`buildUpdateMutation` only ever REMOVES the tenant key from update values, never adds one), so
+  // an empty object here means the client genuinely sent nothing to set. An update-by-definition
+  // sets at least one column, so fail closed here instead with a clear, actionable error.
   if (descriptor.operation === 'update' && Object.keys(values).length === 0) {
     throw new Error(
       `MUI X Studio Server: "update" mutation on table "${descriptor.table}" requires at least one value to set, ` +

@@ -5,12 +5,12 @@ import type { StudioController } from '../../../store/StudioController';
  * Which picks may re-point the widget at the picked field's source.
  *
  * `createDefaultWidget` never sets `sourceId`, so EVERY chart and map starts source-less and
- * `useWidgetRows` early-returns with no rows until something adopts one. A chart has no
- * separate source picker, so the only thing that ever can is a field pick — which is why this
- * argument is REQUIRED rather than defaulted: a new picker cannot be added without its author
- * stating which of the two policies it follows. Ten pickers silently omitted the source
- * argument while it was optional, and a "measure-first" configuration (add a chart → pick a Y
- * measure) produced a permanently blank widget with every option enabled and no warning (H3).
+ * `useWidgetRows` early-returns with no rows until something adopts one. A chart has no separate
+ * source picker, so the only thing that ever can is a field pick — which is why this argument is
+ * REQUIRED rather than defaulted: a new picker cannot be added without its author stating which of
+ * the two policies it follows. Ten pickers silently omitted the source argument while it was
+ * optional, and a "measure-first" configuration (add a chart → pick a Y measure) produced a
+ * permanently blank widget with every option enabled and no warning.
  *
  * - `'anchor'` — the picker IS the widget's source anchor (the X field, the gauge value field,
  *   every gantt field, the map's region field). Any cross-source pick re-anchors the whole

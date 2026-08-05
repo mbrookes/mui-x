@@ -194,7 +194,7 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
         return;
       }
       const isNowCrossSource = option.sourceId !== widgetSourceId;
-      // M7: `buildFieldRepointReset` clears all five condition keys together
+      // `buildFieldRepointReset` clears all five condition keys together
       // (operator/value/operator2/value2/conjunction) — a stale second condition authored
       // against the previous field would otherwise keep evaluating against the new one with
       // no UI on screen to see or remove it.
@@ -292,8 +292,8 @@ export function WidgetFilterRow(props: WidgetFilterRowProps) {
                 field: '',
                 fieldType: undefined,
                 filterSourceId: undefined,
-                // M7: same five-key clear as the phase-1 picker — the dialog's own repoint has
-                // done this since finding 2.10, the drawer's had not.
+                // Same five-key clear as the phase-1 picker — the dialog's own repoint has
+                // done this all along, the drawer's had not.
                 ...buildFieldRepointReset(filter.filterMode ?? 'condition'),
               })
             }

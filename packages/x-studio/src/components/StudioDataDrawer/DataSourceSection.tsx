@@ -91,7 +91,7 @@ export function DataSourceSection(props: {
     setDialogOpen(true);
   };
 
-  // H7: `StudioController.removeExpressionField`'s JSDoc documents that the reference count is
+  // `StudioController.removeExpressionField`'s JSDoc documents that the reference count is
   // "exposed so the UI layer (`DataSourceSection`) can surface a 'used by N places — delete
   // anyway?' confirmation" — but the count was read and discarded here, and the row deleted on a
   // single click. In production the controller doesn't even emit its dev `console.warn`, so
@@ -120,7 +120,7 @@ export function DataSourceSection(props: {
   };
 
   const visibleFieldCount = source.fields.filter((f) => !f.hidden).length + sourceExprFields.length;
-  // H1: `source.rows` is `undefined` — not `[]` — for an adapter-backed source until the host
+  // `source.rows` is `undefined` — not `[]` — for an adapter-backed source until the host
   // imperatively calls `setDataSourceRows`; the adapter path resolves rows per-widget into
   // `studioRequestCache` and never writes them back here. `?? 0` therefore reported a confident
   // "0 rows" for a source that had simply never been counted. Print the count only when the rows
@@ -233,7 +233,7 @@ export function DataSourceSection(props: {
         reachableSourceIds={reachableSourceIds}
       />
 
-      {/* H7: the "used by N places — delete anyway?" confirmation the controller documents. */}
+      {/* The "used by N places — delete anyway?" confirmation the controller documents. */}
       <Dialog
         open={pendingDelete !== null}
         onClose={() => setPendingDelete(null)}

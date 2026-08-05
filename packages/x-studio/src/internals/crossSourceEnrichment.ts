@@ -32,15 +32,14 @@ export interface CrossSourceFieldRef {
  * Field refs whose related source has no in-memory rows (async sources) are silently
  * skipped — the field value stays `undefined` in the primary row.
  *
- * When a requested related field is a **calculated column** (an expression field owned
- * by the related source) rather than a physical field, the related source's rows carry
- * no value for it until they run through the L2 pass. Passing `expressionFields` lets
- * this function route the related source's rows through the shared, dependency-tracked
- * L2 cache (`getCachedEnrichedRows`, scoped to only the requested field ids) before
- * building the lookup index — the same pass `grainResolution.ts` applies to
- * anchor/junction/remote rows — so a related-source expression column resolves to a real
- * value instead of `undefined` (architecture review finding 2.3). Physical related-source
- * fields are unaffected (their value is already present on the raw rows).
+ * When a requested related field is a **calculated column** (an expression field owned by the
+ * related source) rather than a physical field, the related source's rows carry no value for it
+ * until they run through the L2 pass. Passing `expressionFields` lets this function route the
+ * related source's rows through the shared, dependency-tracked L2 cache (`getCachedEnrichedRows`,
+ * scoped to only the requested field ids) before building the lookup index — the same pass
+ * `grainResolution.ts` applies to anchor/junction/remote rows — so a related-source expression
+ * column resolves to a real value instead of `undefined`. Physical related-source fields are
+ * unaffected (their value is already present on the raw rows).
  *
  * @param rows             Filtered primary-source rows
  * @param widgetSourceId   The widget's primary source ID

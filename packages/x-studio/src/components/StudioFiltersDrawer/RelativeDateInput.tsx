@@ -68,7 +68,7 @@ export function RelativeDateInput({
               size="small"
               color={isActive ? 'primary' : 'default'}
               variant={isActive ? 'filled' : 'outlined'}
-              // M20: these are toggle buttons whose selected state was conveyed by colour and
+              // These are toggle buttons whose selected state was conveyed by colour and
               // fill alone — invisible to a screen reader and to anyone who can't distinguish
               // the two. `aria-pressed` is the pattern `ToggleControl` already uses next door.
               aria-pressed={isActive}
@@ -77,7 +77,7 @@ export function RelativeDateInput({
           );
         })}
       </Box>
-      {/* H5: `onValueCommitted` (blur semantics), not `onValueChange` (per keystroke) — see
+      {/* `onValueCommitted` (blur semantics), not `onValueChange` (per keystroke) — see
           `RankFilterInput` for the full rationale. Typing "12" here used to commit `1` and then
           `12` as two undoable filter mutations, and the `Math.max(1, …)` clamp on a controlled
           field made the input impossible to clear before retyping. A `null` commit (empty
@@ -96,7 +96,7 @@ export function RelativeDateInput({
         fullWidth
       />
       <FormControl size="small" fullWidth>
-        {/* M19: MUI's `SelectInput` reads the accessible name off `inputProps` (it forwards
+        {/* MUI's `SelectInput` reads the accessible name off `inputProps` (it forwards
             `inputProps['aria-label']` onto the rendered combobox); a bare `aria-label` prop
             lands on the wrapper `div` and names nothing. There is no `InputLabel` in this
             FormControl to fall back to, so the combobox was anonymous. Same pattern as

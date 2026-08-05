@@ -342,7 +342,7 @@ async function consultPolicyBounded(
   if (outcome === POLICY_ABORTED) {
     return { action: 'deny', reason: POLICY_ABORTED_REASON };
   }
-  // Finding M3 — an `action` outside the documented three is denied HERE, once, rather
+  // An `action` outside the documented three is denied HERE, once, rather
   // than reaching three consumers that each only test the negative cases and so would
   // each read it as an allow. See `normalizePolicyDecision`.
   return normalizePolicyDecision(outcome);
@@ -562,7 +562,7 @@ export const Policy = {
     return async (ctx) => {
       let strictest: ToolPolicyDecision = { action: 'allow' };
       for (const policy of policies) {
-        // Finding M3 — composed policies are invoked directly rather than through
+        // Composed policies are invoked directly rather than through
         // `consultPolicyBounded` (the composite itself is what gets bounded, once, by
         // the caller), so the same fail-closed normalization has to be applied to each
         // member here. Without it an inner policy's `{ action: 'Deny' }` would neither
@@ -662,7 +662,7 @@ export type ExecuteToolWithPolicyResult =
        * The POLICY's own stated reason for requiring approval (from
        * `ToolPolicyDecision`'s `{ action: 'require-approval', reason }` — e.g. "this
        * exceeds today's mutation budget"), when the policy supplied one. Tier 3,
-       * iteration 22: this used to be silently dropped here — the policy computed it,
+       * This used to be silently dropped here — the policy computed it,
        * but no caller ever read `decision.reason` on the require-approval branch — so
        * neither the human-facing approval prompt nor (on an auto-denied fallback, e.g.
        * no `approvalPending` channel configured) the message relayed back to the LLM
@@ -809,8 +809,8 @@ export async function executeToolWithPolicy(
         updatedWidgetIds: [],
         layoutChangedPageIds: [],
       },
-      // Thread the policy's own require-approval reason through (Tier 3, iteration
-      // 22) — see this field's doc comment on `ExecuteToolWithPolicyResult`.
+      // Thread the policy's own require-approval reason through — see this field's doc
+      // comment on `ExecuteToolWithPolicyResult`.
       reason: decision.reason,
     };
   }
@@ -826,9 +826,8 @@ export type ConsultToolPolicyArgsOnlyResult =
   | {
       kind: 'needs-approval';
       /**
-       * The POLICY's own stated reason for requiring approval, when supplied — see
-       * the identically-purposed field on `ExecuteToolWithPolicyResult` (Tier 3,
-       * iteration 22).
+       * The POLICY's own stated reason for requiring approval, when supplied — see the
+       * identically-purposed field on `ExecuteToolWithPolicyResult`.
        */
       reason?: string;
     };

@@ -429,15 +429,15 @@ export function resolveRowsAtGrain(
         )
       : junctionRowsRaw;
 
-    // Apply the anchor(junction)-source-scoped filter subset directly to the junction rows
-    // BEFORE the expansion join, so a filter on the junction's own fields — now ALSO enforced at
-    // L3 as a one-hop semi-join against the junction's own rows (`dataSourceGraph.findJoinPath`'s
-    // dedicated junction-source case, finding 3) keeping widget rows with >=1 matching junction
-    // row — doesn't get silently re-widened back to every junction row for each surviving widget
-    // row. (This comment previously claimed L3 already did this semi-join, but
-    // `findJoinPath` had no case for a `filterSourceId` naming the junction directly, so the
-    // filter was actually being silently DROPPED at L3 for every non-junction-anchored widget —
-    // finding 3 closes that gap so every widget on a page now agrees on the filtered row set.)
+    // Apply the anchor(junction)-source-scoped filter subset directly to the junction rows BEFORE
+    // the expansion join, so a filter on the junction's own fields — now ALSO enforced at L3 as a
+    // one-hop semi-join against the junction's own rows (`dataSourceGraph.findJoinPath`'s dedicated
+    // junction-source case) keeping widget rows with >=1 matching junction row — doesn't get
+    // silently re-widened back to every junction row for each surviving widget row. (This comment
+    // previously claimed L3 already did this semi-join, but `findJoinPath` had no case for a
+    // `filterSourceId` naming the junction directly, so the filter was actually being silently
+    // DROPPED at L3 for every non-junction-anchored widget — this closes that gap so every
+    // widget on a page now agrees on the filtered row set.)
     const junctionRows = applyFilters(junctionRowsEnriched, anchorScopedFilters);
 
     return junctionRows.flatMap((jRow) => {

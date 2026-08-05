@@ -27,9 +27,9 @@ export interface AggregatedData {
    * aggregate at all (every contributing row's measure was null/non-numeric, or —
    * for a blended series — the source has no row in that category).
    *
-   * `null`, not 0: a synthetic 0 is indistinguishable from a genuine zero measurement,
-   * so an all-null Oslo temperature bucket plotted at 0 °C above a real −4 °C Rome, and
-   * a `chartSortBy: 'value'` sort or a Top-N rank promoted it to first place (H4).
+   * `null`, not 0: a synthetic 0 is indistinguishable from a genuine zero measurement, so an
+   * all-null Oslo temperature bucket plotted at 0 °C above a real −4 °C Rome, and a `chartSortBy:
+   * 'value'` sort or a Top-N rank promoted it to first place.
    * Matches the sibling {@link MultiSeriesData}, which was already `(number | null)[]`.
    */
   values: (number | null)[];
@@ -170,8 +170,8 @@ const MULTI_SERIES_RANK_FNS = {
  * Every reduction runs over the label's NON-NULL cells only, and a label whose every series
  * is null scores `null` — "no data", which loses in both directions (see
  * {@link selectRankedIndices}). Filling nulls in per-reduction (`?? 0` for sum/avg,
- * `?? ±Infinity` for min/max) is what let a category with no rows at all win a `'__min'`
- * top-1 outright, displacing the only category that had data (H4).
+ * `?? ±Infinity` for min/max) is what let a category with no rows at all win a `'__min'` top-1
+ * outright, displacing the only category that had data.
  */
 export function applyRankToMultiSeries(
   data: MultiYSeriesData,
@@ -230,7 +230,7 @@ export function applyRankToMultiSeries(
  * The total skips null cells rather than adding 0 for them, and a series that is null at every
  * label scores `null` — "no data", which loses in both directions (see
  * {@link selectRankedIndices}). Summing nulls as 0 gave an empty series a 0 total that
- * outranked a genuinely negative one in a bottom-N (H4).
+ * outranked a genuinely negative one in a bottom-N.
  */
 export function applyRankToSeriesFieldData(
   data: MultiSeriesData,
@@ -277,9 +277,9 @@ export function applyRankToSeriesFieldData(
  * Always returns a new array; never mutates the input.
  *
  * - `'value'` — sort by `valueOf(label)`; ascending when `sortDirection === 'asc'`,
- *   otherwise descending (the default for value sorts). A `null` value ("no data") sorts
- *   LAST in either direction — treating it as 0 let an all-null bucket lead a descending
- *   sort over real negative values, or a bucket with nothing in it lead an ascending one (H4).
+ * otherwise descending (the default for value sorts). A `null` value ("no data") sorts LAST in
+ * either direction — treating it as 0 let an all-null bucket lead a descending sort over real
+ * negative values, or a bucket with nothing in it lead an ascending one.
  * - `categoryOrder` — labels present in `categoryOrder` come first in that order,
  *   remaining labels appended alphabetically; the whole list is reversed for `'desc'`.
  * - otherwise — natural order, reversed only when `sortDirection === 'desc'`.
@@ -436,10 +436,10 @@ export function aggregateByField(
   categoryOrder?: string[],
   /**
    * Locale text bundle used to resolve the translated empty-category bucket label
-   * (`chartEmptyCategoryLabel`) — threaded through to `toXValue` so a non-English locale
-   * doesn't fall back to the English `'(empty)'` literal. Note `isEmptyXValue`
-   * deliberately takes no locale: it inspects RAW row values, where matching the bucket
-   * label could only ever be a false positive (M8).
+   * (`chartEmptyCategoryLabel`) — threaded through to `toXValue` so a non-English locale doesn't
+   * fall back to the English `'(empty)'` literal. Note `isEmptyXValue` deliberately takes no
+   * locale: it inspects RAW row values, where matching the bucket label could only ever be a false
+   * positive.
    *
    * On the **x** dimension this argument resolves nothing today, and that is by design rather
    * than by omission: the `isEmptyXValue` guard above the `toXValue` call drops every empty x
@@ -538,10 +538,10 @@ export function aggregateByField(
       }
       return measureValues.get(label)!;
     }
-    // `null`, not `?? 0`: a bucket whose measures are ALL null/non-numeric has no
-    // aggregate. Coercing it to 0 plotted an all-null Oslo temperature at 0 °C above a
-    // real −4 °C Rome, and promoted it to first place under `chartSortBy: 'value'` or a
-    // Top-N rank (H4). Callers render `null` as a gap.
+    // `null`, not `?? 0`: a bucket whose measures are ALL null/non-numeric has no aggregate.
+    // Coercing it to 0 plotted an all-null Oslo temperature at 0 °C above a real −4 °C Rome, and
+    // promoted it to first place under `chartSortBy: 'value'` or a Top-N rank. Callers render
+    // `null` as a gap.
     return finalizeCell(accumulators.get(label), effectiveAggregation);
   };
 
@@ -813,9 +813,9 @@ export function aggregateMultipleSeries(
     ? new Map<string | number, Map<string, number | null>>()
     : undefined;
 
-  // `null` when the (label, field) cell has no data — a y-field that is absent from every
-  // row at this label, or whose values are all null/non-numeric. Previously `?? 0`, which
-  // drew a real bar/point at zero for a measure that simply doesn't exist there (H4).
+  // `null` when the (label, field) cell has no data — a y-field that is absent from every row at
+  // this label, or whose values are all null/non-numeric. Previously `?? 0`, which drew a real
+  // bar/point at zero for a measure that simply doesn't exist there.
   const cellValue = (label: string | number, fieldId: string): number | null => {
     if (measureFields.has(fieldId) && measureValues) {
       let cached = measureValues.get(label);
@@ -889,12 +889,11 @@ export interface BlendedSeriesInput {
 }
 
 /**
- * Aggregate several series that may originate from DIFFERENT data sources onto a
- * single shared categorical x-axis ("data blending"). Each series is aggregated
- * independently within its own `rows` by `xField`, then all series are aligned on
- * the union of category labels (outer join). Missing category/series combinations are
- * filled with `null` — "this source has no row in this category" is absence of data, not
- * a measured zero — matching {@link aggregateMultipleSeries} (H4).
+ * Aggregate several series that may originate from DIFFERENT data sources onto a single shared
+ * categorical x-axis ("data blending"). Each series is aggregated independently within its own
+ * `rows` by `xField`, then all series are aligned on the union of category labels (outer join).
+ * Missing category/series combinations are filled with `null` — "this source has no row in this
+ * category" is absence of data, not a measured zero — matching {@link aggregateMultipleSeries}.
  *
  * Unlike {@link aggregateMultipleSeries}, the returned `series` preserve the input
  * order and count 1:1 (no de-duplication by `fieldId`), so two series sharing a
@@ -964,9 +963,9 @@ export function aggregateBlendedSeries(
     series: series.map((s, i) => ({
       fieldId: s.fieldId,
       sourceId: s.sourceId,
-      // `?? null` — an outer-joined label this series' source has no row for is missing
-      // data, not a zero. `Map.get` already returns `undefined` for an absent label; the
-      // coalesce normalises it to the `null` the type promises (H4).
+      // `?? null` — an outer-joined label this series' source has no row for is missing data, not a
+      // zero. `Map.get` already returns `undefined` for an absent label; the coalesce normalises it
+      // to the `null` the type promises.
       values: sortedLabels.map((label) => valueMaps[i].get(label) ?? null),
     })),
   };

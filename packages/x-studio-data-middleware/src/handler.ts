@@ -112,7 +112,7 @@ const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data ca
  *
  * This bounds the COUNT of widgets only. How many of them run at once is bounded
  * separately by `MAX_CONCURRENT_WIDGET_QUERIES`, and how many rows they may
- * collectively materialize by the request's `RowBudget` (both finding H2).
+ * collectively materialize by the request's `RowBudget`.
  *
  * Re-exported from this package's `index.ts` so a host that batches on the client
  * side can chunk against the real bound instead of hard-coding 50. `@mui/x-studio`'s
@@ -141,9 +141,9 @@ export const MAX_WIDGETS_PER_BATCH = MAX_ITEMS_PER_BATCH;
 export const MAX_CONCURRENT_WIDGET_QUERIES = 6;
 
 /**
- * Run `task` over `items` with at most `limit` concurrent invocations, preserving
- * input order in the returned array (finding H2 — the bounded-concurrency
- * replacement for the previous unbounded `Promise.all` fan-out).
+ * Run `task` over `items` with at most `limit` concurrent invocations, preserving input order in
+ * the returned array (the bounded-concurrency replacement for the previous unbounded `Promise.all`
+ * fan-out).
  *
  * A fixed pool of workers pulls the next index off a shared cursor, so a slow
  * widget delays only itself rather than blocking a whole "chunk" the way a
@@ -180,7 +180,7 @@ async function mapWithConcurrency<T, R>(
 
 /**
  * Widget-specific wording for the shared `checkPredicateValueBounds` (finding
- * Tier2 — this algorithm used to be reimplemented, inline and byte-identical
+ * This algorithm used to be reimplemented, inline and byte-identical
  * apart from these two details, by the write path's `assertValidBatchMutationRequest`).
  * A widget's `filters`/`semiJoins[].filters` values ARE folded into the query
  * cache key and feed both query building and execution — unlike a mutation's
@@ -671,7 +671,7 @@ export async function handleBatchQuery(
 /**
  * Everything one batch request shares across its widgets — the injected
  * dependencies, the compiled security policy, and the two per-request resource
- * governors added for finding H2 (`rowBudget`, `inFlight`).
+ * governors (`rowBudget`, `inFlight`).
  *
  * Bundled into one object rather than threaded as ~12 positional arguments so a
  * new per-request concern can be added without every call site growing another

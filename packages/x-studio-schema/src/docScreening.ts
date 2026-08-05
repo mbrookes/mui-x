@@ -727,11 +727,10 @@ export function screenFilters(value: unknown, options?: ScreenFiltersOptions): S
     if (!isRecord(f)) {
       return false;
     }
-    // Screen the filter object's OWN keys against the prototype-hazard denylist (Finding
-    // T2-2), symmetric with the wire boundary's `hasUnsafeOwnKeys` gate in `validateFilter`.
-    // The reducer's `addFilter` appends a filter verbatim (`[...state.filters, args.filter]`),
-    // and `JSON.parse` on a shared/hand-edited doc materializes an own `"__proto__"` key as a
-    // real own DATA property.
+    // Screen the filter object's OWN keys against the prototype-hazard denylist (2), symmetric with
+    // the wire boundary's `hasUnsafeOwnKeys` gate in `validateFilter`. The reducer's `addFilter`
+    // appends a filter verbatim (`[...state.filters, args.filter]`), and `JSON.parse` on a
+    // shared/hand-edited doc materializes an own `"__proto__"` key as a real own DATA property.
     if (hasUnsafeOwnKeys(f)) {
       return false;
     }
@@ -858,12 +857,12 @@ export function screenAIState(value: unknown): StudioAIState | undefined {
     }
     return true;
   });
-  // Drop a thread whose `id` is not a non-empty string (Tier2 finding — the `ai.threads`
-  // sibling of the `filters` `typeof f.id !== 'string'` screen above): `id` is identity data,
-  // and `renameAIThread`'s `t.id === threadId` lookup (and the `activeThreadId`
-  // reconciliation below) compares against a STRING, so a non-string `id` would load as a
-  // permanently-unselectable, unrenamable thread with no error. Also de-dup by `id`, first
-  // occurrence wins (mirroring the `filters` dedup, Finding 3).
+  // Drop a thread whose `id` is not a non-empty string (Tier2 finding — the `ai.threads` sibling of
+  // the `filters` `typeof f.id !== 'string'` screen above): `id` is identity data, and
+  // `renameAIThread`'s `t.id === threadId` lookup (and the `activeThreadId` reconciliation below)
+  // compares against a STRING, so a non-string `id` would load as a permanently-unselectable,
+  // unrenamable thread with no error. Also de-dup by `id`, first occurrence wins (mirroring the
+  // `filters` dedup).
   const seenThreadIds = new Set<string>();
   const idScreenedThreads = recordThreads.filter((thread) => {
     const id = (thread as { id?: unknown }).id;

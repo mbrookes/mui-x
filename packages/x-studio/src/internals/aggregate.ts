@@ -1,9 +1,9 @@
 /**
  * Shared numeric aggregation primitives.
  *
- * Before this module, five separate reducers each hand-rolled sum/avg/min/max/count
- * with subtly different null / boolean / NaN handling — the divergence behind the
- * "measure expressions count null rows as 0" bug (review finding 1.6):
+ * Before this module, five separate reducers each hand-rolled sum/avg/min/max/count with subtly
+ * different null / boolean / NaN handling — the divergence behind the "measure expressions count
+ * null rows as 0" bug:
  *
  * - `computeAggregate`   (`StudioKpiWidget/kpiUtils.ts`)  — the reference, correct one
  * - `aggregateValues`    (`StudioMapWidget/StudioMapWidget.tsx`)
@@ -135,7 +135,7 @@ export function aggregateNumbers(values: number[], fn: AggregateFn): number | nu
   }
   if (values.length === 0) {
     // The empty-set policy, decided deliberately and shared with `gridGrouping.ts`'s
-    // `aggregateValues` (H4):
+    // `aggregateValues`:
     // - `sum` → 0. Summing nothing is the additive identity; 0 is the honest answer and
     //   the one every SQL engine and spreadsheet gives.
     // - `avg`/`min`/`max` → `null`. There is no average/minimum/maximum of nothing, so a

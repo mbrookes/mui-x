@@ -565,19 +565,17 @@ const REQUIRED_WIDGET_FIELD_SET: ReadonlySet<string> = new Set<string>(
  * drawer maps over it directly, so a dangling id left pointing at a filter that is gone
  * silently gates option-narrowing on a filter that no longer exists.
  *
- * The ONE implementation of that referential-integrity invariant, so every path that drops
- * a filter enforces it — in BOTH packages. In this one: `removeFilter`,
- * `dropWidgetScopedFilters` via `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor
- * drop, the layout handlers' rank sweep, and — via `statePersistence.ts`'s import — the load
- * boundary's filter screen and rank dedup plus `serializeDoc`'s session-scope strip. In
- * `@mui/x-studio`, whose filter drops bypass this reducer entirely and commit through
- * `commitDocPatch`: `StudioController`'s `clearPageFilters`/`clearCrossFilter`/
- * `clearAllCrossFilters`/`clearInteractiveFilter` and `docTransforms`'
- * `applyFilterPreset`/`setDashboardDateRange`/`setDashboardDateRangeAll`/
- * `setWidgetDateRange`, which reach it through {@link pruneDependsOnAgainstSelf} on the
- * package index (R6 F3 — before that, those eight left the LIVE doc carrying dangling ids
- * that only `serializeDoc` pruned, so the in-memory cascade and the saved one disagreed
- * until the next reload).
+ * The ONE implementation of that referential-integrity invariant, so every path that drops a filter
+ * enforces it — in BOTH packages. In this one: `removeFilter`, `dropWidgetScopedFilters` via
+ * `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor drop, the layout handlers' rank
+ * sweep, and — via `statePersistence.ts`'s import — the load boundary's filter screen and rank
+ * dedup plus `serializeDoc`'s session-scope strip. In `@mui/x-studio`, whose filter drops bypass
+ * this reducer entirely and commit through `commitDocPatch`: `StudioController`'s
+ * `clearPageFilters`/`clearCrossFilter`/ `clearAllCrossFilters`/`clearInteractiveFilter` and
+ * `docTransforms`' `applyFilterPreset`/`setDashboardDateRange`/`setDashboardDateRangeAll`/
+ * `setWidgetDateRange`, which reach it through {@link pruneDependsOnAgainstSelf} on the package
+ * index (before that, those eight left the LIVE doc carrying dangling ids that only `serializeDoc`
+ * pruned, so the in-memory cascade and the saved one disagreed until the next reload).
  *
  * Drops the whole `dependsOn` array (rather than leaving `dependsOn: []`) when the prune
  * empties it, mirroring `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … :
@@ -1286,7 +1284,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // denylist, symmetric with `isInsertableAddedWidget` (the same test
       // `applyBulkUpdate.addedWidgets` applies) and with the wire/load boundaries'
       // `hasUnsafeOwnKeys(widget)` rejections (`validateWidget`, `screenWidgets` — Finding
-      // T2-1). A `JSON.parse`-built widget from a server-built mutation that bypasses
+      // A `JSON.parse`-built widget from a server-built mutation that bypasses
       // `parseStateMutation` can materialize a real own `"__proto__"` DATA property; the
       // literal inserts below use define-semantics so there is no IMMEDIATE pollution
       // risk, but installing such a widget verbatim would round-trip through

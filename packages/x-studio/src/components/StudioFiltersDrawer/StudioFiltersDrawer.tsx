@@ -59,12 +59,12 @@ import { CrossFilterSection } from './CrossFilterSection';
  * materializes a preset: the re-minted `id` and the page-rescoped `scope`. Used to decide
  * whether the live page filters still equal a saved view.
  *
- * `dependsOn` (cascade references to other filters' ids, finding 3.11) is remapped from raw
- * ids to the referenced filter's *position* within `indexById` — a map built once per compared
- * set (see `filtersEquivalent`). Live filter ids, `${presetId}-*` preset-baked ids, and the
- * fresh ids `applyFilterPreset` mints all live in different id-spaces, so a live filter and its
- * saved-preset counterpart never share a literal `dependsOn` id even when the cascade they
- * encode is identical — comparing positions within each own set is space-independent.
+ * `dependsOn` (cascade references to other filters' ids) is remapped from raw ids to the referenced
+ * filter's *position* within `indexById` — a map built once per compared set (see
+ * `filtersEquivalent`). Live filter ids, `${presetId}-*` preset-baked ids, and the fresh ids
+ * `applyFilterPreset` mints all live in different id-spaces, so a live filter and its saved-preset
+ * counterpart never share a literal `dependsOn` id even when the cascade they encode is identical —
+ * comparing positions within each own set is space-independent.
  */
 function normalizeFilterForCompare(
   filter: StudioFilterState,
@@ -145,9 +145,9 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     setRenameValue('');
   };
 
-  // Unlike Chart/KPI's field catalogs, the filters drawer must list every field — including
-  // hidden ones — so a filter already configured on a since-hidden field still resolves a
-  // label/type here (see `internals/fieldCatalog.ts`'s `buildFieldCatalog` doc, finding 2.4).
+  // Unlike Chart/KPI's field catalogs, the filters drawer must list every field — including hidden
+  // ones — so a filter already configured on a since-hidden field still resolves a label/type here
+  // (see `internals/fieldCatalog.ts`'s `buildFieldCatalog` doc).
   const allFields = React.useMemo<SimpleField[]>(() => {
     const seen = new Set<string>();
     const fields: SimpleField[] = [];
@@ -168,7 +168,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
   const selectedWidget = selectedWidgetId ? widgets[selectedWidgetId] : null;
 
-  // H4: whether this widget kind can carry widget-scoped filters is the widget DEF's
+  // Whether this widget kind can carry widget-scoped filters is the widget DEF's
   // `capabilities.widgetFilters`, not a hardcoded list of kind strings here. The drawer used
   // to exclude `'filter'` and `'text'` by name while `builtinWidgetDefs` declared `filter` as
   // `widgetFilters: true`, so the widget edit dialog offered a Filters tab for a filter widget
@@ -242,7 +242,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
     });
   }, [selectedWidget, dataSources]);
 
-  // R4 F8: `hasConflictingRankFilter` resolves a `widget`-scoped filter's page context by
+  // `hasConflictingRankFilter` resolves a `widget`-scoped filter's page context by
   // walking every page's `widgetRows`, and BOTH row components call it once per rendered row
   // to decide whether their Rank toggle is disabled. `pages` is one immutable snapshot for the
   // whole render, so R rows were re-deriving the identical widget→page mapping R times — the
@@ -250,7 +250,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
   // it ONCE here, where the drawer owns the page snapshot, and thread it into every row.
   const rankFilterPageIndex = React.useMemo(() => buildRankFilterWidgetPageIndex(pages), [pages]);
 
-  // M11: memoized, not re-`.filter()`ed on every render. `pageFilters` in particular is handed
+  // Memoized, not re-`.filter()`ed on every render. `pageFilters` in particular is handed
   // down as `allFilters` → `PageFilterRow`'s `allPageFilters`, where it keys the `parentFilters`
   // memo that feeds `useFieldValues`. A fresh array identity on every drawer render (e.g. one
   // per keystroke in the search box above) invalidated that memo and made every cascading
@@ -411,7 +411,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
             value={filterSearch}
             onChange={(event) => setFilterSearch(event.target.value)}
             slotProps={{
-              // M20: a placeholder is only a last-resort accessible-name source.
+              // A placeholder is only a last-resort accessible-name source.
               htmlInput: { 'aria-label': localeText.filterSearchPlaceholder },
               input: {
                 startAdornment: (
@@ -543,7 +543,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                       }
                     }}
                     slotProps={{
-                      // M20: this field is AUTOFOCUSED, so its accessible name is the first
+                      // This field is AUTOFOCUSED, so its accessible name is the first
                       // thing announced when the save-view flow opens — a placeholder alone is
                       // the weakest possible source for it.
                       htmlInput: { 'aria-label': localeText.filtersSaveViewPlaceholder },
@@ -578,7 +578,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
 
               <Stack spacing={0.5}>
                 {filterPresets.length > 0 && (
-                  // M20: `disabled` used to mean "this is the view you are on". That is what
+                  // `disabled` used to mean "this is the view you are on". That is what
                   // `aria-current` is for — `disabled` says "this control does not work",
                   // strips the chip from the tab order, and hides the very state it was meant
                   // to convey from anyone navigating by keyboard or screen reader. The chip
@@ -627,7 +627,7 @@ export function StudioFiltersDrawer({ sx }: StudioFiltersDrawerProps = {}) {
                           }}
                         />
                       ) : (
-                        // M20: `aria-current`, not `disabled` — see the default-view chip above.
+                        // `aria-current`, not `disabled` — see the default-view chip above.
                         // Re-clicking the active preset is a no-op rather than a re-apply
                         // (`applyFilterPreset` re-mints filter ids, so it would push an undo
                         // entry for a change the user cannot see) — but that is now enforced by

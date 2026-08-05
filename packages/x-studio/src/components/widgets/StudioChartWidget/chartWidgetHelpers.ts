@@ -29,7 +29,7 @@ import type { StudioBarLayout } from '../../../models/baseTypes';
  * be a bare hex literal — it silently produces garbage (and a dropped/opaque fill) for
  * `rgb()`/`hsl()` values or CSS variables, which hosts can legitimately supply via
  * `chartColors`/theme defaults. `color-mix` works uniformly regardless of the input
- * color's format (finding 3.7 in `StudioPieChart.tsx` fixed the equivalent pie-arc bug
+ * color's format (`StudioPieChart.tsx` fixed the equivalent pie-arc bug
  * via `fill-opacity`; line/area series colors are consumed as a raw SVG `fill` string
  * with no per-series slot to hook `fill-opacity` onto, so `color-mix` is the equivalent
  * fix for this call site shape).
@@ -330,11 +330,10 @@ export function alignFilteredToAllLabels(
  * @param {((number | null)[]} filteredValues - Array of filtered values aligned to bar chart label indices.
  * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
  * @param {string} filteredOutLabel - REQUIRED localized suffix shown for a fully-filtered-out
- *   value (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). It used to
- *   default to the English literal, which meant a call site that forgot it emitted
- *   `"1 234 (filtered out)"` inside an otherwise fully localized tooltip — mixed-language
- *   output with nothing to flag it, and no compile error to catch the next such call site
- *  .
+ * value (`StudioLocaleText.chartCrossFilterFilteredOutLabel`). It used to default to the English
+ * literal, which meant a call site that forgot it emitted `"1 234 (filtered out)"` inside an
+ * otherwise fully localized tooltip — mixed-language output with nothing to flag it, and no compile
+ * error to catch the next such call site .
  * @returns {(v: number | null, ctx: { dataIndex: number }) => string} A composite formatter showing "filtered / total" for cross-filtered data.
  */
 export function makeCrossFilterValueFormatter(
@@ -360,8 +359,8 @@ export function makeCrossFilterValueFormatter(
  * @param {(number | null)[]} baselineValues - Array of baseline (all-data) values aligned to the x-axis.
  * @param {(arg: number | null) => string} baseFormatter - The chart series' original value formatter.
  * @param {string} filteredOutLabel - REQUIRED localized suffix shown for a fully-filtered-out
- *   value (`StudioLocaleText.chartCrossFilterFilteredOutLabel`, finding 2.13). Required for the
- *   same mixed-language reason as `makeCrossFilterValueFormatter` above.
+ * value (`StudioLocaleText.chartCrossFilterFilteredOutLabel`). Required for the same mixed-language
+ * reason as `makeCrossFilterValueFormatter` above.
  */
 export function makeCrossHighlightLineFormatter(
   baselineValues: (number | null)[],

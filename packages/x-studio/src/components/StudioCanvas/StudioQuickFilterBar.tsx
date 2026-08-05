@@ -57,7 +57,7 @@ function QuickFilterChip(props: QuickFilterChipProps) {
         size="small"
         color={disabled ? undefined : 'primary'}
         variant={disabled ? 'outlined' : 'filled'}
-        // M20: the chip IS the enable/disable toggle, and its on/off state was carried by
+        // The chip IS the enable/disable toggle, and its on/off state was carried by
         // colour, fill and opacity alone — nothing a screen reader or a low-vision user can
         // read. `aria-pressed` states it outright, matching `ToggleControl`'s value chips.
         aria-pressed={!disabled}
@@ -161,7 +161,7 @@ export function StudioQuickFilterBar() {
   // Build a flat field-id → label map across all sources
   const fieldLabelMap = buildFieldLabelMap(dataSources);
 
-  // Finding 2.10: this used to call `controller.removeFilter`/`clearCrossFilter` in a
+  // This used to call `controller.removeFilter`/`clearCrossFilter` in a
   // loop — each is its own undoable commit, so one click on "Clear all" with N filters
   // pushed N separate undo entries, and a single Ctrl+Z only restored the last-removed
   // one. Batch the whole gesture into a single undo step by computing the final

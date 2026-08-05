@@ -119,7 +119,7 @@ export async function* parseSSE(
       }
 
       buffer += decoder.decode(value, { stream: true });
-      // Finding 6 — a gateway that never emits a line terminator would otherwise let
+      // A gateway that never emits a line terminator would otherwise let
       // `buffer` grow without bound (see `DEFAULT_MAX_BUFFER_CHARS`'s doc comment).
       // Checked BEFORE the split below so this trips even though the split itself
       // would otherwise (harmlessly) still run every iteration.

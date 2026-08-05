@@ -69,7 +69,7 @@ export function CrossFilterModeSection(props: CrossFilterModeSectionProps) {
         value={displayValue}
         exclusive
         onChange={(_e, next: StudioCrossFilterMode | null) => {
-          // M16: an exclusive `ToggleButtonGroup` reports `null` when the user clicks the
+          // An exclusive `ToggleButtonGroup` reports `null` when the user clicks the
           // ALREADY-SELECTED button. That is a deselect gesture, and these three modes have no
           // "nothing selected" state — so it means "no change", and the only correct response
           // is to ignore it. Mapping `null` to `defaultMode` (the previous behaviour, pinned

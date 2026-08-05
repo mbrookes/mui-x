@@ -46,7 +46,7 @@ function getKpiAggregations(localeText: ReturnType<typeof useStudioLocaleText>) 
   // sum/avg/min/max) — so it's offered everywhere `count` is, mirroring `gridSummary.ts`'s
   // "count_distinct is meaningful for any field type" policy and `GridSetupPanel`'s own
   // NUMERIC_AGGREGATIONS/STRING_AGGREGATIONS, which both include it. Omitting it here was
-  // the root cause of finding 1: a stored `kpiAggregation: 'count_distinct'` had nowhere
+  // the root cause: a stored `kpiAggregation: 'count_distinct'` had nowhere
   // it counted as valid, so the render-time repair effect below silently rewrote it away.
   return {
     number: [
@@ -160,14 +160,13 @@ export function KpiSetupPanel(props: { widgetId: string }) {
     return allFields.filter((f) => reachableIds.has(f.sourceId));
   }, [allFields, widget?.sourceId, relationships]);
 
-  // Resolve the configured value field scoped to the widget's OWN source first (finding
-  // 1.7). `buildFieldCatalog` sorts by source label, so a bare-id lookup across the
-  // multi-source catalog can match a reachable related source that shares the field id and
-  // sorts earlier — feeding the wrong field's `type` into the aggregation-options derivation,
-  // whose render-time self-repair effect below would then non-undoably rewrite a valid
-  // `kpiAggregation` in the doc. The KPI value field always belongs to the widget's own
-  // source (a cross-source pick adopts that source), so scope to `widget.sourceId`; fall back
-  // to the unscoped lookup only when the widget has no source yet.
+  // Resolve the configured value field scoped to the widget's OWN source first. `buildFieldCatalog`
+  // sorts by source label, so a bare-id lookup across the multi-source catalog can match a
+  // reachable related source that shares the field id and sorts earlier — feeding the wrong field's
+  // `type` into the aggregation-options derivation, whose render-time self-repair effect below
+  // would then non-undoably rewrite a valid `kpiAggregation` in the doc. The KPI value field always
+  // belongs to the widget's own source (a cross-source pick adopts that source), so scope to
+  // `widget.sourceId`; fall back to the unscoped lookup only when the widget has no source yet.
   const selectedField = widget?.sourceId
     ? reachableFields.find((f) => f.id === config.kpiValueField && f.sourceId === widget.sourceId)
     : allFields.find((f) => f.id === config.kpiValueField);
@@ -191,14 +190,14 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
   const { widgetId } = props;
 
-  // Finding 3.6: when the stored `kpiAggregation` is invalid for the current field
+  // When the stored `kpiAggregation` is invalid for the current field
   // type, the Select above merely displays a valid fallback (`selectedAgg`) while the
   // doc keeps the invalid value — so the panel and the widget renderer (which reads
   // the doc) disagree until the user touches the field. Repair the doc on detect.
   // (The renderer, `StudioKpiWidget`, is outside this fix's scope; write-back is the
   // in-scope option and self-terminates once the value is valid.)
   //
-  // Finding 2.4: this write-back fires from merely RENDERING the panel, not from a
+  // This write-back fires from merely RENDERING the panel, not from a
   // user gesture, so it must not enter the undo timeline. Left undoable, opening the
   // panel could push an unauthored undo entry, and undoing past the repair would
   // re-trigger this effect and commit again — clearing the redo stack every time,
@@ -310,26 +309,23 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           if (nextSourceId === widget?.sourceId) {
             return;
           }
-          // Switching source invalidates any value field anchored to the old source,
-          // so clear it. With no field the only valid aggregation is a row "count" —
-          // set it explicitly so the KPI renders a count immediately (the freshly
-          // created widget seeds `kpiAggregation: 'sum'`, which would otherwise leave
-          // it inoperative until a numeric field is chosen). Picking a value field
-          // afterwards re-derives a field-appropriate aggregation in the select below.
-          // Fold the source switch and the field/aggregation reset into ONE
-          // `updateWidget` commit so the whole gesture is a single undo step (finding
-          // 2.2) — a lone Ctrl+Z otherwise lands on a torn state (new source, stale
-          // field) the UI never actually rendered.
+          // Switching source invalidates any value field anchored to the old source, so clear it.
+          // With no field the only valid aggregation is a row "count" — set it explicitly so the
+          // KPI renders a count immediately (the freshly created widget seeds `kpiAggregation:
+          // 'sum'`, which would otherwise leave it inoperative until a numeric field is chosen).
+          // Picking a value field afterwards re-derives a field-appropriate aggregation in the
+          // select below. Fold the source switch and the field/aggregation reset into ONE
+          // `updateWidget` commit so the whole gesture is a single undo step — a lone Ctrl+Z
+          // otherwise lands on a torn state (new source, stale field) the UI never actually
+          // rendered.
           //
-          // The managed date-range filter (and any other widget-scoped filter) still
-          // references the OLD source's field; left in place it would silently exclude
-          // every row of the new source. Fold the removal of those now-
-          // unresolvable filters into the SAME commit via `removeFilterIds`.
-          // The sparkline field is just as source-specific as the value field (finding
-          // 3, iteration 20) — left stale after a cross-source switch, `kpiSparklineField`/
-          // `kpiSparklineSourceId` keep pointing at a field the new source can't resolve,
-          // silently blanking the sparkline with no warning. Reset them the same way
-          // `kpiValueField`/`kpiAggregation` already are.
+          // The managed date-range filter (and any other widget-scoped filter) still references the
+          // OLD source's field; left in place it would silently exclude every row of the new
+          // source. Fold the removal of those now- unresolvable filters into the SAME commit via
+          // `removeFilterIds`. The sparkline field is just as source-specific as the value field —
+          // left stale after a cross-source switch, `kpiSparklineField`/ `kpiSparklineSourceId`
+          // keep pointing at a field the new source can't resolve, silently blanking the sparkline
+          // with no warning. Reset them the same way `kpiValueField`/`kpiAggregation` already are.
           controller.updateWidget(
             widgetId,
             {
@@ -372,7 +368,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
 
       <DataSourceFieldSelect
         value={config.kpiValueField ?? ''}
-        // Finding 5: the KPI value field always belongs to the widget's OWN source (a
+        // The KPI value field always belongs to the widget's OWN source (a
         // cross-source pick adopts that source — see the `selectedField` comment above),
         // so `widget?.sourceId` is the natural, always-available disambiguator. Passing it
         // means a same-id field from a different (merely reachable) source can never be
@@ -396,17 +392,15 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             // Reset aggregation when the current one isn't valid for the new field type
             ...(!currentAggValid && { kpiAggregation: newAggOptions[0].value }),
           };
-          // When the picked field belongs to a different source, adopt that source AND
-          // write the field/aggregation in ONE `updateWidget` commit so the source-switch
-          // gesture collapses to a single undo step; without a source switch
-          // a plain config patch is already one commit. Also fold in the removal of any
-          // widget-scoped filter that no longer resolves against the new source (finding
-          // 1.5) so a stale date-range filter can't silently blank the KPI.
+          // When the picked field belongs to a different source, adopt that source AND write the
+          // field/aggregation in ONE `updateWidget` commit so the source-switch gesture collapses
+          // to a single undo step; without a source switch a plain config patch is already one
+          // commit. Also fold in the removal of any widget-scoped filter that no longer resolves
+          // against the new source so a stale date-range filter can't silently blank the KPI.
           if (fSourceId && fSourceId !== widget?.sourceId) {
-            // Same cross-source reset as the source Autocomplete above (finding 3,
-            // iteration 20): picking a value field from a different source also adopts
-            // that source, so the old source's sparkline field/source is just as stale
-            // here as it is there.
+            // Same cross-source reset as the source Autocomplete above: picking a value field from
+            // a different source also adopts that source, so the old source's sparkline
+            // field/source is just as stale here as it is there.
             controller.updateWidget(
               widgetId,
               {

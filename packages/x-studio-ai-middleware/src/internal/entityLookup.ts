@@ -7,7 +7,7 @@
  * `"toString"`, or `"__proto__"` resolves to a truthy inherited value instead of
  * `undefined` — even though the shared reducer (`applyMutation.ts`) is fully
  * `Object.hasOwn`-hardened and silently no-ops on that same key. This mismatch was
- * finding T2-1, independently rediscovered and hand-rolled in `executeToolOnState.ts`
+ * independently rediscovered and hand-rolled in `executeToolOnState.ts`
  * (`getWidget`/`getPage`), `buildAISystemPrompt.ts` (`getPage`/`getWidget`, taking the
  * map directly rather than `state`), and twice more inline inside
  * `agenticLoop/toolDispatch.ts` (`buildApprovalDisplayInput`'s `readWidget`/`readPage`,

@@ -1,14 +1,12 @@
 /**
  * Boundary error classification for @mui/x-studio-data-middleware.
  *
- * The read (`handleBatchQuery`) and write (`handleMutation`) handlers isolate a
- * single failing item as its own `{ error }` / `{ ok: false, error }` result. The
- * message returned there is sent verbatim to any authenticated caller, so it must
- * not be a raw database-driver error: a Knex/driver message such as
- * `no such column: orders.secret` or `relation "payroll" does not exist` is a
- * schema oracle that leaks table/column names even on a deployment that configured
- * NO `columnAllowlist` — undercutting the allowlist disclosure hardening (finding
- * T3.5).
+ * The read (`handleBatchQuery`) and write (`handleMutation`) handlers isolate a single failing item
+ * as its own `{ error }` / `{ ok: false, error }` result. The message returned there is sent
+ * verbatim to any authenticated caller, so it must not be a raw database-driver error: a
+ * Knex/driver message such as `no such column: orders.secret` or `relation "payroll" does not
+ * exist` is a schema oracle that leaks table/column names even on a deployment that configured NO
+ * `columnAllowlist` — undercutting the allowlist disclosure hardening.
  *
  * This package's OWN thrown errors are deliberately authored, actionable, and safe
  * to disclose (they are `MUI X`-prefixed and never echo schema internals the caller

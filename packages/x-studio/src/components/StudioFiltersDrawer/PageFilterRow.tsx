@@ -58,7 +58,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
   const controller = useStudioController();
 
   const hasField = !!filter.field;
-  // T2.5: mirror `WidgetFilterRow`'s `filter.filterSourceId`-scoped lookup. `fields` (the
+  // Mirror `WidgetFilterRow`'s `filter.filterSourceId`-scoped lookup. `fields` (the
   // include-hidden field catalog, `SimpleField[]`) is deduped by id across every source — it
   // drops `sourceId` — so an unscoped `fields.find` picks whichever source's field happened to
   // be seen first when two sources share a field id with different types. `fieldOptions`
@@ -97,7 +97,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
     );
   }, [filter.dependsOn, filter.id, allPageFilters]);
 
-  // T3.4: a cross-source "Depends on" pick can never resolve — `applyParentFilters`
+  // A cross-source "Depends on" pick can never resolve — `applyParentFilters`
   // (useFieldValues.ts) narrows by naive `row[parent.field]` against the CHILD source's own
   // rows, so a parent field from a different source is always absent from those rows and the
   // narrowing predicate always fails, silently emptying the child's option list. Restrict the
@@ -243,7 +243,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
                   (o) => o.id === fieldId && o.sourceId === sourceId,
                 );
                 if (opt) {
-                  // M7: `buildFieldRepointReset` clears all five condition keys together
+                  // `buildFieldRepointReset` clears all five condition keys together
                   // (operator/value/operator2/value2/conjunction) — a stale second condition
                   // authored against the previous field would otherwise keep evaluating
                   // against the new one with no UI on screen to see or remove it.
@@ -307,8 +307,8 @@ export function PageFilterRow(props: PageFilterRowProps) {
                 field: '',
                 fieldType: undefined,
                 filterSourceId: undefined,
-                // M7: same five-key clear as the phase-1 picker — the dialog's own repoint has
-                // done this since finding 2.10, the drawer's had not.
+                // Same five-key clear as the phase-1 picker — the dialog's own repoint has
+                // done this all along, the drawer's had not.
                 ...buildFieldRepointReset(filter.filterMode ?? 'condition'),
               })
             }

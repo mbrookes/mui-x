@@ -87,15 +87,13 @@ import {
 import { getDefaultCache } from '../cache/defaultProviders';
 
 /**
- * Hard ceiling on the number of mutations a single batch request may contain.
- * Mirrors `handler.ts`'s `MAX_WIDGETS_PER_BATCH` (finding T3 — unbounded
- * fan-out) for the write path: mutations run SEQUENTIALLY (not concurrently,
- * see the loop in `handleMutation` below), so an unbounded batch does not fan
- * out concurrent queries the way an unbounded `widgets` array does, but it is
- * still unbounded DB write work and response-payload size driven entirely by
- * client input — "batch sizes are small" was previously an assumption, not an
- * enforced limit. Exceeded requests are rejected outright (see
- * `assertValidBatchMutationRequest`) rather than silently truncated.
+ * Hard ceiling on the number of mutations a single batch request may contain. Mirrors
+ * `handler.ts`'s `MAX_WIDGETS_PER_BATCH` (unbounded fan-out) for the write path: mutations run
+ * SEQUENTIALLY (not concurrently, see the loop in `handleMutation` below), so an unbounded batch
+ * does not fan out concurrent queries the way an unbounded `widgets` array does, but it is still
+ * unbounded DB write work and response-payload size driven entirely by client input — "batch sizes
+ * are small" was previously an assumption, not an enforced limit. Exceeded requests are rejected
+ * outright (see `assertValidBatchMutationRequest`) rather than silently truncated.
  */
 export const MAX_MUTATIONS_PER_BATCH = MAX_ITEMS_PER_BATCH;
 
@@ -247,16 +245,13 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
       ],
       'validate',
     );
-    // A "where" field that is present but not an array (Tier3 iter26 finding 1)
-    // — e.g. `where: {}` — passes the checks above (which only look at "id"/
-    // "table") and previously reached the upfront
-    // `assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist)` loop
-    // below, which iterates `where ?? []` with `for...of`: a non-array,
-    // non-iterable "where" (a plain object) threw a raw, unguarded
-    // `TypeError: where is not iterable` instead of one of this package's own
-    // `MUI X`-prefixed errors, with no error boundary at all around this
-    // upfront (pre-try/catch) validation step. Reject it here, fail closed,
-    // before that loop ever runs.
+    // A "where" field that is present but not an array — e.g. `where: {}` — passes the checks above
+    // (which only look at "id"/ "table") and previously reached the upfront
+    // `assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist)` loop below, which
+    // iterates `where ?? []` with `for...of`: a non-array, non-iterable "where" (a plain object)
+    // threw a raw, unguarded `TypeError: where is not iterable` instead of one of this package's
+    // own `MUI X`-prefixed errors, with no error boundary at all around this upfront
+    // (pre-try/catch) validation step. Reject it here, fail closed, before that loop ever runs.
     const { where } = mutation as Partial<MutationDescriptor>;
     if (where !== undefined && !Array.isArray(where)) {
       throw new Error(
@@ -282,7 +277,7 @@ function assertValidBatchMutationRequest(body: BatchMutationRequest): void {
     // undefined, or primitive entry — are rejected here, fail closed, before that
     // loop ever runs.
     if (Array.isArray(where)) {
-      // Size cap on the "where" array itself (finding Tier3 — resource exhaustion,
+      // Size cap on the "where" array itself (resource exhaustion,
       // mirrors the read path's per-array caps in `handler.ts`). Mutations run
       // sequentially, not concurrently, but an unbounded predicate array is still
       // unbounded query-building work driven entirely by client input.
@@ -705,16 +700,13 @@ async function processMutation(
     switch (descriptor.operation) {
       case 'insert': {
         const result = await runMutationQuery(buildInsertMutation(db, claims, descriptor, policy));
-        // Knex INSERT's return shape is driver-dependent and does NOT reliably
-        // carry a row count (Tier3 iter26 finding 3, correcting the previous
-        // comment here): SQLite/MySQL resolve to `[lastInsertId]` (length 1,
-        // which happens to look like a row count only by coincidence), while
-        // PostgreSQL resolves to `[]` UNLESS `.returning(...)` is used — so
-        // `result.length` reported `0` for a successfully COMMITTED single-row
-        // insert on pg. A `MutationDescriptor` insert always writes exactly ONE
-        // row (one `values` object), so treat ANY array result — regardless of
-        // its length — as "one row inserted" rather than trusting `.length` as
-        // a row count.
+        // Knex INSERT's return shape is driver-dependent and does NOT reliably carry a row count
+        // (correcting the previous comment here): SQLite/MySQL resolve to `[lastInsertId]` (length
+        // 1, which happens to look like a row count only by coincidence), while PostgreSQL resolves
+        // to `[]` UNLESS `.returning(...)` is used — so `result.length` reported `0` for a
+        // successfully COMMITTED single-row insert on pg. A `MutationDescriptor` insert always
+        // writes exactly ONE row (one `values` object), so treat ANY array result — regardless of
+        // its length — as "one row inserted" rather than trusting `.length` as a row count.
         if (Array.isArray(result)) {
           rowsAffected = 1;
         } else if (typeof result === 'number') {
@@ -735,12 +727,11 @@ async function processMutation(
         break;
       }
       default: {
-        // Unreachable: `descriptor.operation` is validated against exactly
-        // ['insert', 'update', 'delete'] above, before this switch is ever
-        // reached (an unknown operation throws and returns early via the
-        // catch block below). This exhaustiveness check (rather than a
-        // dead-code default arm, finding 3.5) fails to compile if a new
-        // operation is ever added to the union without a case here.
+        // Unreachable: `descriptor.operation` is validated against exactly ['insert', 'update',
+        // 'delete'] above, before this switch is ever reached (an unknown operation throws and
+        // returns early via the catch block below). This exhaustiveness check (rather than a
+        // dead-code default arm) fails to compile if a new operation is ever added to the union
+        // without a case here.
         const exhaustiveCheck: never = descriptor.operation;
         throw /* minify-error-disabled */ new Error(
           `MUI X: Unreachable mutation operation: ${exhaustiveCheck}`,

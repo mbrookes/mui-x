@@ -27,7 +27,7 @@ export interface HeatmapAxesSectionProps {
    */
   widgetSourceId?: string;
   /**
-   * H3: the ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
+   * The ONE write path for this section's field pickers, supplied by `ChartSetupPanel`.
    * It routes through `commitChartConfigWithSource`, so a row-axis or value pick on a
    * source-less heatmap adopts that field's source instead of leaving the widget blank.
    */
@@ -57,10 +57,10 @@ export function HeatmapAxesSection({
   const sortByLabelId = React.useId();
 
   const heatAxesSet = !!(config.xField && config.heatYField);
-  // Own-source-first resolution, mirroring `ChartSetupPanel`'s `selectedXField` (finding
-  // 2.12): `buildFieldCatalog` sorts by source label, so a bare-id lookup across the
-  // multi-source catalog can match a related source that shares the field id and sorts
-  // earlier, labelling the sort options after the wrong source's field.
+  // Own-source-first resolution, mirroring `ChartSetupPanel`'s `selectedXField`:
+  // `buildFieldCatalog` sorts by source label, so a bare-id lookup across the multi-source catalog
+  // can match a related source that shares the field id and sorts earlier, labelling the sort
+  // options after the wrong source's field.
   const findFieldLabel = (fieldId: string | undefined) =>
     fieldId === undefined
       ? undefined

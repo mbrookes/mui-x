@@ -102,7 +102,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     );
   }, [fieldId, normalizedDataSource, expressionFields, widget.sourceId]);
 
-  // H1: `dataSource.rows` is `undefined` — not `[]` — for an adapter-backed source until the host
+  // `dataSource.rows` is `undefined` — not `[]` — for an adapter-backed source until the host
   // imperatively calls `setDataSourceRows`; the adapter path resolves rows per-widget into
   // `studioRequestCache` (`useAdapterRows`) and never writes them back onto the source. Every
   // row-derived rendering below (`distinctValues`, `autoMin`/`autoMax`) previously read that
@@ -162,7 +162,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   // no-op: the button couldn't reflect the user's intent and the choice was lost.
   const [pendingExclude, setPendingExclude] = React.useState<boolean | null>(null);
 
-  // L16: the pending intent is scoped to the field (and control type) it was expressed on.
+  // The pending intent is scoped to the field (and control type) it was expressed on.
   // Changing `config.filterWidgetField` does NOT remount this component, so an "Exclude"
   // clicked with nothing selected used to survive the switch and silently commit the FIRST
   // selection on the NEW field as `not_in`. Drop it whenever the target changes, using the
@@ -302,7 +302,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     );
   }
 
-  // H1: the value-driven control types (multi-select, toggle, slider) derive their entire visible
+  // The value-driven control types (multi-select, toggle, slider) derive their entire visible
   // state from rows. When the rows were never delivered there is nothing honest to render: "No
   // options" and a 0–100 slider are both positive claims about data nobody has read. Say so
   // instead — and keep saying it rather than flickering to a wrong control — until rows arrive.

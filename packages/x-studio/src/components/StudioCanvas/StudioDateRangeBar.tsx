@@ -89,7 +89,7 @@ export function StudioDateRangeBar() {
   // Active preset comes from any ACTIVE dashboard date-range filter on this page — they all
   // share the same preset, so the first match is sufficient.
   //
-  // H4: `!filter.disabled` mirrors `selectFiltersForWidget`, which drops disabled filters up
+  // `!filter.disabled` mirrors `selectFiltersForWidget`, which drops disabled filters up
   // front. Without it the bar read back "Last 3 months" for a range no widget was applying —
   // the toolbar asserting a constraint while every chart below it showed unfiltered data, with
   // nothing on screen reconciling the two. Reading `'all_time'` instead also keeps the
@@ -201,7 +201,7 @@ export function StudioDateRangeBar() {
               </MenuItem>
             )),
           ])}
-          {/* Finding 3.12: `activePreset` can be `'custom'` (set by a host or the AI via
+          {/* `activePreset` can be `'custom'` (set by a host or the AI via
               an explicit customFrom/customTo range), but this Select previously had no
               matching item — an out-of-range value rendered blank with a dev warning.
               This keeps the Select in range; there's no UI here to author the custom

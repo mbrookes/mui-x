@@ -70,7 +70,7 @@ export function TabbedSidebar({ panels, side = 'left' }: TabbedSidebarProps) {
   const [focusedIndex, setFocusedIndex] = React.useState(0);
   const tabRefs = React.useRef<Array<HTMLElement | null>>([]);
 
-  // M9: `panels` shrinks at runtime — switching to view mode drops the edit-only panels — but
+  // `panels` shrinks at runtime — switching to view mode drops the edit-only panels — but
   // `focusedIndex` was only ever written by the sync effect below (which bails while no panel
   // is open) and by `moveFocus`. Opening Filters (index 2 of 3), closing it (`activeIndex`
   // → -1, `focusedIndex` stays 2) and then switching to view mode left `focusedIndex` past the

@@ -35,14 +35,14 @@
  *   the affected table. The host app does not need to call /api/invalidate
  *   manually when using handleMutation. When no `cacheProvider` is supplied, the
  *   invalidation runs against the SAME process-wide default cache that
- *   `handleBatchQuery` populates by default (finding 2.2) — so a zero-config host
+ *   `handleBatchQuery` populates by default — so a zero-config host
  *   that reads and writes through both handlers still observes its own writes,
  *   instead of the read path caching into a singleton the write path could not
  *   reach.
  * - The cache side-effect is best-effort: a throwing `deleteByTag` (e.g. Redis
  *   down) is caught and logged, and the mutation still reports `ok: true`. A
  *   committed write reported as failed would prompt a client retry that inserts a
- *   duplicate row — strictly worse than a cache stale for ≤ its TTL (finding 2.6).
+ *   duplicate row — strictly worse than a cache stale for ≤ its TTL.
  *   Under `atomic: true` the invalidation instead runs ONCE per distinct table
  *   AFTER the transaction commits — evicting mid-transaction would let a
  *   concurrent read re-populate the cache with rows that are about to roll back.
@@ -119,7 +119,7 @@ function mutationRef(index: number): DescriptorRef {
 }
 
 /**
- * Opt-in transactional semantics for a mutation batch (finding M3).
+ * Opt-in transactional semantics for a mutation batch.
  *
  * Declared here rather than on `HandleMutationOptions` (`security/mutationTypes.ts`)
  * because that file is outside this change's boundary; it is an intersection on
@@ -396,7 +396,7 @@ export async function handleMutation(
 ): Promise<BatchMutationResponse> {
   assertValidBatchMutationRequest(body);
   const { schemaAllowlist, tenancy, securityColumns, columnAllowlist, writableColumns } = options;
-  // Validated ONCE, at the option boundary (F2): a bad `queryTimeoutMs` is a host
+  // Validated ONCE, at the option boundary: a bad `queryTimeoutMs` is a host
   // misconfiguration, so it rejects the whole batch here rather than surfacing as
   // an identical `{ ok: false }` on every mutation in it.
   const queryTimeoutMs = resolveQueryTimeoutMs(options.queryTimeoutMs);
@@ -409,7 +409,7 @@ export async function handleMutation(
   // visibility invalidates cache entries computed under a looser allowlist.
   //
   // `schemaAllowlist` is folded in for the same reason `handleBatchQuery` folds
-  // it in (finding L2 — the two calls used to differ): per
+  // it in: per
   // `SecurityPolicyOptions.schemaAllowlist`'s own contract it is THE zero-config
   // data-source separator, so a digest computed without it does not identify the
   // data source at all. Inert today — the write path never consumes
@@ -452,7 +452,7 @@ export async function handleMutation(
     assertQualifiedWhereColumnsAllowed(mutation.where, schemaAllowlist);
   }
 
-  // ── Opt-in all-or-nothing batch (finding M3) ──────────────────────────────
+  // ── Opt-in all-or-nothing batch ──────────────────────────────
   if (options.atomic) {
     return {
       results: await runAtomicBatch(body.mutations, claims, options, policy, queryTimeoutMs),
@@ -484,7 +484,7 @@ export async function handleMutation(
 
 /**
  * Run every mutation in the batch inside ONE `db.transaction`, rolling back on
- * the first failure (finding M3 — `atomic: true`).
+ * the first failure.
  *
  * The transaction handle replaces `db` for every builder call, so the whole
  * batch commits or none of it does. On failure the returned results report
@@ -617,7 +617,7 @@ async function runAtomicBatch(
  * The write already committed by the time this runs, so a cache-backend failure
  * must NOT flip the result to `ok: false` (a client retry would duplicate the
  * row). Degrade to a logged warning: the cache is stale for ≤ its TTL, which is
- * strictly better than reporting a committed write as failed (finding 2.6).
+ * strictly better than reporting a committed write as failed.
  */
 async function invalidateTableCache(
   table: string,
@@ -654,7 +654,7 @@ interface ProcessMutationContext {
    */
   invalidateCache: boolean;
   /**
-   * Per-query statement timeout in milliseconds (F2), already validated and
+   * Per-query statement timeout in milliseconds, already validated and
    * defaulted by `resolveQueryTimeoutMs` at the handler boundary. Applied by the
    * single `runMutationQuery` dispatch helper below so no operation arm can issue
    * an untimed write.
@@ -672,7 +672,7 @@ async function processMutation(
   const { writableColumns, columnAllowlist } = options;
   const { db, queryTimeoutMs } = context;
 
-  // ONE dispatch helper for all three operation arms (F2), mirroring the read
+  // ONE dispatch helper for all three operation arms, mirroring the read
   // path's `runBounded`: the statement timeout is applied where the builder is
   // executed, so a fourth operation arm cannot ship an untimed write. An untimed
   // UPDATE/DELETE holds a pooled Knex connection — and, inside an `atomic` batch,
@@ -754,7 +754,7 @@ async function processMutation(
     // Skipped inside an atomic batch, which invalidates after COMMIT instead
     // (see `runAtomicBatch`). Falls back to the SAME process-wide default cache
     // `handleBatchQuery` uses when no `cacheProvider` is passed, so a zero-config
-    // host still invalidates the read path's default cache (finding 2.2).
+    // host still invalidates the read path's default cache.
     if (context.invalidateCache) {
       await invalidateTableCache(descriptor.table, options.cacheProvider ?? getDefaultCache());
     }
@@ -764,7 +764,7 @@ async function processMutation(
     return {
       id: descriptor.id,
       ok: false,
-      // Never return a raw DB-driver error verbatim (finding T3.5): our own
+      // Never return a raw DB-driver error verbatim: our own
       // validation messages pass through, but a driver error (e.g. a constraint or
       // `no such column` message) is a schema oracle, so it is logged server-side
       // and replaced with a generic message here.

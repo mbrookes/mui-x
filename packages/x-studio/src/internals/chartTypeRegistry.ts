@@ -97,7 +97,7 @@ function buildXYAggSpecs(
   // picked). Emitting two specs for one alias is wasteful when the fns match and
   // produces an ambiguous duplicate-alias query when they differ (e.g. a chart-type
   // switch that retains `ySeries` with `avg` while `yField` still says `sum`). The
-  // more specific per-series fn wins over the `yField`-derived one (finding 1.5).
+  // more specific per-series fn wins over the `yField`-derived one.
   const byAlias = new Map<string, AggSpec>();
 
   if (config.yField && !isExpr(config.yField)) {
@@ -173,7 +173,7 @@ const heatmapDescriptor: ChartTypeDescriptor = {
       // single-series/multi-Y/split-by/blended/pie-ring precedence already applied
       // elsewhere, and the client-side `renderHeatmap` (`chartTypeDefs.tsx`), so the
       // server push-down doesn't silently downgrade to 'sum' when only the fieldId
-      // (not the aggregation) survives a chart-type switch (finding 2.2).
+      // (not the aggregation) survives a chart-type switch.
       const fn =
         (config.ySeries?.[0]?.yAggregation as AggFn | undefined) ??
         (config.yAggregation as AggFn | undefined) ??
@@ -207,7 +207,7 @@ const funnelDescriptor: ChartTypeDescriptor = {
     const yField = config.yField ?? config.ySeries?.[0]?.fieldId;
     if (yField && !isExpr(yField)) {
       // Per-series aggregation wins over the yField-level default — see the identical
-      // heatmap fix above (finding 2.2); both must move together to keep client/server
+      // heatmap fix above; both must move together to keep client/server
       // aggregation push-down parity.
       const fn =
         (config.ySeries?.[0]?.yAggregation as AggFn | undefined) ??
@@ -275,7 +275,7 @@ const sankeyDescriptor: ChartTypeDescriptor = {
  * `computeAggregate(rows, yField, yAggregation)`. Emitting an aggregation spec (e.g. the
  * default `count`) makes the db-tier return ONE pre-aggregated row; re-running
  * `computeAggregate` over that single already-aggregated row yields `1` for `count` (or the
- * wrong value for other fns) instead of the real aggregate (finding 2.26). Gauge previously
+ * wrong value for other fns) instead of the real aggregate. Gauge previously
  * routed through `xyDescriptor`, which emitted that spec — the exact hazard the KPI
  * descriptor was already special-cased for.
  */
@@ -285,7 +285,7 @@ const gaugeDescriptor: ChartTypeDescriptor = {
     // `yField ?? ySeries?.[0]?.fieldId` mirrors the fallback `renderGauge` (`chartTypeDefs.tsx`)
     // now uses, so a gauge whose measure was authored via `ySeries` (e.g. after a chart-type
     // switch) still gets its value field into the SELECT instead of an empty projection that
-    // renders "configure gauge" (finding 2.7).
+    // renders "configure gauge".
     addField(fields, config.yField ?? config.ySeries?.[0]?.fieldId);
     return [...fields].filter(Boolean);
   },

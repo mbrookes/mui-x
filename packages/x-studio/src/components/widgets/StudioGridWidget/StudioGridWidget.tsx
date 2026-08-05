@@ -144,7 +144,7 @@ export function resolveAggregationFieldKeys<T>(
  * widget's own fields (e.g. an `order_items` grid's own `total` column plus a related
  * `customers.total` column) — without this guard the FK-dedupe entry keyed by that bare
  * id would apply to the OWN column too, deduping it down to one row per related record
- * and silently dropping the true per-row total (finding 7). Mirrors the own-field-wins
+ * and silently dropping the true per-row total. Mirrors the own-field-wins
  * guard `buildGridColumnDefs`'s `!field && !expressionField` check, `computeOrderedFieldIds`'s
  * first-occurrence dedupe, and `crossSourceEnrichment.ts`'s `fieldId in row` check already
  * apply at their respective sites.
@@ -253,7 +253,7 @@ export function makeFanoutSafeAggregationFunction(
  * `fieldId` when a cross-source column collides with a primary one (e.g. a primary
  * `name` plus a related `customers.name`). Emitting the id twice would build two
  * `GridColDef`s with the same `field` — a duplicate React key with undefined
- * DataGridPremium behaviour (finding T1.2). The first occurrence wins, so the
+ * DataGridPremium behaviour. The first occurrence wins, so the
  * primary column (whose own-source cell value the enrichment guard now preserves)
  * renders and the colliding cross-source duplicate is dropped.
  */
@@ -317,7 +317,7 @@ export function resolveCrossSourceFieldDefs(
       map.set(c.fieldId, field);
       continue;
     }
-    // Related-source calculated column (finding 2.3) — resolve from the related source's
+    // Related-source calculated column — resolve from the related source's
     // own non-measure expression fields.
     const ef = expressionFields.find(
       (candidate) =>
@@ -500,7 +500,7 @@ export function evalConditionalFormat(rule: StudioConditionalFormat, cellValue: 
     case 'less_than_or_equal': {
       // A numeric comparison must never match an empty cell: `Number(null)`/`Number('')`
       // coerce to 0, so a `less_than 5` rule would spuriously highlight genuinely empty
-      // cells as if they held 0 (finding 3.5). Empty cells are matched only by `is_empty`.
+      // cells as if they held 0. Empty cells are matched only by `is_empty`.
       if (cellValue === null || cellValue === undefined || cellValue === '') {
         return false;
       }
@@ -542,7 +542,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   const controller = useStudioController();
   const localeText = useStudioLocaleText();
   // Full data-source map — needed to resolve cross-source configured columns'
-  // field definitions (finding 1.1), the same way `useWidgetRows.ts`'s row
+  // field definitions, the same way `useWidgetRows.ts`'s row
   // enrichment resolves their VALUES.
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
@@ -552,7 +552,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // Expression fields for the widget's own source AND every one-hop related source.
   // The related-source subset is needed so a cross-source column that is a related
   // source's calculated column (`GridSetupPanel` offers these) can be resolved to a
-  // column def and enriched with a real value (finding 2.3); mirrors the own+related
+  // column def and enriched with a real value; mirrors the own+related
   // scoping `useWidgetRows` already subscribes to.
   const relevantSourceIds = React.useMemo(
     () =>
@@ -580,7 +580,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   );
 
   // Check if this widget has an active cross-filter (on its own page). Routes through
-  // the shared `makeSelectWidgetActiveCrossFilter` selector (finding 3.8) so the grid
+  // the shared `makeSelectWidgetActiveCrossFilter` selector so the grid
   // can no longer diverge from chart/map on the `disabled` flag: a cross-filter that
   // was disabled via the quick-filter-bar chip must NOT count as active here (otherwise
   // the emitting grid still row-highlights it and clicking the same cell would clear the
@@ -613,7 +613,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   // fieldId → declared type, across own-source fields, own-source expression columns,
   // and resolvable cross-source columns. Used by `handleCellClick` to tag a cross-filter
-  // emitted from a date/datetime cell with `fieldType` (finding 1.1) so the downstream
+  // emitted from a date/datetime cell with `fieldType` so the downstream
   // `compileSingleCondition` day-normalizes both sides — otherwise an `equals` on an
   // L1-normalized date cell (`'2024-01-15'`) never matches a full-ISO/Date value.
   //
@@ -621,7 +621,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // only fills in an id that isn't already present — a cross-source column can share a bare
   // `fieldId` with a primary column (e.g. a primary `total` plus a related `customers.total`),
   // and letting the cross-source def win on that collision would report the OWN column's type
-  // as the related column's type (finding 7). Mirrors `buildGridColumnDefs`'s
+  // as the related column's type. Mirrors `buildGridColumnDefs`'s
   // `!field && !expressionField` own-field-wins guard.
   const fieldTypeById = React.useMemo(() => {
     const map = new Map<string, StudioDataField['type']>();
@@ -643,7 +643,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   // The widget's own (primary-source + own expression-field) field ids — the "primary wins"
   // set used to guard `resolveCrossSourceFkFields` below against a cross-source column that
-  // shares a bare fieldId with one of the widget's own fields (finding 7).
+  // shares a bare fieldId with one of the widget's own fields.
   const ownFieldIds = React.useMemo(() => {
     const ids = new Set<string>();
     for (const f of dataSource?.fields ?? []) {
@@ -657,8 +657,8 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   // fieldId → FK field, for every configured cross-source column that is fanned out
   // by row enrichment — used to dedupe fan-out double-counting in the native
-  // grouping aggregation below (finding 2.7) and the footer summary (finding 1.2).
-  // `ownFieldIds` guards against a same-named own-field collision (finding 7).
+  // grouping aggregation below and the footer summary.
+  // `ownFieldIds` guards against a same-named own-field collision.
   const crossSourceFkFields = React.useMemo(
     () =>
       resolveCrossSourceFkFields(
@@ -670,7 +670,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.columns, widget.sourceId, relationships, ownFieldIds],
   );
 
-  // Related-source EXPRESSION columns (finding 1.1): the shared `useWidgetRows` cross-source
+  // Related-source EXPRESSION columns: the shared `useWidgetRows` cross-source
   // enrichment now threads `expressionFields`, so a related-source *calculated* column is
   // L2-enriched and joined onto the widget rows on the shared path — no widget-local
   // supplemental pass is needed here. (This module previously carried its own
@@ -764,7 +764,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // by grids too), so it is read via the flat cross-kind `StudioWidgetConfig`. The
   // dashboard-wide `globalCrossFilterMode` override takes precedence over the
   // widget's own config, mirroring the exact precedence `useWidgetRows` already
-  // applies internally to compute `effectiveRows` (finding 1.6) — every other
+  // applies internally to compute `effectiveRows` — every other
   // widget kind (chart/KPI/map/pivot) is global-mode-aware; the grid used to
   // resolve its mode locally and ignore both the 'none' setting and the
   // dashboard-wide toggle.
@@ -825,7 +825,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
 
   const rows = React.useMemo(() => {
     // `baseRows` already carries related-source calculated columns — the shared `useWidgetRows`
-    // enrichment now L2-enriches and joins them (finding 1.1), so no local pass is needed here.
+    // enrichment now L2-enriches and joins them, so no local pass is needed here.
     // Track the ids already handed out (as `getRowId` stringifies them) so two data rows sharing
     // the same non-null `id` — plausible with real host data — don't produce duplicate `getRowId`
     // results, which is undefined behavior for DataGridPremium (finding).
@@ -847,7 +847,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // value.
       //
       // The synthetic fallback covers a row whose `id` property is null/undefined (a nullable
-      // database id column) as well as an id-less source (finding 1.9).
+      // database id column) as well as an id-less source.
       let rowId = String(row.id ?? `${widget.id}-${index}`);
       // On a collision (a duplicate non-null id, or a synthetic id that happens to match a real
       // one), fall back to a synthetic per-index unique id so every rendered row keeps a distinct
@@ -947,7 +947,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   //   partition; a read-only viewer's transient sort must not be baked into the authored
   //   dashboard, must not push undo entries, and must not clear a pending redo.
   //
-  // Coalescing (F2). One logical sort gesture is DataGridPremium's asc -> desc -> none cycle:
+  // Coalescing. One logical sort gesture is DataGridPremium's asc -> desc -> none cycle:
   // three separate `onSortModelChange` calls. This used to be committed `{ undoable: false }`
   // so the cycle didn't cost three Ctrl+Z's — but that made it a standalone NON-undoable write
   // into `doc.widgets`, and `carryTransientDocState` carries only `filters`, three `dashboard`
@@ -1106,7 +1106,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // Only leaf rows carry real field values. A grouping cell (with `gridGroupByField`,
       // DataGridPremium renders a `group`/`pinned` node backed by the internal
       // `__row_group_by_columns_group__` field) would otherwise emit a filter on a field
-      // no source owns — blanking every same-source widget (finding 1.1).
+      // no source owns — blanking every same-source widget.
       if (params.rowNode.type !== 'leaf') {
         return;
       }
@@ -1117,7 +1117,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // to fall through and emit `applyCrossFilter(widget.id, '__row_group_by_columns_group__',
       // <value>, ...)` — a field no source owns. Depending on the value, that either matches
       // every row (loose-equality quirk for `undefined`) or matches none, blanking every
-      // same-source widget (finding 7). Exclude clicks on that column regardless of row type.
+      // same-source widget. Exclude clicks on that column regardless of row type.
       if (params.field === GRID_ROW_GROUPING_SINGLE_GROUPING_FIELD) {
         return;
       }
@@ -1129,7 +1129,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
       // otherwise clicking any non-configured column emits nonsense filter values.
       const value = cfField ? (params.row as Record<string, unknown>)[cfField] : params.value;
 
-      // Resolve the source that OWNS the clicked field (finding 1.1). A configured
+      // Resolve the source that OWNS the clicked field. A configured
       // cross-source column carries its own `sourceId`; a related-source calculated
       // column is resolved via its expression-field owner; everything else is native to
       // the widget's own source. Passing the true owner (not `widget.sourceId`
@@ -1178,13 +1178,13 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // `widget.id` is normally minted by `createWidgetId` and always identifier-safe, but the
   // persisted-doc load boundary only screens ids for prototype-pollution-unsafe keys, not
   // CSS-selector-safety — sanitize the local token used to build the conditional-format
-  // class name (finding 5) without touching `widget.id` itself anywhere else it's used.
+  // class name without touching `widget.id` itself anywhere else it's used.
   const safeWidgetIdForCss = sanitizeCssIdentifierToken(widget.id);
   const conditionalFormatSx = React.useMemo(() => {
     const sx: Record<string, Record<string, unknown>> = {};
     conditionalFormats.forEach((rule, i) => {
       const cls = `.StudioGrid-cf-${safeWidgetIdForCss}-${i}`;
-      // Sanitized before reaching `sx` (finding 1): `gridConditionalFormats` is
+      // Sanitized before reaching `sx`: `gridConditionalFormats` is
       // doc-authored config reachable via `loadSerializedState`/the AI `update_widget`
       // tool call, and Emotion does not escape interpolated `sx` property values.
       const safeBackgroundColor = sanitizeCssColor(rule.style.backgroundColor);
@@ -1242,14 +1242,14 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     () =>
       hasChartCrossFilters && crossFilterMode === 'cross-highlight'
         ? // `filteredRows` already carries related-source calculated columns via the shared
-          // `useWidgetRows` enrichment (finding 1.1) — no local pass needed.
+          // `useWidgetRows` enrichment — no local pass needed.
           filteredRows
         : rows,
     [hasChartCrossFilters, crossFilterMode, filteredRows, rows],
   );
 
   // Field defs the footer summary resolves against — the widget's own physical fields,
-  // its own calculated columns, AND resolvable cross-source columns (finding 1.2). Without
+  // its own calculated columns, AND resolvable cross-source columns. Without
   // the last two a configured `sum`/`avg`/`min`/`max` on a cross-source or expression-field
   // column found no def, resolved as non-numeric, and silently degraded to a `count`.
   //
@@ -1257,7 +1257,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
   // which is last-write-wins — so a cross-source def pushed after an own field/expression def
   // sharing its bare id would silently shadow the primary def there, routing the footer
   // aggregation for the widget's OWN column through the cross-source FK-dedupe and dropping all
-  // but one row per related record (finding 7). Skip a cross-source def whose id collides with
+  // but one row per related record. Skip a cross-source def whose id collides with
   // an own field/expression column so the own def always wins, mirroring `buildGridColumnDefs`'s
   // `!field && !expressionField` own-field-wins guard.
   const summaryFieldDefs = React.useMemo<StudioDataField[]>(() => {
@@ -1382,7 +1382,7 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         // config keys that can express exactly ONE sorted column, so `handleSortModelChange`
         // keeps only `model[0]`. The Data Grid's shift-click multi-sort was still enabled
         // though, so an author shift-clicking a second header saw absolutely nothing happen
-        // while the identical gesture worked in view mode (finding M18). Turn the gesture off
+        // while the identical gesture worked in view mode. Turn the gesture off
         // where the model cannot hold it, so the UI and the storage agree instead of failing
         // silently. View mode keeps multi-sort: `viewSortModel` holds the full model.
         //

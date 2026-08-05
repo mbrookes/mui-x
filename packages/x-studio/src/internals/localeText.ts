@@ -33,7 +33,7 @@ export interface StudioLocaleText {
   dateRangePresetLastQuarter: string;
   dateRangePresetThisAndLastQuarter: string;
   /**
-   * Label for the `'custom'` preset (finding 3.12): `activePreset` can be `'custom'`
+   * Label for the `'custom'` preset: `activePreset` can be `'custom'`
    * (set by a host or the AI via an explicit `customFrom`/`customTo` range), but the
    * preset `Select` previously had no matching menu item — an out-of-range value
    * rendered blank with a dev warning. This item keeps the Select in range; selecting
@@ -1108,7 +1108,7 @@ export interface StudioLocaleText {
   // These are the actual message TEXT submitted to the chat thread when a suggestion
   // chip is clicked (rendered as "the user's own message"), as opposed to the chip's
   // displayed `label` above — kept as separate tokens so a non-English locale doesn't
-  // show a translated chip that then posts an English message (finding 3.14).
+  // show a translated chip that then posts an English message.
   /** Submitted prompt for the bar-chart suggestion. */
   aiSuggestionBarChartPrompt: (
     numericLabel: string,

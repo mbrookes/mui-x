@@ -105,7 +105,7 @@ interface UseWidgetRowsResult {
    * cross-filter + interactive), derived from the SAME deferred filter snapshot the rows were
    * produced from. Consumers doing L4 re-anchoring (chart `useChartRows`, KPI grain-anchoring)
    * must use this rather than re-deriving from the live `selectFilters` array, so a deferred-window
-   * render never pairs stale rows with a newer filter list (finding 2.1). Pairs with `filteredRows`.
+   * render never pairs stale rows with a newer filter list. Pairs with `filteredRows`.
    *
    * EXCLUDES widget-scoped RANK (Top-N) filters. `selectFiltersForWidget` drops
    * `filterMode === 'rank'` unless `includeWidgetRank` is set, and these sets are built
@@ -135,7 +135,7 @@ interface UseWidgetRowsResult {
    * The widget's resolved/scoped filter set for `include: 'no-chart-cross'` (page + widget +
    * interactive, no chart-click cross-filters), derived from the same deferred snapshot as the
    * rows. Pairs with `filteredRowsNoChartCross` — the correct chart ghost/tooltip "all rows"
-   * baseline (finding 1.4).
+   * baseline.
    *
    * EXCLUDES widget-scoped RANK (Top-N) filters. `selectFiltersForWidget` drops
    * `filterMode === 'rank'` unless `includeWidgetRank` is set, and these sets are built
@@ -150,7 +150,7 @@ interface UseWidgetRowsResult {
   /**
    * The widget's own WIDGET-scoped rank (Top-N) filters, derived from the same deferred snapshot
    * as the rows. Exposed so the chart's post-aggregation rank re-application consumes the deferred
-   * filter list rather than re-deriving from the live `selectFilters` array (finding 3.3). Empty
+   * filter list rather than re-deriving from the live `selectFilters` array. Empty
    * for widgets with no widget-scoped rank filter.
    */
   widgetScopedRankFilters: StudioFilterState[];
@@ -192,7 +192,7 @@ export function useWidgetRows(
   // < deferred count), use the live value immediately — there's no heavy computation and the
   // extra deferred render cycle makes removal feel sluggish. Only defer when adding filters
   // (which requires a new row-filtering pass that may be expensive). The interactive partition
-  // is mirrored alongside `cross` here (finding 3.2): clearing a filter-widget selection has the
+  // is mirrored alongside `cross` here: clearing a filter-widget selection has the
   // same "removal is cheap" rationale as clearing a chart cross-filter, so it takes the fast
   // path too instead of lagging through the deferred cycle.
   const isFilterRemoval =
@@ -272,7 +272,7 @@ export function useWidgetRows(
   // `selectFiltersForWidget`), built from the already-partitioned buckets.
   // Used ONLY to derive `usedFieldIds` below; built from `deferredPartitioned`
   // (NOT the live `partitioned`) so the enrichment field set is driven by the SAME
-  // filter snapshot the row-filtering path actually consumes below (finding 2.1).
+  // filter snapshot the row-filtering path actually consumes below.
   // If this used the live filters instead, then during the deferred window a removed/
   // disabled expression-field-only filter would drop its field from `usedFieldIds` on
   // the urgent render while the still-deferred row filtering evaluated that filter against
@@ -304,7 +304,7 @@ export function useWidgetRows(
   // `deferredPartitioned` snapshot. Exposed as `resolvedFiltersNoCross` so L4 re-anchoring
   // consumers (chart / KPI) can pair the filter set with `filteredRowsNoCross` — which came from
   // the same deferred snapshot — instead of re-deriving from the live `selectFilters` array and
-  // skewing during a deferred window (finding 2.1). `reachableFilters` (include:'all') is exposed
+  // skewing during a deferred window. `reachableFilters` (include:'all') is exposed
   // as `resolvedFiltersAll`.
   const resolvedFiltersNoCross = React.useMemo(
     () =>
@@ -326,7 +326,7 @@ export function useWidgetRows(
   // `resolvedFiltersNoChartCross` so the chart ghost/tooltip L4 re-anchoring can pair this filter
   // set with `filteredRowsNoChartCross` (which came from the same snapshot) — interactive
   // filter-widget selections are always hard-filtered per BI norm, so the chart "all rows"
-  // baseline must keep them while excluding chart cross-filters (finding 1.4). Includes the
+  // baseline must keep them while excluding chart cross-filters. Includes the
   // `interactive` bucket (unlike `resolvedFiltersNoCross`) since `include: 'no-chart-cross'`
   // keeps interactive filters.
   const resolvedFiltersNoChartCross = React.useMemo(
@@ -355,8 +355,8 @@ export function useWidgetRows(
   // Collected directly from the already page/widget-scoped `deferredPartitioned.byWidgetId`
   // bucket (not the raw dashboard-wide `filters`) so a widget-scoped "top N by measure" filter's
   // field widening below isn't silently skipped, while still never widening on a rank filter that
-  // belongs to a DIFFERENT widget (finding 2.5). Uses `deferredPartitioned` (not live) to stay in
-  // lockstep with the row-filtering snapshot, exactly like `reachableFilters` above (finding 2.1).
+  // belongs to a DIFFERENT widget. Uses `deferredPartitioned` (not live) to stay in
+  // lockstep with the row-filtering snapshot, exactly like `reachableFilters` above.
   const widgetScopedRankFilters = React.useMemo(
     () =>
       (deferredPartitioned.byWidgetId.get(widget.id) ?? []).filter(
@@ -384,7 +384,7 @@ export function useWidgetRows(
       // field that need not otherwise appear anywhere in the widget's config or in `f.field`
       // (the group-by/dimension column). Without this, `rankByField` never enters L1/L2
       // enrichment scope, so its raw values are missing from the normalized/enriched row set
-      // the rank reduction reads from (finding 2.5).
+      // the rank reduction reads from.
       if (f.rankByField) {
         ids.add(f.rankByField);
       }
@@ -600,7 +600,7 @@ export function useWidgetRows(
         // the descriptor. Non-rank page/widget/date-range filters were already enforced
         // server-side and must NOT be re-applied — the response only projects
         // `descriptor.select`, so re-running them evaluates against columns the server never
-        // returned and drops every row (finding M1b).
+        // returned and drops every row.
         //
         // `selectAdapterResidualFilters` (filterScoping.ts) is the ONE implementation of that
         // rule, shared with the CSV export (`widgetExport.ts`), which used to carry a
@@ -774,7 +774,7 @@ export function useWidgetRows(
   //
   // `expressionFields` is threaded through so this SHARED pass performs the L2 enrichment
   // that gates a related-source *calculated* (expression) column referenced by a grid
-  // column or a map's `mapCountryField`/`mapValueField` (finding 1.1). Without it the
+  // column or a map's `mapCountryField`/`mapValueField`. Without it the
   // related source's RAW rows are indexed and the calculated column copies `undefined`
   // onto every widget row — a blank map / spurious "No data" while the setup panel reports
   // the config is valid. `enrichWithCrossSourceFields` scopes the L2 pass to only the
@@ -833,7 +833,7 @@ export function useWidgetRows(
     isRecomputing,
     isError,
     errorMessage,
-    // `reachableFilters` is exactly the include:'all' scoped set (finding 2.1).
+    // `reachableFilters` is exactly the include:'all' scoped set.
     resolvedFiltersAll: reachableFilters,
     resolvedFiltersNoCross,
     resolvedFiltersNoChartCross,

@@ -263,68 +263,55 @@ function truncateToWireSize(value: string, max: number): string {
   return value.slice(0, low);
 }
 
+/*
+ * ─── Persisted-doc bounds for the SSE stream ──────────────────────────────────────────────
+ *
+ * Four doors across three event kinds (`message-metadata`, `tool-approval-request`,
+ * `tool-activity`) write onto a chat message PART, and `useChatThreads.handleMessagesChange`
+ * persists those parts into `doc.ai.threads[].messages` as the stream streams, with no
+ * load-boundary screen on the way back in. The writer is untrusted — `toolName`/`toolCallId`
+ * originate in the LLM provider's stream — so every door is bounded here.
+ *
+ * Three rules hold across all of them; the per-constant comments below give only what is
+ * specific to that cap.
+ *
+ * 1. EVERY budget is charged in JSON characters (`wireValueSize`/`wireStringSize`), the unit
+ *    the saved document is measured in. `String.prototype.length` is NOT that unit —
+ *    `JSON.stringify` escapes a control character to six characters, so a raw-length budget
+ *    under-charges by up to 6x and bounds nothing it claims to.
+ * 2. A per-event cap without a TURN cap bounds nothing: events merge into one assistant
+ *    message and nothing limits how many arrive.
+ * 3. Over-cap DROPS the event, except `output`, which is truncated and marked. See
+ *    MAX_TOOL_ID_LENGTH and MAX_TOOL_OUTPUT_SIZE for why each way round.
+ *
+ * Worst case is ~1 000 KB per assistant message across the tool doors plus ~30 KB for
+ * `message-metadata` — a number, not a function of the stream length. The full arithmetic,
+ * and the measurements behind each constant, are in this package's ARCHITECTURE.md
+ * ("Bounding what the stream writes into the persisted doc").
+ *
+ * Every constant here is exported for the TESTS only — deliberately not re-exported from
+ * `x-studio`'s `index.ts`, so these stay module details rather than semver-locked numbers,
+ * unlike the shared `wireLimits` caps.
+ */
+
 /**
  * Longest key NAME accepted into the `message-metadata` pass-through.
  *
  * `wireValueSize` measures the VALUE only, so without this a payload of `MAX_ARRAY_LENGTH`
  * keys whose names are megabytes long passes every value-side check and lands in the
  * persisted doc — a name is exactly as persistent as the thing it names. 128 characters is
- * far past any real metadata key (`traceId`, `x-request-id`,
- * `contextEnricher.cacheGeneration`) while keeping the name side of the budget's worst case
- * a rounding error next to the value side.
- *
- * Measured — and charged — in JSON characters ({@link wireStringSize}), like every other term
- * of {@link MAX_TURN_METADATA_SIZE}. A name of 128 control characters is 128 UTF-16 units and
- * 768 JSON characters; charged raw, 500 of them cost the budget 64 000 and the document
- * 384 000.
- *
- * Exported for the tests only — deliberately NOT re-exported from `x-studio`'s `index.ts`
- * (which names `createBackendChatAdapter`/`StudioAIConfig` explicitly), so this stays a
- * module detail rather than a semver-locked number, unlike the shared `wireLimits` caps.
+ * far past any real metadata key (`traceId`, `x-request-id`).
  */
 export const MAX_METADATA_KEY_LENGTH = 128;
 
 /**
- * Total serialized size, in JSON characters, that ONE assistant turn may contribute to the
- * open `message-metadata` extension — key names and values together, summed across every
- * `message-metadata` event in that turn's stream.
+ * Total size ONE assistant turn may contribute to the open `message-metadata` extension —
+ * key names and values together, summed across every `message-metadata` event in the turn.
  *
- * Per-event caps alone bound nothing. `processStream`'s `message-metadata` case does
- * `metadata: { ...message.metadata, ...chunk.metadata }`: N events MERGE into ONE assistant
- * message, so a per-event budget multiplies by the event count, which nothing bounds
- * (`parseSSEStream`'s 8 MB `MAX_BUFFER_SIZE` caps the un-newlined residue of a single LINE,
- * not the stream and not the number of events). Measured on the previous per-event counter:
- * 5 events x `MAX_ARRAY_LENGTH` at-cap keys = 2500 keys / 25 MB on one message, linear in
- * the event count.
- *
- * `2 * MAX_STRING_LENGTH` = 20 000 characters, so a single at-cap value plus its name still
- * fits — the budget is a ceiling on the turn, not a ban on one sizeable value — and the
- * worst case a hostile server can write per assistant turn becomes:
- *
- *     model          <=  MAX_STRING_LENGTH       = 10 000 JSON chars
- *   + 3 numbers      <=  3 x 23 (a double's longest JSON form)
- *                                               =      69 JSON chars
- *   + pass-through   <=  MAX_TURN_METADATA_SIZE  = 20 000 JSON chars (names AND values,
- *                                                                    and <= 500 keys)
- *   ---------------------------------------------------------------------------
- *   total            <=                            30 069 JSON chars (~30 KB) per
- *                                                  assistant message,
- *
- * INDEPENDENT of how many `message-metadata` events the stream carries. The growth vector
- * that remains — more assistant messages — costs the server a user-initiated turn each,
- * which is what "bounded" has to mean at this boundary.
- *
- * EVERY term above is JSON characters, measured with `wireValueSize`/{@link wireStringSize},
- * because that is the unit the budget is denominated in and the unit the doc actually
- * persists. The previous round charged `model` and the key NAMES with
- * `String.prototype.length` instead, and a JSON-character budget spent in raw UTF-16 units is
- * off by the escape ratio: measured against this same "~30 KB" claim, a turn of
- * control-character names and one control-character `model` persisted 178 052 JSON characters,
- * of which `model` alone was 60 002. Re-measured with every term in one unit, the same hostile
- * turn (10 events x 500 at-cap names, at-cap values, an at-cap `model`) persists 29 404 JSON
- * characters of `metadata`, 29 279 of which are the fields above.
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * `processStream` does `metadata: { ...message.metadata, ...chunk.metadata }`, so N events
+ * MERGE into one message and a per-event budget multiplies by an unbounded event count.
+ * `2 * MAX_STRING_LENGTH` = 20 000, so a single at-cap value plus its name still fits — the
+ * budget is a ceiling on the turn, not a ban on one sizeable value.
  */
 export const MAX_TURN_METADATA_SIZE = 2 * MAX_STRING_LENGTH;
 
@@ -345,28 +332,16 @@ function sanitizeEffectEntities(value: unknown): Array<{ id: string; title: stri
 }
 
 /**
- * Total serialized size, in JSON characters, that ONE assistant turn may contribute to the
- * persisted approval payloads (`effects` plus `reason`), summed across every
- * `tool-approval-request` event in that turn's stream.
+ * Total size ONE assistant turn may contribute to the persisted approval payloads (`effects`
+ * plus `reason`), summed across every `tool-approval-request` event in the turn.
  *
- * Same sink and same reasoning as {@link MAX_TURN_METADATA_SIZE}: `processStream` writes
- * both onto `toolInvocation.approvalRequest`, i.e. onto a message PART, which
- * `useChatThreads.handleMessagesChange` persists into `doc.ai.threads[].messages` exactly
- * like `metadata`, with no load-boundary screen on the way back in. Measured before this
- * cap, from ONE `tool-approval-request` event:
- * `effectsBytes=10167825 reasonChars=1000000` — 11 MB, and unbounded in the event count.
+ * Same sink as MAX_TURN_METADATA_SIZE: `processStream` writes both onto
+ * `toolInvocation.approvalRequest`, i.e. onto a message PART. Measured before this cap, from
+ * ONE event: 11 MB, and unbounded in the event count.
  *
- * `4 * MAX_STRING_LENGTH` = 40 000 characters, twice `MAX_TURN_METADATA_SIZE`'s multiple
- * because a turn legitimately carries one approval per gated tool call (whereas metadata is
- * typically one usage summary), and the client cannot rely on the server's own iteration
- * budget — the server is the untrusted party here.
- *
- * BOTH fields are charged in JSON characters — `effects` through `wireValueSize`, `reason`
- * through {@link wireStringSize}. `reason` was charged with `String.prototype.length` until
- * this round, which is a different unit from the one this constant names: four at-cap
- * control-character reasons charged 40 000 and persisted 240 008.
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * `4 * MAX_STRING_LENGTH` = 40 000, twice the metadata multiple because a turn legitimately
+ * carries one approval per gated tool call (whereas metadata is typically one usage summary),
+ * and the client cannot rely on the server's own iteration budget.
  */
 export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
 
@@ -374,35 +349,22 @@ export const MAX_TURN_APPROVAL_SIZE = 4 * MAX_STRING_LENGTH;
  * Longest `toolCallId`, `toolName` or `approvalId` accepted on ANY tool event —
  * `tool-approval-request` AND `tool-activity`.
  *
- * {@link MAX_TURN_APPROVAL_SIZE} bounds `effects` and `reason`. It does NOT bound the three
- * fields next to them, and `processStream` writes all of them onto the same `toolInvocation`
- * — the same message PART, persisted by the same `handleMessagesChange` write. Measured with
- * that budget in place: a 1 000 000-character `toolName` and a 1 000 000-character
- * `approvalId` were forwarded verbatim onto the persisted part. Bounding one field of a
- * record bounds nothing.
+ * MAX_TURN_APPROVAL_SIZE bounds `effects` and `reason`; it does NOT bound the three fields
+ * next to them, and `processStream` writes all of them onto the same `toolInvocation`.
+ * Bounding one field of a record bounds nothing.
  *
  * ONE constant for both doors, not two spellings of 256, because they are the SAME FIELDS on
  * the SAME PART: `withToolInvocation` keys parts by `toolCallId`, so a `tool-activity` and a
- * `tool-approval-request` naming one id write one `toolInvocation.toolCallId` and one
- * `toolInvocation.toolName`. It also has to be one constant for the drop-don't-truncate rule
- * below to hold: a `toolCallId` that one door truncates and the other does not is a
- * correlation key that no longer correlates.
+ * `tool-approval-request` naming one id write one `toolInvocation.toolCallId`. It also has to
+ * be one constant for the drop rule to hold: a `toolCallId` that one door truncates and the
+ * other does not is a correlation key that no longer correlates.
  *
- * 256 JSON characters — measured with {@link wireStringSize}, not `String.prototype.length`,
- * because these fields carry no turn budget of their own: this cap times
- * {@link MAX_TURN_TOOL_PARTS} IS their bound, so a bound spent in the wrong unit is the
- * whole bound. Measured while they were charged raw: 256 control characters passed the cap and
- * persisted 1 536 JSON characters apiece.
- *
- * 256 characters is far past any id a real server mints (`toolu_01…`, a UUID, a tool name),
- * and an over-cap value DROPS THE WHOLE EVENT rather than truncating it: all three are
+ * An over-cap value DROPS THE WHOLE EVENT rather than truncating it, because all three are
  * correlation keys. A truncated id would no longer match the call it gates — the mid-stream
  * re-assert of the model's own arguments would never fire — and the id POSTed back to
  * `/approval` would be one the server cannot resolve. A card nobody can answer is worse than
- * no card. See `warnApprovalOnce('approval-id-length', …)` for what the user is told, which
- * is the other half of "dropped" not meaning "silently dropped".
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * no card. `warnApprovalOnce('approval-id-length', …)` is what keeps "dropped" from meaning
+ * "silently dropped".
  */
 export const MAX_TOOL_ID_LENGTH = 256;
 
@@ -410,100 +372,36 @@ export const MAX_TOOL_ID_LENGTH = 256;
  * How many tool PARTS one assistant turn may add to the persisted message — across BOTH
  * doors, `tool-activity` and `tool-approval-request` together.
  *
- * The count term, without which the per-field caps above are not a bound. `processStream`
- * routes both event kinds through `withToolInvocation(chunk.toolCallId, …)`: a new
- * `toolCallId` creates a NEW part, so the number of parts a turn persists is the number of
- * distinct tool call ids the server names — which nothing else limits. Measured with
- * the id caps absent: 50 approval events x 20 000-character ids = 2 003 790 bytes on ONE
- * assistant message, against a claimed "~40 KB per assistant message, independent of the
- * event count". Charged per DISTINCT `toolCallId`, because re-prompting the same call
- * overwrites its part instead of adding one.
+ * The count term, without which the per-field caps are not a bound: a new `toolCallId`
+ * creates a NEW part, so the number of parts a turn persists is the number of distinct ids
+ * the server names. Charged per DISTINCT id, because re-prompting the same call overwrites
+ * its part instead of adding one.
  *
- * ONE budget shared by both doors, spent from one `Set` of ids, because they add parts to the
- * SAME message and a part either door creates is indistinguishable from one the other
- * created. Two budgets of 64 would bound each door at 64 and the message at 128 — and the
- * ordinary flow (`tool-activity` `start` -> `tool-approval-request` -> `tool-activity`
- * `complete`, all naming one id) spends the shared budget exactly once, so sharing costs a
- * legitimate turn nothing.
+ * ONE budget shared by both doors, spent from one `Set`, because they add parts to the SAME
+ * message and a part either door creates is indistinguishable from the other's. Two budgets
+ * of 64 would bound the message at 128 — and the ordinary flow (`tool-activity` `start` ->
+ * `tool-approval-request` -> `tool-activity` `complete`, all naming one id) spends the shared
+ * budget exactly once, so sharing costs a legitimate turn nothing.
  *
- * 64 is comfortably above `x-studio-ai-middleware`'s own
- * `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST` (50) — while keeping the worst case a number rather
- * than a function of the stream length. It also bounds `approvalGatedToolCalls` (entries are
- * only ever added behind this check), and so bounds the stream-end flush that walks it.
- *
- * WORST CASE PER ASSISTANT TURN, from this door — every term in JSON CHARACTERS, the unit
- * the budgets are denominated in and the unit the saved document is measured in:
- *
- *     ids/names   <=  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS
- *                 =   3 * 256 * 64                    =  49 152 JSON chars
- *   + effects
- *     and reason  <=  MAX_TURN_APPROVAL_SIZE          =  40 000 JSON chars (turn-wide, not
- *                                                                          per part)
- *   + enriched
- *     inputs      <=  MAX_TURN_APPROVAL_INPUT_SIZE    = 160 000 JSON chars (turn-wide, not
- *                                                                          per part)
- *   + the per-part constants a degraded card carries — the withheld markers
- *     (`{"effectsWithheld":true,"reasonWithheld":true,"inputWithheld":true}`, 67) plus the
- *     `{}` an over-cap input degrades to (2):
- *                 <=  69 * MAX_TURN_TOOL_PARTS    =   4 416 JSON chars
- *   --------------------------------------------------------------------------------
- *   total         <=                                    253 568 JSON chars (~248 KB) per
- *                                                       assistant message
- *
- * INDEPENDENT of the number of `tool-approval-request` events, which is the term the
- * previous round's arithmetic omitted.
- *
- * THE UNIT IS LOAD-BEARING and was wrong until this round. `effects` and the enriched `input`
- * were charged with `wireValueSize` (real JSON length) while `reason` and all three ids were
- * charged with `String.prototype.length`. `JSON.stringify` escapes a control character to six
- * characters, so every raw-length-charged term under-charged by up to 6x and the sum above was
- * a claim about a quantity nothing measured: measured against this docblock's own "~245 KB",
- * one turn of control-character reasons and ids persisted 539 422 JSON characters. Re-measured
- * with every term charged through {@link wireStringSize}, the same hostile turn (500 events,
- * every capped field filled with control characters to exactly its cap in JSON characters)
- * yields 248 850 JSON characters across the fields above and 258 654 for the whole persisted
- * assistant message — the ~10 KB difference being the fixed JSON framing of 64 parts, which is
- * a constant per part and not something a server can grow.
- *
- * The approval chunk's `input` is bounded separately — see {@link MAX_APPROVAL_INPUT_SIZE} —
- * and the model's own arguments and the tool's output, which arrive through the OTHER door
- * onto these same parts, by {@link MAX_TOOL_INPUT_SIZE} and {@link MAX_TOOL_OUTPUT_SIZE}.
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * 64 is comfortably above `x-studio-ai-middleware`'s own `DEFAULT_MAX_TOOL_CALLS_PER_REQUEST`
+ * (50). It also bounds `approvalGatedToolCalls`, and so bounds the stream-end flush that
+ * walks it.
  */
 export const MAX_TURN_TOOL_PARTS = 64;
 
 /**
  * Largest `input` one `tool-activity` `start` may carry — the model's OWN tool arguments —
- * and {@link MAX_TURN_TOOL_INPUT_SIZE} the turn-wide total.
+ * with MAX_TURN_TOOL_INPUT_SIZE the turn-wide total.
  *
- * THE FOURTH RECURRENCE OF ONE CLASS. `message-metadata`, then `effects`/`reason`, then the
- * approval ids and part count were each bounded in turn while the door beside them stayed
- * open. `tool-activity` is that door: it writes `toolInvocation.input`/`output`/`toolCallId`/
- * `toolName` onto `doc.ai.threads[].messages` through exactly the same
- * `handleMessagesChange` write, it needs NO approval gating to do it, and it had no id cap,
- * no input cap, no output cap and no part-count cap. Measured on one assistant message: 50
- * `tool-activity` `start` events with 20 000-character ids and 200 000-character inputs, plus
- * their 50 `complete` events with 2 000 000-character outputs, persisted 112 000 790 JSON
- * characters — 112 MB, against the approval door's freshly-argued 245 KB, and 56x the
- * 2 003 790 bytes that motivated capping the approval door in the first place.
+ * `tool-activity` needs NO approval gating to write `input`/`output`/`toolCallId`/`toolName`
+ * onto the persisted doc, and had no cap of any kind: measured at 112 MB on one assistant
+ * message, against the approval door's freshly-argued 245 KB.
  *
- * `367deaa`'s "don't doctor the model's own args" decision is respected and is the reason an
- * over-cap `input` DROPS THE WHOLE EVENT rather than truncating or replacing it. That
- * decision is about never handing the model a shape its own schema rejects; refusing to
- * record a call at all does not do that, whereas a truncated argument object does. Nothing
- * enters `modelToolInputs` from a dropped event either, so the stream-end flush cannot
- * re-assert what this door refused.
- *
- * `4 * MAX_STRING_LENGTH` = 40 000 JSON characters, the same figure as
- * {@link MAX_APPROVAL_INPUT_SIZE} — and that is the generous end of the comparison, since the
- * approval card's DISPLAY-ENRICHED input is strictly larger than the raw arguments it
- * enriches (`widgetRemovals: ['w1']` becomes `[{id, title}]`). The reference server's own
- * `MAX_TOOL_CALL_ARGS_BUFFER_CHARS` is 1 000 000 and its comment calls that "far past any
- * legitimate tool call's arguments"; this client stores what it accepts, so it does not have
- * to be as generous as the buffer that merely parses it.
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * An over-cap `input` DROPS THE WHOLE EVENT rather than truncating it, respecting the
+ * standing "don't doctor the model's own args" rule — that rule is about never handing the
+ * model a shape its own schema rejects, which refusing to record a call does not do and a
+ * truncated argument object does. Nothing enters `modelToolInputs` from a dropped event, so
+ * the stream-end flush cannot re-assert what this door refused.
  */
 export const MAX_TOOL_INPUT_SIZE = 4 * MAX_STRING_LENGTH;
 
@@ -511,26 +409,19 @@ export const MAX_TOOL_INPUT_SIZE = 4 * MAX_STRING_LENGTH;
 export const MAX_TURN_TOOL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
 
 /**
- * Largest `output` one `tool-activity` `complete` may carry, and
- * {@link MAX_TURN_TOOL_OUTPUT_SIZE} the turn-wide total.
+ * Largest `output` one `tool-activity` `complete` may carry, with
+ * MAX_TURN_TOOL_OUTPUT_SIZE the turn-wide total.
  *
- * `20 * MAX_STRING_LENGTH` = 200 000 JSON characters, deliberately EQUAL to the reference
- * server's own per-call `MAX_TOOL_OUTPUT_CHARS`, so a legitimate result that the server has
- * already capped and marked passes this boundary untouched. The turn total is
- * `60 * MAX_STRING_LENGTH` = 600 000, i.e. three at-server-cap results per assistant turn
- * before anything is trimmed — generous for a real agentic turn (whose results are kilobytes,
- * not hundreds of them) while keeping a number where the stream length used to be.
+ * `20 * MAX_STRING_LENGTH` = 200 000, deliberately EQUAL to the reference server's own
+ * per-call `MAX_TOOL_OUTPUT_CHARS`, so a legitimate result the server already capped and
+ * marked passes untouched. The turn total is three at-server-cap results.
  *
- * Unlike every other over-cap payload on this boundary, an over-cap `output` is TRUNCATED and
- * MARKED rather than dropped. Dropping it would drop the `tool-output-available` chunk, and
+ * Unlike every other over-cap payload here, an over-cap `output` is TRUNCATED and MARKED
+ * rather than dropped. Dropping it would drop the `tool-output-available` chunk, and
  * `processStream` advances a part to `output-available` only on that chunk — so the card
  * would sit at `input-available`, which `resolveToolStatusIcon` renders as a spinner that
  * never resolves. A visibly-partial result is worth having; an invisible permanent "still
- * running" is not. The marker is appended (it is what `capToolOutput` does server-side, for
- * the same reason: a model reasoning over silently-truncated data reports a wrong answer with
- * full confidence) and is itself charged to the budget.
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * running" is not. The marker is appended and is itself charged to the budget.
  */
 export const MAX_TOOL_OUTPUT_SIZE = 20 * MAX_STRING_LENGTH;
 
@@ -548,73 +439,29 @@ export const TOOL_OUTPUT_TRUNCATED_SUFFIX =
   'size this client stores per response. It is INCOMPLETE — do not treat it as a full answer.]';
 
 /**
- * WORST CASE PER ASSISTANT TURN across BOTH tool doors, in JSON characters. The two share the
- * part count and the id fields, so the terms are summed once, not once per door:
- *
- *     ids/names        <=  3 * MAX_TOOL_ID_LENGTH * MAX_TURN_TOOL_PARTS
- *                      =   3 * 256 * 64                      =  49 152
- *   + effects/reason   <=  MAX_TURN_APPROVAL_SIZE             =  40 000
- *   + enriched inputs  <=  MAX_TURN_APPROVAL_INPUT_SIZE       = 160 000
- *   + model inputs     <=  MAX_TURN_TOOL_INPUT_SIZE           = 160 000
- *   + tool outputs     <=  MAX_TURN_TOOL_OUTPUT_SIZE          = 600 000
- *   + per-part constants (withheld markers 67, degraded `{}` 2,
- *     truncation suffix ~170)
- *                      <=  239 * MAX_TURN_TOOL_PARTS          =  15 296
- *     ------------------------------------------------------------------
- *     total                                                     1 024 448 JSON chars (~1 000 KB)
- *
- * Conservative twice over: `toolInvocation.input` is ONE field that both input budgets write
- * to (last write wins, so they cannot both be present), and a turn spending the whole output
- * budget has no room left for much else. It is stated as a sum anyway — an upper bound that
- * over-counts is still a bound, and one that under-counts is what the last three rounds each
- * shipped.
- *
- * MEASURED, on the persisted assistant message, with every field of both doors filled to its
- * cap in JSON characters across 200 tool calls and 10 at-cap `message-metadata` events:
- * 899 547 JSON characters (~878 KB), 64 parts — inside the 1 021 696 above plus the metadata
- * door's 30 069. The `tool-activity` door alone, on the shape that measured 112 000 790 JSON
- * characters before this bound existed, now measures 762 891 — a 147x reduction, and a number
- * rather than a function of the stream length.
- */
-
-/**
- * Largest display-enriched `input` one approval card may carry, and the turn-wide total.
+ * Largest display-enriched `input` one approval card may carry, with
+ * MAX_TURN_APPROVAL_INPUT_SIZE the turn-wide total.
  *
  * This cap exists because the justification for NOT having one does not survive the error
- * path. The reasoning was: the enriched `input` never outlives the card, since the model's
- * own arguments are re-asserted over it at every settle point — by `tool-activity`
- * `complete` mid-stream, and by `flushApprovalGatedInputs` from `closeStream` and
- * `errorStream` otherwise. Three of those are sound (measured: `finish`, a stream that ends
- * without `finish`, and an abort all deliver). `errorStream` is not:
- * `ReadableStreamDefaultController.error()` RESETS the queue, so a re-assert the consumer has
- * not already read is discarded. Measured with one pending approval carrying a 2 MB enriched
- * `input`, the consumer awaiting a macrotask between reads (exactly what `processStream` does
- * — it awaits `updateMessage`/`onToolCall`) and the server sending an `error` event: zero
- * re-asserts delivered, and the 2 000 011-byte enriched copy is the last write to
- * `toolInvocation.input`. With the reader parked in a pending `read()` instead, both arrived.
- * Racy, not absent — which is the same thing as unbounded when the writer is untrusted.
- *
- * It is not repairable at the transport: nothing a producer can do makes a consumer drain a
- * queue `error()` is about to reset. And the enriched copy is ALREADY persisted long before
- * any exit path runs — `handleMessagesChange` writes as the stream streams, and an approval is
- * answered on a separate POST while the SSE stream stays open, so the enriched copy sits in
- * `doc.ai.threads` for the whole human-deliberation window regardless. The re-assert is a
- * repair, not a prevention; a bound has to come from the write itself.
+ * path. The reasoning was that the enriched `input` never outlives the card, since the
+ * model's own arguments are re-asserted over it at every settle point. Three of those settle
+ * points deliver; `errorStream` does not — `ReadableStreamDefaultController.error()` RESETS
+ * the queue, so a re-assert the consumer has not already read is discarded. Racy, not
+ * absent — the same thing as unbounded when the writer is untrusted. It is not repairable at
+ * the transport: nothing a producer can do makes a consumer drain a queue `error()` is about
+ * to reset. And the enriched copy is ALREADY persisted long before any exit path runs, since
+ * an approval is answered on a separate POST while the SSE stream stays open. The re-assert
+ * is a repair, not a prevention; a bound has to come from the write itself.
  *
  * Over-cap input degrades the card to `{}` rather than to `modelToolInputs`' copy, and that
  * choice is the whole point of the enrichment: the server resolves ids against real state so
- * a prompt-injected model cannot label a removal with a title of its own choosing
- * (`remove_widget`'s `widgetTitle` is overwritten from state). Falling back to the model's own
- * arguments would put exactly those model-chosen labels next to an approve button — a
- * deceptive card is worse than an uninformative one, and an uninformative one is easy to deny.
+ * a prompt-injected model cannot label a removal with a title of its own choosing. Falling
+ * back to the model's own arguments would put exactly those model-chosen labels next to an
+ * approve button — a deceptive card is worse than an uninformative one, and an uninformative
+ * one is easy to deny.
  *
- * `4 * MAX_STRING_LENGTH` = 40 000 characters per card is far past a real enriched payload (an
- * `apply_bulk_update` removing 200 widgets as `{id, title}` pairs is ~10 000 characters), and
- * {@link MAX_TURN_APPROVAL_INPUT_SIZE} = 160 000 characters spans the turn, because — as
- * everywhere else on this boundary — a per-event limit times an unbounded event count is not a
- * limit.
- *
- * Exported for the tests only — see {@link MAX_METADATA_KEY_LENGTH}.
+ * `4 * MAX_STRING_LENGTH` = 40 000 per card is far past a real enriched payload (an
+ * `apply_bulk_update` removing 200 widgets as `{id, title}` pairs is ~10 000).
  */
 export const MAX_APPROVAL_INPUT_SIZE = 4 * MAX_STRING_LENGTH;
 
@@ -951,10 +798,7 @@ export function createBackendChatAdapter(
         toolCallId: string,
         errorText: string,
       ) => {
-        if (
-          wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH ||
-          !turnToolPartIds.has(toolCallId)
-        ) {
+        if (wireStringSize(toolCallId) > MAX_TOOL_ID_LENGTH || !turnToolPartIds.has(toolCallId)) {
           return;
         }
         streamController.enqueue({ type: 'tool-output-error', toolCallId, errorText });
@@ -973,7 +817,7 @@ export function createBackendChatAdapter(
       // Helper: close the current text part (if one is open) and mint a fresh id for
       // the next text run, so a text run interrupted by a tool call or a new step is
       // finalized before the tool card renders and any later text starts its own part
-      // in correct arrival order (finding 2.23).
+      // in correct arrival order.
       const endTextPart = (streamController: ReadableStreamDefaultController<ChatMessageChunk>) => {
         if (textStarted) {
           streamController.enqueue({ type: 'text-end', id: textPartId });
@@ -1208,7 +1052,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
               endReasoning(streamController);
               // Close any preamble text run before the tool card so the tool card
               // renders after it, and so a later (post-tool) text run starts its own
-              // fresh part instead of being appended to the preamble (finding 2.23).
+              // fresh part instead of being appended to the preamble.
               endTextPart(streamController);
               // Defensive coercion (matching the `tool-approval-request` branch below):
               // a malformed/unexpected event shape must degrade gracefully rather than

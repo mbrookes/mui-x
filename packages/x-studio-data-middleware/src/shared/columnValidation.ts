@@ -88,7 +88,7 @@ export function resolveAlias(descriptor: BatchWidgetDescriptor, column: string):
     assertIdentifierLength(column, 'Column reference', 'columnAliases');
   }
   const aliases = descriptor.columnAliases;
-  // Gate on an OWN-property check BEFORE the lookup (finding 2.4). `column` is
+  // Gate on an OWN-property check BEFORE the lookup. `column` is
   // client JSON, and a plain object literal inherits from `Object.prototype`, so a
   // bare `aliases?.[column] ?? column` on a `column` naming an inherited member
   // (`"constructor"`, `"toString"`, `"__proto__"`, …) resolves to a truthy
@@ -257,8 +257,8 @@ export function validateWildcardProjection(
 }
 
 /**
- * Reject a column reference that carries Knex's IMPLICIT `" as "` alias syntax
- * (finding L2).
+ * Reject a column reference that carries Knex's IMPLICIT `" as "` alias syntax.
+ *
  *
  * Knex's `wrapString` (`knex/lib/formatter/wrappingFormatter.js`) splits ANY
  * identifier containing `" as "` — case-insensitively — into `<expr> as <alias>`
@@ -300,7 +300,7 @@ export function assertNoImplicitAlias(reference: string, context: string): void 
  * length cap, the multi-dot rejection, and the implicit-`" as "`-alias
  * rejection.
  *
- * Split out of `checkColumnAgainstAllowlist` (finding L1) because shape and
+ * Split out of `checkColumnAgainstAllowlist` because shape and
  * MEMBERSHIP are two different questions with two different triggers.
  * Membership — "is this column allowed?" — can only be asked when the host
  * configured an allowlist. Shape — "is this string even a column reference?" —
@@ -332,7 +332,7 @@ export function assertColumnReferenceShape(reference: string, context: string): 
   // `assertTablesAllowed.ts`'s `checkQualifiedColumn` — see
   // `assertSingleDotReference`.
   assertSingleDotReference(reference, context);
-  // Reject Knex's implicit `" as "` alias syntax (finding L2) alongside the
+  // Reject Knex's implicit `" as "` alias syntax alongside the
   // multi-dot rejection above — same class of parser divergence, same
   // fail-closed posture. See `assertNoImplicitAlias`.
   assertNoImplicitAlias(reference, context);
@@ -362,13 +362,13 @@ export function checkColumnAgainstAllowlist(
   // run first, before this function's own MEMBERSHIP check parses the reference
   // at its first dot. They live in `assertColumnReferenceShape` so callers that
   // have no allowlist to check membership against — a mutation's `values` keys
-  // on a `writableColumns`-free deployment (finding L1) — can still run them.
+  // on a `writableColumns`-free deployment — can still run them.
   assertColumnReferenceShape(physical, context);
   const dotIdx = physical.indexOf('.');
   const table = dotIdx !== -1 ? physical.slice(0, dotIdx) : defaultTable;
   const column = dotIdx !== -1 ? physical.slice(dotIdx + 1) : physical;
 
-  // Own-property gate (finding 2.4): `table` is derived from a client-qualified
+  // Own-property gate: `table` is derived from a client-qualified
   // column name, and `allowlist` is a plain object, so a qualified reference such
   // as `constructor.x` would otherwise read the inherited `Object.prototype`
   // member (a truthy function) and BYPASS the fail-closed "has no entry" branch
@@ -396,7 +396,7 @@ export function checkColumnAgainstAllowlist(
     return;
   }
   if (!allowed.includes(column)) {
-    // INFORMATION DISCLOSURE (finding 3.3): the client-facing message names ONLY the
+    // INFORMATION DISCLOSURE: the client-facing message names ONLY the
     // rejected column, never the table's full allowed-column list. Enumerating every
     // allowlisted column in an error returned verbatim to any authenticated caller
     // (`handler.ts`'s per-widget `{ error }`) hands out the table's column map. The
@@ -543,7 +543,7 @@ export function validateDescriptorColumns(
  * comparison oracle on columns the widget never selected. A descriptor that
  * supplies `having` with no `aggregations` at all is rejected.
  *
- * VALUE SHAPE (finding 2.1) — each `h.value` must ALSO be a finite number. The
+ * VALUE SHAPE — each `h.value` must ALSO be a finite number. The
  * documented HAVING contract is numeric-only (see `HavingPredicate.value: number`),
  * but the wire value is client JSON whose TS type is not a runtime guarantee.
  * `applyHaving` binds it as `havingRaw('FUNC(??) op ?', [col, h.value])`; a
@@ -566,7 +566,7 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
   }
   const aggAliases = new Set(aggregations.map((a) => a?.alias));
   for (const h of descriptor.having) {
-    // ELEMENT SHAPE (finding L1) — `having` is client JSON, so a `null`/primitive
+    // ELEMENT SHAPE — `having` is client JSON, so a `null`/primitive
     // element (or one with a non-string `alias`) is not a runtime impossibility.
     // The `h.alias` dereference just below used to throw a raw `TypeError` that
     // `sanitizeBoundaryError` degraded to the generic "could not be completed"
@@ -602,7 +602,7 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
  * Safe identifier charset for aggregation aliases and expression-field output
  * aliases (letters, digits, underscore AND hyphen).
  *
- * The hyphen is deliberately permitted (finding 1.1): the real x-studio client
+ * The hyphen is deliberately permitted: the real x-studio client
  * mints expression-field logical IDs as `expr-<timestamp>-<counter>` (hyphenated)
  * and sends them verbatim as `columns` entries / aggregation aliases, mapped to a
  * physical column via `columnAliases` (e.g. `{ 'expr-order-country': 'customers.country' }`).
@@ -615,7 +615,7 @@ export function validateHavingAliases(descriptor: BatchWidgetDescriptor): void {
  * Genuinely dangerous tokens (`;`, spaces, quotes, parentheses) stay rejected.
  * The hyphen is placed LAST in the character class so it is a literal, not a range.
  *
- * Exported (finding 3.4) — this used to be duplicated verbatim in
+ * Exported — this used to be duplicated verbatim in
  * `security/validateQueryPlan.ts` (which interpolates the SAME class of
  * client-controlled identifier token, an expression-field output alias, via
  * `?? as ??`). A single shared constant means a future charset tightening
@@ -682,7 +682,7 @@ export function validateAggregationAliases(
   const projectionKeySet = projectionKeys ? new Set(projectionKeys) : undefined;
   const seen = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
-    // ELEMENT SHAPE (finding L1) — every dereference below (`agg.alias.length`,
+    // ELEMENT SHAPE — every dereference below (`agg.alias.length`,
     // the regex test, the collision checks) assumes a string alias, but
     // `aggregations` is client JSON. The request path rejects this earlier in
     // `assertQualifiedColumnsAllowed`; this keeps direct callers of this exported,
@@ -716,7 +716,7 @@ export function validateAggregationAliases(
           `Use only letters, digits, underscores and hyphens (matching ${SAFE_ALIAS_PATTERN}).`,
       );
     }
-    // UNIQUENESS (finding 3.4): two aggregations sharing one alias both pass the
+    // UNIQUENESS: two aggregations sharing one alias both pass the
     // charset check, but `execute.ts` SELECTs both aggregates AS the same key
     // (they collide onto ONE result-row key, silently dropping one) and
     // `applyHaving` binds a HAVING on that alias to whichever `aggregations.find`

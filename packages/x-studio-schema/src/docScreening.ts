@@ -81,7 +81,7 @@ const screenRecordArray = <T>(
   if (!Array.isArray(value)) {
     return [];
   }
-  // Reject non-record entries AND entries carrying a prototype-hazard OWN key (T2-4). The
+  // Reject non-record entries AND entries carrying a prototype-hazard OWN key. The
   // client spreads a relationship/expression-field on hot paths (`{ ...ef }`, `Object.assign`),
   // so an own `"__proto__"`/`"constructor"`/`"prototype"` DATA key (as `JSON.parse` materializes
   // it on a shared/hand-edited doc) is a pollution hazard the wire boundary would reject — drop
@@ -316,7 +316,7 @@ const repairThreadLeafShapes = <T>(thread: T): T => {
 /**
  * Screen one preset-embedded filter with the SAME semantic checks the `doc.filters` screen
  * applies to the fields that travel VERBATIM into live `doc.filters` when a preset is
- * applied (T2-3). `@mui/x-studio`'s `docTransforms.applyFilterPreset` rematerializes each
+ * applied. `@mui/x-studio`'s `docTransforms.applyFilterPreset` rematerializes each
  * preset filter as `{ ...f, id: fresh, scope: page }` — it re-stamps `id`/`scope` but
  * carries `field`/`operator`/`operator2` through unchanged and performs NO validation of its
  * own — so a junk `operator: 'equal'` (a plausible typo for `'equals'`) or `field: 42` would
@@ -328,7 +328,7 @@ const isPresetFilterSafe = (entry: unknown): boolean => {
   if (!isRecord(entry)) {
     return false;
   }
-  // Reject a preset inner filter carrying a prototype-hazard OWN key (T2-4). This is the
+  // Reject a preset inner filter carrying a prototype-hazard OWN key. This is the
   // sharpest asymmetry: `applyFilterPreset` rematerializes each preset filter into live
   // `doc.filters` via `{ ...f, id: fresh, scope: page }`, so an own `"__proto__"` key would
   // land on a LIVE filter, and the NEXT load's filter own-key screen then silently drops that
@@ -373,13 +373,13 @@ const safePresetName = (name: unknown): string =>
   typeof name === 'string' ? name : 'Untitled Filter Preset';
 
 /**
- * Screen `filterPresets` (Finding 1, nested sibling site): drop any entry that
+ * Screen `filterPresets`: drop any entry that
  * is not a record with an array `filters`, coerce a non-string `preset.name` to a
  * fallback (F1 finding, see {@link safePresetName}), AND screen each preset's own
  * `filters` array with {@link isPresetFilterSafe} — record-ness (a `null` inner filter
  * entry crashes `applyFilterPreset`'s id-remap loop `idMap.set(f.id, …)` the same way a
- * top-level junk entry does) PLUS the `field`/`operator`/`operator2` semantic checks
- * (T2-3), because those fields travel verbatim into live `doc.filters` via
+ * top-level junk entry does) PLUS the `field`/`operator`/`operator2` semantic checks,
+ * because those fields travel verbatim into live `doc.filters` via
  * `applyFilterPreset`, one indirection past the `doc.filters` screen. Reference-
  * stable at both levels: returns the SAME outer array (and the SAME inner `filters`
  * array on each surviving preset) when nothing is dropped or repaired.
@@ -403,8 +403,8 @@ const safePresetName = (name: unknown): string =>
  * of a preset anyone writes. Drop the whole preset, matching the sibling entry screens.
  *
  * ABSENT NORMALIZES TO `[]`, NOT `undefined` — deliberately, and asymmetrically with the
- * factory and the reducer, which both leave `filterPresets` absent until a preset is saved
- * (R6 F7). `deserializeState` calls this unconditionally (`filterPresets:
+ * factory and the reducer, which both leave `filterPresets` absent until a preset is saved.
+ * `deserializeState` calls this unconditionally (`filterPresets:
  * screenFilterPresets(raw.filterPresets)`), and `serializeDoc` omits the field again when
  * empty, so the asymmetry is confined to an IN-MEMORY loaded doc and never reaches disk. The
  * observable consequence is only that `@mui/x-studio`'s `docTransforms.deleteFilterPreset` /
@@ -560,7 +560,7 @@ export function screenWidgets(value: unknown): StudioDoc['widgets'] {
           return false;
         }
         // Screen the widget object's OWN top-level keys against the prototype-hazard
-        // denylist (Finding T2-1), symmetric with the wire boundary's
+        // denylist, symmetric with the wire boundary's
         // `hasUnsafeOwnKeys(widget)` rejection in `validateWidget`. `JSON.parse` on a
         // shared/hand-edited doc materializes an own `"__proto__"`/`"constructor"`/
         // `"prototype"` key as a real own DATA property (not the inherited accessor); such
@@ -570,7 +570,7 @@ export function screenWidgets(value: unknown): StudioDoc['widgets'] {
         if (hasUnsafeOwnKeys(widget)) {
           return false;
         }
-        // Same screen one level down on `config` (Finding 3.2): the reducer rebuilds config
+        // Same screen one level down on `config`: the reducer rebuilds config
         // key-by-key on later edits, so an unsafe own key there is a pollution hazard the
         // wire boundary rejects outright. Drop the whole widget rather than load a config
         // the wire boundary would refuse.
@@ -735,14 +735,14 @@ export function screenFilters(value: unknown, options?: ScreenFiltersOptions): S
     if (hasUnsafeOwnKeys(f)) {
       return false;
     }
-    // Drop a filter whose `id` is not a string (Finding 3.2), symmetric with the wire
+    // Drop a filter whose `id` is not a string, symmetric with the wire
     // boundary's `isSafeId(filter.id)` gate. A non-string `id` (a hand-edited `id: 42`) can
     // NEVER be matched by wire `removeFilter` (whose `f.id !== filterId` compares against a
     // string), so it would install a permanently-unremovable filter.
     if (typeof (f as { id?: unknown }).id !== 'string') {
       return false;
     }
-    // Drop a duplicate `id` — first occurrence already kept (Finding 3). Runs after the
+    // Drop a duplicate `id` — first occurrence already kept. Runs after the
     // string-id screen above so a non-string id never poisons the `seen` set. See this
     // function's doc comment for why the CLAIM happens at the end instead of here.
     const filterId = (f as { id: string }).id;
@@ -751,7 +751,7 @@ export function screenFilters(value: unknown, options?: ScreenFiltersOptions): S
     }
     const scope = (f as { scope?: unknown }).scope;
     // Full scope validity — record-ness, kind membership AND every required id field present
-    // — via the ONE shared predicate the wire boundary uses (Finding T3-1). An unknown kind
+    // — via the ONE shared predicate the wire boundary uses. An unknown kind
     // like `'pages'` would otherwise load as a permanent inert entry that escapes
     // `removePage`/`dropWidgetScopedFilters` cleanup (both key off the known kinds); a scope
     // missing a required id (e.g. a `dashboard-date-range` without `sourceId`, which would
@@ -789,7 +789,7 @@ export function screenFilters(value: unknown, options?: ScreenFiltersOptions): S
     ) {
       return false;
     }
-    // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget (T3-2),
+    // Drop an ORPHAN `widget`-scoped filter whose `widgetId` names no loaded widget,
     // symmetric with the reducer's `addFilter` guard. Its only cleanup path
     // (`dropWidgetScopedFilters`) fires on widget REMOVAL, which never happens for a widget
     // that was never present, so it would otherwise be permanent invisible dead weight that
@@ -797,14 +797,14 @@ export function screenFilters(value: unknown, options?: ScreenFiltersOptions): S
     if (anchors !== undefined && scope.kind === 'widget' && !anchors.hasWidget(scope.widgetId)) {
       return false;
     }
-    // Field-is-a-string check (T2-3), symmetric with the wire boundary: a junk `field: 42`
+    // Field-is-a-string check, symmetric with the wire boundary: a junk `field: 42`
     // would install an active-but-unevaluable filter that silently renders every widget in
     // scope empty.
     const record = f as { field?: unknown; operator?: unknown; operator2?: unknown };
     if (typeof record.field !== 'string') {
       return false;
     }
-    // Membership-check the closed `operator` union (Finding 2), symmetric with the wire
+    // Membership-check the closed `operator` union, symmetric with the wire
     // boundary's `isStudioFilterOperator` gate: a hand-edited `operator: 'equal'` (a
     // plausible typo for `'equals'`) would otherwise install a chip that renders as ACTIVE
     // while filtering nothing — a silent fail-open. A present `operator2` is held to the same
@@ -823,15 +823,15 @@ export function screenFilters(value: unknown, options?: ScreenFiltersOptions): S
 
 /**
  * Screen `doc.ai`: keep it only when it is a record whose `threads` is an array, AND screen
- * each thread ENTRY (T2-3) — not just the container. `renameAIThread` does
+ * each thread ENTRY — not just the container. `renameAIThread` does
  * `(state.ai.threads ?? []).map((t) => t.id …)` with NO optional chaining, so a
  * `threads: [null, {…}]` that passes the container `Array.isArray` check still throws
  * `Cannot read properties of null (reading 'id')` on the first rename, and `serializeDoc`
  * re-persists the junk verbatim (`threads.length > 0`). A non-array `threads` (the traced
  * `ai.threads: 'junk'` `initialState` crash) drops the whole `ai` to `undefined`.
  *
- * Also screens the `ai` container AND each surviving thread for prototype-hazard OWN keys
- * (T2-4): `renameAIThread` spreads both (`{ ...state.ai, threads: … }`, `{ ...t, name }`).
+ * Also screens the `ai` container AND each surviving thread for prototype-hazard OWN keys:
+ * `renameAIThread` spreads both (`{ ...state.ai, threads: … }`, `{ ...t, name }`).
  * The container's unsafe keys are stripped (keeping the rest of `ai`); a thread carrying one
  * is dropped whole, matching the sibling per-entry own-key screens.
  *

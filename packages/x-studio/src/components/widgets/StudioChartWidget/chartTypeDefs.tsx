@@ -409,11 +409,11 @@ function renderPieDonut(ctx: ChartRenderContext<'pie' | 'donut'>): React.ReactEl
       yField={config.yField}
       activeYFields={ctx.activeYFields}
       // Mirror `useChartWidgetData`'s single-ring precedence (per-series fn wins over the
-      // yField-level default) so grouped rings honour the configured aggregation (finding 2.25).
+      // yField-level default) so grouped rings honour the configured aggregation.
       // Read the fn from the SAME `ySeries` entry that supplied the ring's value field
       // (`activeYFields[0]`), not `ySeries[0]` unconditionally — `activeYFields` skips
       // fieldId-less/foreign entries, so an index-0 read can pair the wrong measure's fn with the
-      // field (finding 2.6). `find` misses (→ `config.yAggregation`) when the value came from `yField`.
+      // field. `find` misses (→ `config.yAggregation`) when the value came from `yField`.
       yAggregation={
         config.ySeries?.find((s) => s.fieldId === ctx.activeYFields[0])?.yAggregation ??
         config.yAggregation
@@ -454,7 +454,7 @@ function renderLineArea(
   // instead), so a multi-measure line/area chart must be reachable even when `chartData` is
   // null/empty — this check therefore runs BEFORE (and independently of) the chartData-emptiness
   // check below, mirroring `renderBar`. `StudioLineAreaChart` has a complete multi-Y render path
-  // that was dead code while this guard fell straight through to `renderEmptyChart` (finding 1.8).
+  // that was dead code while this guard fell straight through to `renderEmptyChart`.
   const hasMultiY = !!multiYData && multiYData.labels.length > 0;
   // The cross-filtered `chartData` can be legitimately empty while a ghost (the widget's
   // own un-cross-filtered `allChartData`) is available — bailing to `renderEmptyChart`
@@ -518,7 +518,7 @@ function renderLineArea(
 
 function renderScatter(ctx: ChartRenderContext<'scatter'>): React.ReactElement {
   const { config } = ctx;
-  // Mirror the `yField ?? ySeries[0].fieldId` fallback the scatter data memos use (finding 2.7)
+  // Mirror the `yField ?? ySeries[0].fieldId` fallback the scatter data memos use
   // so the y-axis label resolves for a chart authored via `ySeries` then switched to scatter.
   const scatterYField = config.yField ?? config.ySeries?.[0]?.fieldId;
   const xFieldDef = resolveFieldDef(config.xField, ctx.dataSource, ctx.expressionFields);
@@ -581,7 +581,7 @@ function renderMixed(ctx: ChartRenderContext<'mixed'>): React.ReactElement {
   if (!multiYData || multiYData.labels.length === 0) {
     // An in-flight fetch is not a misconfiguration. This was the only empty-data branch in the
     // file that blamed the AUTHOR, so a correctly-configured mixed chart on a slow adapter
-    // told the user its fields were missing until the rows landed (finding M4 sweep).
+    // told the user its fields were missing until the rows landed.
     if (ctx.isLoading) {
       return renderEmptyChart(chartHeight, true);
     }
@@ -635,8 +635,8 @@ function measureFormulaCacheKey(
 function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   // Aggregate `enrichedRows` (L4-resolved: a cross-source extra dimension like a many-to-one
   // `heatYField` is enriched onto each row, and cross-filter mode is honoured because
-  // `enrichedRows` derives from `effectiveRows`) rather than raw, un-enriched `filteredRows`
-  // (findings 1.9 / 2.5).
+  // `enrichedRows` derives from `effectiveRows`) rather than raw, un-enriched `filteredRows`.
+  //
   const { config, dataSource, expressionFields, enrichedRows, xGroupBy, chartHeight } = ctx;
   const heatXField = config.xField ?? '';
   const heatYField = config.heatYField ?? '';
@@ -651,7 +651,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   }
 
   // `resolveFieldDef` (native fields + expression fields) so a calculated x/y axis field
-  // gets its real label too (finding 3.2) — `orderedValues` is a native-field-only concept
+  // gets its real label too — `orderedValues` is a native-field-only concept
   // (categorical sort override, not defined on `StudioExpressionField`), so it's still read
   // straight off `dataSource.fields`.
   const xFieldDef = resolveFieldDef(heatXField, dataSource, expressionFields);
@@ -660,13 +660,13 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
   const yOrderedValues = dataSource?.fields.find((f) => f.id === heatYField)?.orderedValues;
   const valueFieldDef = resolveFieldDef(heatValueField, dataSource, expressionFields);
   // Per-series aggregation wins over the yField-level default, mirroring the single-series/
-  // multi-Y/split-by/blended/pie-ring precedence (finding 2.2) — the value field can survive
+  // multi-Y/split-by/blended/pie-ring precedence — the value field can survive
   // a chart-type switch via the `ySeries[0].fieldId` fallback above while its aggregation was
   // previously read only from `config.yAggregation`, silently dropping to 'sum'.
   // Tie the fn to the RESOLVED value field: when it came from `config.yField` use `config.yAggregation`;
   // only when it came from `ySeries[0].fieldId` use that entry's fn — otherwise a set `yField` (the
   // field) paired with a leftover `ySeries[0].yAggregation` (a DIFFERENT measure's fn) aggregates
-  // `yField` with the wrong function (finding 2.6).
+  // `yField` with the wrong function.
   const heatAggregation = config.yField
     ? (config.yAggregation ?? 'sum')
     : (config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
@@ -736,7 +736,7 @@ function renderHeatmap(ctx: ChartRenderContext<'heatmap'>): React.ReactElement {
 
 function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   // Aggregate `enrichedRows` (L4-resolved cross-source `funnelReachedField` + cross-filter-mode
-  // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
+  // aware) rather than raw `filteredRows`.
   const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   const funnelXField = config.xField ?? '';
   const funnelValueField = config.yField ?? config.ySeries?.[0]?.fieldId ?? '';
@@ -750,12 +750,12 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
   }
 
   // `resolveFieldDef` so a calculated value field (offered by the panel) keeps its real
-  // currency/precision formatting instead of losing it to a native-only lookup (finding 3.2).
+  // currency/precision formatting instead of losing it to a native-only lookup.
   const valueFieldDef = resolveFieldDef(funnelValueField, dataSource, expressionFields);
-  // Per-series aggregation wins over the yField-level default (finding 2.2) — same precedence
+  // Per-series aggregation wins over the yField-level default — same precedence
   // fix as the heatmap above, for the same config-key-retention-across-type-switch reason. Tie
   // the fn to the RESOLVED value field so a set `yField` doesn't inherit a leftover
-  // `ySeries[0].yAggregation` from a different measure (finding 2.6).
+  // `ySeries[0].yAggregation` from a different measure.
   const funnelAggregation = config.yField
     ? (config.yAggregation ?? 'sum')
     : (config.ySeries?.[0]?.yAggregation ?? config.yAggregation ?? 'sum');
@@ -871,7 +871,7 @@ function renderFunnel(ctx: ChartRenderContext<'funnel'>): React.ReactElement {
 
 function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
   // Aggregate `enrichedRows` (L4-resolved cross-source `sankeyTargetField` + cross-filter-mode
-  // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
+  // aware) rather than raw `filteredRows`.
   const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   const sankeySourceField = config.xField ?? '';
   const sankeyTargetField = config.sankeyTargetField ?? '';
@@ -886,7 +886,7 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
   }
 
   // `resolveFieldDef` so a calculated link-weight field keeps its real currency/precision
-  // formatting instead of losing it to a native-only lookup (finding 3.2).
+  // formatting instead of losing it to a native-only lookup.
   const valueFieldDef = resolveFieldDef(sankeyValueField, dataSource, expressionFields);
   const sankeyData = cachedCompute(
     enrichedRows,
@@ -926,7 +926,7 @@ function renderSankey(ctx: ChartRenderContext<'sankey'>): React.ReactElement {
 
 function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
   // Aggregate `enrichedRows` (L4-resolved cross-source `gantt*` fields + cross-filter-mode
-  // aware) rather than raw `filteredRows` (findings 1.9 / 2.5).
+  // aware) rather than raw `filteredRows`.
   const { config, enrichedRows, chartHeight } = ctx;
   const labelField = config.ganttLabelField ?? '';
   const startField = config.ganttStartField ?? '';
@@ -962,13 +962,13 @@ function renderGantt(ctx: ChartRenderContext<'gantt'>): React.ReactElement {
 
 function renderGauge(ctx: ChartRenderContext<'gauge'>): React.ReactElement {
   // Aggregate `enrichedRows` (cross-filter-mode aware via `effectiveRows`) rather than raw
-  // `filteredRows`, so a `'none'`-mode gauge doesn't react to sibling cross-filters (finding 2.5).
+  // `filteredRows`, so a `'none'`-mode gauge doesn't react to sibling cross-filters.
   const { config, dataSource, expressionFields, enrichedRows, chartHeight } = ctx;
   // Mirror the `yField ?? ySeries[0].fieldId` fallback + per-series aggregation precedence every
   // sibling family (heatmap/funnel/sankey) has, so a chart authored via `ySeries` then switched to
-  // gauge still resolves its measure instead of showing "configure gauge" (finding 2.7). The fn is
+  // gauge still resolves its measure instead of showing "configure gauge". The fn is
   // tied to the resolved field: `config.yAggregation` when it came from `yField`, else the
-  // `ySeries[0]` entry's fn (finding 2.6). `ySeries` is retained at runtime across a chart-type
+  // `ySeries[0]` entry's fn. `ySeries` is retained at runtime across a chart-type
   // switch but isn't on the narrowed `StudioGaugeChartConfig`, so read it through the flat patch type.
   const gaugeYSeries = (config as StudioChartConfig).ySeries;
   const gaugeValueField = config.yField ?? gaugeYSeries?.[0]?.fieldId;
@@ -1222,7 +1222,7 @@ export const CHART_TYPE_DEFS = {
     // an unsupported multi-hop topology) produced no "unsupported field" overlay at all:
     // `useChartRows` short-circuits to `[]` for an unsupported configuration, the gauge
     // aggregated nothing, and it rendered a confident `0` — a real, wrong number — where a bar
-    // chart with the identical misconfiguration explains the problem (finding M11).
+    // chart with the identical misconfiguration explains the problem.
     // `analyzeChartSupport` short-circuits to `supported: true` when no fields are requested,
     // so a gauge with no measure at all still reaches `renderGauge`'s own "configure" hint.
     runsSupportGuard: true,

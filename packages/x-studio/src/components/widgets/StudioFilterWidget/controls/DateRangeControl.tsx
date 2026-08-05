@@ -25,7 +25,7 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     currentValue?.to ? dayjs(currentValue.to) : null,
   );
 
-  // Whether each field currently has local, uncommitted edits (finding 3.4). While
+  // Whether each field currently has local, uncommitted edits. While
   // typing a "From" date, an intermediate invalid state (e.g. an incomplete section)
   // debounce-applies `{ from: undefined, to }` to the store; that round-trips back
   // through `currentValue` ~300ms later, and without this guard the sync effect below
@@ -108,7 +108,7 @@ export function DateRangeControl(props: StudioFilterDateRangeControlProps) {
     });
   };
 
-  // Cancel any pending debounced `onApply` before clearing (finding 2). Without this, a
+  // Cancel any pending debounced `onApply` before clearing. Without this, a
   // date pick followed by a clear within the 300ms debounce window still fires the STALE
   // scheduled `onApply(value)` after `onClear()` has already reset the filter — silently
   // resurrecting the just-cleared date range moments later. Also reset the local buffered

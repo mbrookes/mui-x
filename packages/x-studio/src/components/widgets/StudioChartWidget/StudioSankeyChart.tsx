@@ -6,7 +6,7 @@ import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import type { StudioNumberFormat } from '../../../models';
 import type { SankeyAggregateData } from '../../../internals/chartAggregation';
 
-// Cap on how many links get spelled out in the `aria-label` text alternative (finding 3).
+// Cap on how many links get spelled out in the `aria-label` text alternative.
 const ARIA_LABEL_MAX_LINKS = 15;
 
 interface StudioSankeyChartProps {
@@ -41,14 +41,14 @@ export function StudioSankeyChart({
   // enumerated links to `ARIA_LABEL_MAX_LINKS` and append a total count for the
   // remainder — joining every link (potentially thousands for a large diagram) rebuilds
   // a multi-hundred-KB string every render and is not a usable screen-reader
-  // announcement anyway (finding 3).
+  // announcement anyway.
   const describedLinks = data.links.slice(0, ARIA_LABEL_MAX_LINKS);
   const describedCount = data.links.length - describedLinks.length;
   const ariaLabelDetails =
     describedLinks
       // Interpolated INTO the localized `sankeyChartAriaLabel`, so the per-link detail has to
       // be localized as well — a literal `" to "` made every translated announcement a
-      // mixed-language sentence ("Paris to Lyon : 1 234") (finding M21).
+      // mixed-language sentence ("Paris to Lyon : 1 234").
       .map((l) => localeText.sankeyLinkAriaLabel(l.source, l.target, formatter(l.value)))
       .join('; ') +
     (describedCount > 0 ? `; ${localeText.filterSummaryAndMore(describedCount)}` : '');

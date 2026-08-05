@@ -43,7 +43,7 @@ export function assertTablesAllowed(tables: string[], schemaAllowlist: string[])
   }
   const invalidTables = tables.filter((t) => !schemaAllowlist.includes(t));
   if (invalidTables.length > 0) {
-    // INFORMATION DISCLOSURE (finding 3.3): the client-facing message names ONLY the
+    // INFORMATION DISCLOSURE: the client-facing message names ONLY the
     // rejected table(s), never the full allowlist. Enumerating every allowed table
     // in an error returned verbatim to any authenticated caller (`handler.ts`'s
     // per-widget `{ error }`) hands out the server's schema map. The full allowlist
@@ -100,7 +100,7 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
   // is qualified or not.
   assertIdentifierLength(column, 'Column reference', context);
   assertSingleDotReference(column, context);
-  // Reject Knex's implicit `" as "` alias syntax (finding L2). Runs
+  // Reject Knex's implicit `" as "` alias syntax. Runs
   // UNCONDITIONALLY here — unlike `checkColumnAgainstAllowlist`, which only runs
   // when a `columnAllowlist` is configured — so the `schemaAllowlist`-only
   // deployment (where the silent projection-key collision actually bites) is
@@ -179,7 +179,7 @@ function checkQualifiedColumn(column: string, context: string, schemaAllowlist: 
  * `assertValidBatchMutationRequest` does the equivalent up front — yields this
  * package's own precise, `MUI X`-prefixed error instead.
  *
- * REQUIRED STRING FIELDS (finding L1) — the object check alone is not enough for
+ * REQUIRED STRING FIELDS — the object check alone is not enough for
  * every array. `filters`/`orderBy` hand their `.column` straight to
  * `checkQualifiedColumn`, which has its own non-string guard, so they need no
  * extra fields. But `aggregations` and `having` are dereferenced by validators
@@ -286,7 +286,7 @@ export function assertQualifiedColumnsAllowed(
     }
   }
   for (const agg of descriptor.aggregations ?? []) {
-    // `column` AND `alias` are both required strings here (finding L1):
+    // `column` AND `alias` are both required strings here:
     // `validateQueryPlan` dereferences `agg.column` through `resultKeyOf` and
     // `validateAggregationAliases` reads `agg.alias.length`, neither of which
     // guards the type itself.
@@ -296,7 +296,7 @@ export function assertQualifiedColumnsAllowed(
   // HAVING predicates carry NO column reference — they may only name an
   // aggregation alias (`validateHavingAliases` enforces that) — so there is
   // nothing here to check against the schema allowlist. They are shape-guarded
-  // anyway (finding L1) because this is the package's up-front, per-widget shape
+  // anyway because this is the package's up-front, per-widget shape
   // gate for every client-supplied descriptor array, and `having` was the one
   // array it did not cover: a `having: [null]` reached `validateHavingAliases`'s
   // unguarded `h.alias` dereference and produced a raw `TypeError` that
@@ -319,7 +319,7 @@ export function assertQualifiedColumnsAllowed(
           `the schema allowlist. Ensure every entry in "joins" is an object with a "table" field.`,
       );
     }
-    // Guard the `on` COLLECTION before iterating it (finding L1). `for (const
+    // Guard the `on` COLLECTION before iterating it. `for (const
     // pair of join.on ?? [])` only substitutes for `null`/`undefined` — a present
     // non-iterable (`on: {}`, `on: 5`) threw a raw `TypeError: join.on is not
     // iterable` from this very loop, PRE-EMPTING `validateJoinOnPairs`'s clean

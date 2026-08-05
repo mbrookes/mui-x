@@ -28,7 +28,7 @@ import { markPackageAuthored } from './internal/packageError';
 const MAX_SAMPLE_VALUE_LENGTH = 100;
 
 /**
- * Max number of `fields` described in a single call (finding H1i).
+ * Max number of `fields` described in a single call.
  *
  * The field COUNT was completely unbounded: each field contributes a line to the
  * user message, and `max_tokens: Math.min(200 * fields.length, 4096)` scales off
@@ -41,8 +41,8 @@ const MAX_SAMPLE_VALUE_LENGTH = 100;
 const MAX_FIELDS_PER_REQUEST = 500;
 
 /**
- * Max length of a model-authored `aiDescription` returned by this function
- * (finding L7).
+ * Max length of a model-authored `aiDescription` returned by this function.
+ *
  *
  * This value is STORED by the caller onto `StudioDataField.aiDescription` and then
  * merged into every future chat system prompt — the second-order injection vector
@@ -56,7 +56,7 @@ const MAX_GENERATED_AI_DESCRIPTION_LENGTH = 200;
 
 /**
  * A run of line terminators plus the whitespace hugging it, collapsed to one space
- * when normalizing a model-authored `aiDescription` (finding L2).
+ * when normalizing a model-authored `aiDescription`.
  *
  * Derived from `buildAISystemPrompt`'s {@link PROMPT_LINE_BREAK_RE} rather than
  * hand-written. The previous global `\s*[\r\n]+\s*` matched only `\r` and `\n`, so
@@ -170,7 +170,7 @@ export async function generateFieldDescriptions(
   // instruction. Critically, the returned `aiDescription` is stored and later merged into
   // every chat system prompt (see the JSDoc example above), so an unsanitized value here
   // would be a STORED, second-order prompt injection that fires on every future turn.
-  // `sanitizeForPromptLine` (finding M2): every value here sits on ONE line of the
+  // `sanitizeForPromptLine`: every value here sits on ONE line of the
   // `<fields>` block, inside quoted `id:`/`label:` attributes — escaping `<`/`>`
   // alone left a newline free to forge an extra field line, and a bare `"` free to
   // close its own quoted attribute.
@@ -180,7 +180,7 @@ export async function generateFieldDescriptions(
         Array.isArray(f?.sampleValues) && f.sampleValues.length > 0
           ? ` Sample values: ${f.sampleValues
               .slice(0, 10)
-              // `capText`, not `String(v).slice(…)` (finding H1): sample values are raw
+              // `capText`, not `String(v).slice(…)`: sample values are raw
               // host row data, and `String({"toString": 1})` throws — which here would
               // fail the whole description request instead of blanking one sample.
               .map((v) => sanitizeForPromptLine(capText(v, MAX_SAMPLE_VALUE_LENGTH)))
@@ -204,7 +204,7 @@ export async function generateFieldDescriptions(
   // `withTimeout` mechanism and constant `agenticLoop.ts` applies to its own LLM
   // fetch, rather than reimplementing a second timeout scheme.
   // `linkAbortSignal` additionally ABORTS the request on timeout or on the caller's
-  // own signal (finding M5); `withTimeout` alone only stopped this function waiting,
+  // own signal; `withTimeout` alone only stopped this function waiting,
   // leaving the upstream completion running and fully billed.
   const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
   try {
@@ -226,7 +226,7 @@ export async function generateFieldDescriptions(
               { role: 'user', content: userContent },
             ],
             // Host-supplied when given, otherwise scales off the CAPPED field count
-            // (finding H1i) — it previously scaled off the raw, unbounded one.
+            //  — it previously scaled off the raw, unbounded one.
             max_tokens: maxTokens,
             temperature: 0.2,
             response_format: { type: 'json_object' },
@@ -248,7 +248,7 @@ export async function generateFieldDescriptions(
     }
 
     if (!response.ok) {
-      // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+      // Bounded by `LLM_FETCH_TIMEOUT_MS` — the fetch-level
       // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
       // a non-2xx status then stalls the body would otherwise hang this read forever.
       const errText = await readBodyWithTimeout(
@@ -275,9 +275,9 @@ export async function generateFieldDescriptions(
     // Bounded by `LLM_FETCH_TIMEOUT_MS` for the same reason as the error-body read
     // above: a gateway that returns 2xx headers then stalls the success body would
     // otherwise hang this call forever, even though the fetch-level timeout already
-    // resolved once headers arrived. The body is CANCELLED on a timeout (finding M5).
+    // resolved once headers arrived. The body is CANCELLED on a timeout.
     // A 200 whose body is NOT JSON becomes a branded, provider-text-free error instead of
-    // a raw `SyntaxError` quoting the provider's HTML (finding L4) — shared with
+    // a raw `SyntaxError` quoting the provider's HTML — shared with
     // `handleGenerateInsight.ts` so all three one-shot handlers behave identically.
     const data = await readChatCompletionBody(
       response,
@@ -290,7 +290,7 @@ export async function generateFieldDescriptions(
     // (no `choices` key at all) with a 200 status — without the optional chaining on
     // `choices` itself, `data.choices[0]` throws an opaque TypeError instead of falling
     // through to the empty-string default below, which then produces this file's
-    // normal descriptive "unparseable JSON" error (T3-1) — matching the sibling
+    // normal descriptive "unparseable JSON" error — matching the sibling
     // pattern `handleGenerateInsight.ts` (`handleGenerateTitle`/`handleCreateWidget`)
     // already uses for the identical shape of provider stub.
     // `typeof === 'string'` rather than a bare `?.trim()`: `content` is raw provider JSON,

@@ -195,7 +195,7 @@ export const StudioDashboard = React.memo(function StudioDashboard({
   // Expose the underlying handle to the caller's ref
   React.useImperativeHandle(ref, () => innerRef.current!, []);
 
-  // Seed the controller's mode (F1). `Studio` builds its `StudioController` ONCE from
+  // Seed the controller's mode. `Studio` builds its `StudioController` ONCE from
   // `initialState`, and `createDefaultStudioState`'s `baseSession.mode` is `'edit'` with
   // `config.session` merged on top — so handing `config` through verbatim made every embed
   // mount editable, and an embed built from a `getState()` snapshot taken in the authoring
@@ -291,7 +291,7 @@ export const StudioDashboard = React.memo(function StudioDashboard({
 
   // Register/update data adapters whenever they change, AND unregister any the host dropped.
   // Tracks the set of source ids registered on the previous run so a key removed from
-  // `dataAdapters` gets its adapter cleared (T3.4). The effect previously iterated only the NEW
+  // `dataAdapters` gets its adapter cleared. The effect previously iterated only the NEW
   // map, so a removed key kept its previously-registered adapter forever — its last fetched rows
   // would then keep shadowing freshly-resolved in-memory rows (this is what makes finding 2.2
   // reachable, addressed together here).

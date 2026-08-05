@@ -16,7 +16,7 @@ import {
 export interface StudioTextWidgetProps {
   widget: StudioWidgetOf<'text'>;
   /** ID of the page this widget belongs to. Used to scope the AI snapshot to the
-   * widget's own page rather than whichever page happens to be active (finding 2.x) —
+   * widget's own page rather than whichever page happens to be active —
    * required, matching every other built-in widget kind's `pageId` prop. */
   pageId: string;
   /** Ref that receives the AI refresh function when AI mode is active. */
@@ -125,7 +125,7 @@ export const StudioTextWidget = React.memo(function StudioTextWidget(props: Stud
             // `sanitizeCssColor`/`sanitizeFontSize` validate doc-authored config values
             // before they reach `sx` — Emotion does not escape interpolated property
             // values, so an unvalidated string here would let a hostile serialized
-            // dashboard or AI `update_widget` call inject arbitrary CSS (finding 1).
+            // dashboard or AI `update_widget` call inject arbitrary CSS.
             color: sanitizeCssColor(config.textSubtitleColor, 'text.secondary'),
             ...(config.textSubtitleFontFamily && {
               fontFamily: resolveTextFontFamily(config.textSubtitleFontFamily),

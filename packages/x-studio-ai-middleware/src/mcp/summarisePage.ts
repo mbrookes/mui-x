@@ -54,7 +54,7 @@ const ANOMALY_CHART_TYPES = new Set(['bar', 'bar-stacked', 'bar-100', 'line']);
  *
  * This is a strict SUBSET of `QUERY_AGGREGATION_FUNCS` (`mcp/queryTools.ts`), the
  * closed set every `aggregations[].func` bound for `data.queryDataSource` is now
- * validated against (finding H5) — this gate was the package's ONLY value-domain
+ * validated against — this gate was the package's ONLY value-domain
  * check on a `func` before that, which is what proved the omission over there was an
  * oversight rather than a stance. The `satisfies` annotation is the drift lock: an
  * entry here that is not a member of the shared union fails to compile, so the subset
@@ -69,7 +69,7 @@ const ANOMALY_SAFE_AGGREGATIONS: ReadonlySet<string> = new Set([
 
 /**
  * Hard upper bound on the number of widgets `summarise_page` fans out per-widget
- * `queryDataSource` calls for (finding F5, Tier 3). `Promise.all` below issues up
+ * `queryDataSource` calls for. `Promise.all` below issues up
  * to TWO live queries per widget (a sample-rows query, and — for time-series
  * charts — a GROUP BY anomaly-aggregation query) concurrently, with no prior cap
  * on widget count, unlike sibling fan-outs in `queryTools.ts`
@@ -85,7 +85,7 @@ const MAX_SUMMARISE_PAGE_WIDGETS = 50;
 
 /**
  * Hard upper bound on the number of anomaly bucket labels appended to a widget's
- * section (finding L4). `detectAnomaliesIQR` can flag up to one bucket per GROUP BY
+ * section. `detectAnomaliesIQR` can flag up to one bucket per GROUP BY
  * row — `min(20000, maxQueryRows)` of them — and every flagged label used to be
  * `join(', ')`-ed into this LLM-consumed summary, so a high-cardinality
  * `xGroupBy` produced an unbounded block of text per widget. The overflow count is
@@ -113,7 +113,7 @@ function sanitizeCsvValue(value: unknown): string {
 }
 
 /**
- * Format a host-reported `rowCount` for the `### … (N rows)` heading (finding L2).
+ * Format a host-reported `rowCount` for the `### … (N rows)` heading.
  *
  * `rowCount` is typed `number`, but it is HOST-supplied — and `node-pg` returns
  * `COUNT(*)` as a STRING by default (bigint doesn't fit a JS number), which is the
@@ -152,7 +152,7 @@ export function createSummarisePageHandler(deps: {
   maxQueryRows?: number;
   /**
    * Per-source authorization consult, run once per DISTINCT widget `sourceId` on the
-   * resolved page before any live query for that source runs (finding H3).
+   * resolved page before any live query for that source runs.
    *
    * `mcp.ts` gates `summarise_page` itself under `query_data_source`
    * SOURCE-AGNOSTICALLY (it spans the whole page), by analogy with the multi-source
@@ -203,7 +203,7 @@ export function createSummarisePageHandler(deps: {
     }
     const requestedPageId = rawPageId;
     const resolvedPageId = requestedPageId ?? state.doc.dashboard.activePageId;
-    // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member pageId
+    // `Object.hasOwn`-guarded lookup: a prototype-member pageId
     // (`"constructor"`) would otherwise resolve to a truthy inherited function and
     // degrade to a confusing "No queryable widgets" path instead of a clean not-found.
     const activePage =
@@ -217,11 +217,11 @@ export function createSummarisePageHandler(deps: {
           {
             type: 'text' as const,
             text: requestedPageId
-              ? // Finding F6 (Tier 3): `requestedPageId` is caller-supplied and echoed
+              ? // `requestedPageId` is caller-supplied and echoed
                 // raw into this LLM-consumed tool output. Route it through
                 // `safeIdentifier` — the shared sanitize-AND-cap choke point for an
                 // untrusted identifier echoed into error prose. It was previously only
-                // sanitized (finding M7), leaving a multi-megabyte `pageId` free to
+                // sanitized, leaving a multi-megabyte `pageId` free to
                 // become a multi-megabyte tool result.
                 `Page "${safeIdentifier(requestedPageId)}" not found.`
               : 'No active page found.',
@@ -238,7 +238,7 @@ export function createSummarisePageHandler(deps: {
     const allWidgets = widgetIds
       .filter((id) => Object.hasOwn(state.doc.widgets, id))
       .map((id) => state.doc.widgets[id]);
-    // Finding F5 (Tier 3): truncate (not reject) an oversized widget fan-out —
+    // Finding F5: truncate (not reject) an oversized widget fan-out —
     // see `MAX_SUMMARISE_PAGE_WIDGETS`'s doc comment.
     const widgetsTruncated = allWidgets.length > MAX_SUMMARISE_PAGE_WIDGETS;
     const widgets = widgetsTruncated ? allWidgets.slice(0, MAX_SUMMARISE_PAGE_WIDGETS) : allWidgets;
@@ -265,7 +265,7 @@ export function createSummarisePageHandler(deps: {
         // `approvalHandler`), and a host bug must skip the widget, never wave it
         // through. The detail goes to the server log, never into the summary.
         pending = authorizeSourceDataAccess({ sourceId }).catch((err) => {
-          // `describeErrorForLog`, not `String(err)` (finding H1): the raw global
+          // `describeErrorForLog`, not `String(err)`: the raw global
           // throws for a rejection value of `{"toString": 1}`, and a logger inside a
           // `.catch` that throws re-rejects the very promise this handler is guarding.
           logger?.error(
@@ -278,7 +278,7 @@ export function createSummarisePageHandler(deps: {
       return pending;
     };
 
-    // Bounded-concurrency fan-out (finding L2). `MAX_SUMMARISE_PAGE_WIDGETS` bounds how
+    // Bounded-concurrency fan-out. `MAX_SUMMARISE_PAGE_WIDGETS` bounds how
     // many widgets are covered (50) and each widget issues up to TWO live queries, so
     // the previous bare `Promise.all` could open ~100 host connections at once and
     // drain a pool the host sized for its whole application. `withTimeout` does not
@@ -342,7 +342,7 @@ export function createSummarisePageHandler(deps: {
           );
           return;
         }
-        // Per-source authorization (finding H3) — see `authorizeSourceDataAccess`'s doc
+        // Per-source authorization — see `authorizeSourceDataAccess`'s doc
         // comment. Skipped exactly like the allowlist denial above: one denied source
         // must not fail the whole page summary, and the deny reason is logged
         // server-side rather than echoed into the LLM-consumed summary (the model must
@@ -375,7 +375,7 @@ export function createSummarisePageHandler(deps: {
             limit: 50,
           }),
           15_000,
-          // `opLabel` (finding M2, structurally closed): `tableName` comes off
+          // `opLabel`: `tableName` comes off
           // `runtime.dataSources`, which on the chat transport descends from the
           // client-supplied request body, and this label lands inside a BRANDED
           // `StudioTimeoutError` that `redactedHostErrorMessage` relays VERBATIM on the
@@ -494,7 +494,7 @@ export function createSummarisePageHandler(deps: {
                 tableName,
                 columns: [safeXField],
                 aggregations: [{ column: safeYField, func: yAgg, alias: 'y_agg' }],
-                // Finding 6 (Tier 3): this hardcoded 20,000 previously ignored the
+                // Finding 6: this hardcoded 20,000 previously ignored the
                 // host's configured `maxQueryRows` bound entirely. Cap at whichever
                 // is smaller, matching `query_data_source`'s own
                 // `Math.min(limit, maxQueryRows)` clamp.
@@ -539,7 +539,7 @@ export function createSummarisePageHandler(deps: {
         results[i] = { text: lines.join('\n') };
       } catch (err) {
         logger?.error(
-          // `describeErrorForLog`, not `String(err)` (finding H1) — see above; this
+          // `describeErrorForLog`, not `String(err)` — see above; this
           // logger call sits in the catch that keeps ONE bad widget from failing the
           // whole summary, so it must not be able to throw itself.
           `[mcp] summarise_page skipped widget "${widget.title || sourceId}": ${describeErrorForLog(err)}`,
@@ -573,7 +573,7 @@ export function createSummarisePageHandler(deps: {
     // completion order — see the `results` array above).
     // (Splitting into separate content items fragments the summary for MCP
     // clients that render only the first.)
-    // Finding F5 (Tier 3): note the widget-fan-out truncation in the summary
+    // Finding F5: note the widget-fan-out truncation in the summary
     // itself, mirroring `describe_data_source`'s `statsTruncatedNote` pattern, so
     // the model knows this summary doesn't cover every widget on the page.
     const truncationNote = widgetsTruncated

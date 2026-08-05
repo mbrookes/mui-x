@@ -326,7 +326,7 @@ export function StudioBarChart({
     // When cross-filtering with ghost, use all-data as the basis so ghost bars show full extent
     // — but only when `preserveXFieldBaseline` opts into it (matching every sibling ghost path:
     // multi-Y line/area, single-series bar, single-series line, pie), otherwise the ghost baseline
-    // is shown unconditionally regardless of the flag (finding 3).
+    // is shown unconditionally regardless of the flag.
     const effectiveMultiYData =
       shouldShowGhost && allBarMultiYData && preserveXFieldBaseline
         ? allBarMultiYData
@@ -426,7 +426,7 @@ export function StudioBarChart({
       // percentages of the per-label stack total, but the ghost context holds RAW filtered
       // aggregates. Normalize the filtered values into the same percent frame before formatting
       // so the "filtered / total" tooltip compares like with like instead of stamping a raw
-      // count with a '%' suffix (finding 2.24). The ghost-bar geometry keeps the raw context.
+      // count with a '%' suffix. The ghost-bar geometry keeps the raw context.
       const filteredValuesForFormatter =
         totals100 && rawFilteredValues
           ? rawFilteredValues.map((fv, li) => {
@@ -463,7 +463,7 @@ export function StudioBarChart({
       <CrossFilterBarContext.Provider value={multiYBarContext}>
         {/* The keydown is DELEGATED: it originates on x-charts' own focusable
             keyboard-navigation proxy inside the chart and bubbles up here, so this wrapper is
-            deliberately not itself a tab stop (finding M10). */}
+            deliberately not itself a tab stop. */}
         <div
           style={{ height: multiYEffectiveHeight }}
           {...chartKeyboardActivationProps(chartFocusRef, xAxisData, onItemClick)}
@@ -561,7 +561,7 @@ export function StudioBarChart({
   // `barSeriesFieldData` alone used to fall through to the single-series prelude below,
   // silently collapsing the chart's per-series structure (colors, legend, individual series
   // identity) into one unsplit "ghost" bar instead of rendering every baseline series fully
-  // filtered-out/dimmed (finding 2).
+  // filtered-out/dimmed.
   const effectiveSFData =
     shouldShowGhost && allBarSeriesFieldData && preserveSplitByBaseline
       ? allBarSeriesFieldData
@@ -624,7 +624,7 @@ export function StudioBarChart({
       const rawFilteredValues = sfFilteredBySeriesId[seriesId];
       // See the multi-Y path above: for bar-100 normalize the raw filtered aggregates into the
       // same per-label percent frame as the rendered bars so the "filtered / total" tooltip
-      // doesn't format a raw value as a percentage (finding 2.24).
+      // doesn't format a raw value as a percentage.
       const filteredValuesForFormatter =
         totals100 && rawFilteredValues
           ? rawFilteredValues.map((fv, i) => {
@@ -668,7 +668,7 @@ export function StudioBarChart({
             {...CHART_KEYBOARD_NAV_PROPS}
             title={ariaTitle}
             // Split-by series are otherwise distinguished by hue alone — enumerate them so the
-            // chart's description names each category (finding M10).
+            // chart's description names each category.
             desc={buildChartDescription(
               effectiveSFData.seriesNames.map(String),
               localeText.filterSummaryAndMore,
@@ -875,7 +875,7 @@ export function StudioBarChart({
           // Exclude the empty-label bucket, matching `nonEmptyBarPairs`'s exclusion above
           // (`label !== null && label !== undefined && label !== ''`) — otherwise this ghost
           // sum can include a filtered value the baseline's `otherValue` never counted,
-          // making the "Other" ghost total exceed its own (baseline) bar (finding 3.9).
+          // making the "Other" ghost total exceed its own (baseline) bar.
           if (lbl !== '' && !keepSet.has(lbl)) {
             sum += fv ?? 0;
             sawValue = sawValue || (fv !== null && fv !== undefined);

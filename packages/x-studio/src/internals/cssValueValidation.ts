@@ -1,5 +1,5 @@
 /**
- * Value-level validation for doc-authored CSS-ish config fields (finding 1).
+ * Value-level validation for doc-authored CSS-ish config fields.
  *
  * A handful of `StudioWidgetConfig` fields (the text widget's `text*Color` /
  * `text*FontFamily` / `text*FontSize` fields, and the analogous `pageTheme`/grid

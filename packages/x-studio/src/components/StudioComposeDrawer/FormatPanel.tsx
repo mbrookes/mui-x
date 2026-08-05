@@ -121,7 +121,7 @@ export function FormatPanel(props: { widgetId: string }) {
   // AI tool surface includes `update_widget`, so an external write to (say) `subtitle` must
   // not discard a title the user is part-way through typing. `gridHeight` is buffered for the
   // additional reason that keystrokes must never be dropped by clamp validation — the clamp
-  // only runs on blur (Finding 1.3, see `handleGridHeightBlur`). A widget switch (the
+  // only runs on blur. A widget switch (the
   // `identity` argument) is the one case that discards a dirty buffer.
   const titleBuffer = useBufferedInput(widget?.title ?? '', widgetId);
   const subtitleBuffer = useBufferedInput(widget?.subtitle ?? '', widgetId);

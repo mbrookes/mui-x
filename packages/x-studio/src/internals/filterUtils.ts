@@ -42,7 +42,7 @@ export function resolveDateRangePreset(filter: StudioFilterState): StudioFilterS
   // the day in UTC (`…T23:59:59.999Z`) so BOTH bounds share one timezone interpretation: the
   // bare-date `from` parses as UTC midnight, and rows are normalized to UTC ISO on ingestion, so
   // a UTC end-of-day keeps the two ends of the window in the same zone. A zone-less
-  // `…T23:59:59` parsed as LOCAL time, mixing zones across the one preset window (finding 1.3).
+  // `…T23:59:59` parsed as LOCAL time, mixing zones across the one preset window.
   const resolvedTo = filter.fieldType === 'datetime' ? `${to}T23:59:59.999Z` : to;
   return { ...filter, value: { from, to: resolvedTo } };
 }
@@ -277,7 +277,7 @@ export function hasBetweenBound(v: unknown): boolean {
  *
  * Such a day-only bound must be compared at DAY granularity against a `datetime` column so it
  * covers the whole calendar day rather than only the exact-midnight instant its full-ISO form
- * (`…T00:00:00.000Z`) would (finding 1.3): `>=`/`<=`/`between` bounds become inclusive of the
+ * (`…T00:00:00.000Z`) would: `>=`/`<=`/`between` bounds become inclusive of the
  * entire day and `>`/`<` exclusive of it. A value carrying an explicit time (e.g. a preset's
  * resolved end-of-day instant, or a sub-day `RelativeDateValue`) keeps full-timestamp precision.
  */
@@ -528,7 +528,7 @@ function compileSingleCondition(
     case 'greater_than': {
       if (fieldType === 'date' || fieldType === 'datetime') {
         // A bare-date filter value compares at day granularity so `>` a date excludes the
-        // WHOLE of that day on a datetime column (finding 1.3); a value with an explicit time
+        // WHOLE of that day on a datetime column; a value with an explicit time
         // keeps full precision. Row values route through the same comparator so numeric
         // timestamps (e.g. from columnar sources) are normalized to ISO before comparison —
         // with a fast path for already-canonical ISO strings, so no perf regression.
@@ -610,7 +610,7 @@ function compileSingleCondition(
       if (fieldType === 'date' || fieldType === 'datetime') {
         // Day granularity for a bare-date value so `<=` a date includes the WHOLE of that day
         // on a datetime column, instead of excluding everything after its midnight — the
-        // "at or before Jul 10 drops all of Jul 10" bug (finding 1.3).
+        // "at or before Jul 10 drops all of Jul 10" bug.
         const { cmpVal, rowComparable } = compileDateBound(filterVal, fieldType);
         return (row) => {
           const rv = row[field];
@@ -638,11 +638,11 @@ function compileSingleCondition(
         return () => true;
       }
       // `!= null && !== ''` rather than a truthiness check so a genuine `0` bound (e.g.
-      // "between 0 and 100") is treated as present rather than absent (finding 2.14/2.25).
+      // "between 0 and 100") is treated as present rather than absent.
       if (fieldType === 'date' || fieldType === 'datetime') {
         // Each bound is compiled independently: a date-only bound compares at day granularity
         // so a bare-date `to` covers the WHOLE last day of a datetime column (inclusive) rather
-        // than excluding everything after its midnight (finding 1.3). The two bounds can differ
+        // than excluding everything after its midnight. The two bounds can differ
         // in granularity — e.g. a resolved preset leaves `from` a bare date but `to` an explicit
         // end-of-day instant — and each side compares row values at its own granularity.
         const lower = hasBetweenBound(range.from) ? compileDateBound(range.from, fieldType) : null;
@@ -697,7 +697,7 @@ function compileSingleCondition(
       // is only meaningful for orderable comparables. `toComparable` coerces an UNTYPED non-ISO
       // string to `Number(...)` → NaN, and every NaN comparison is `false`, so without these
       // guards the range checks below would never fire and the filter would silently keep EVERY
-      // row — a no-op that matches everything (finding 2.14). Fail closed instead: an
+      // row — a no-op that matches everything. Fail closed instead: an
       // un-orderable bound (NaN) or row value cannot be "within" a range, so exclude it.
       //
       // An EXPLICITLY `string`-typed field is no longer un-orderable: `toComparable` now returns
@@ -741,7 +741,7 @@ function compileSingleCondition(
  * True when a (operator, value) pair is a fully-specified condition. Exported for reuse by
  * `createBatchingAdapter.ts`, which must decide whether a leaf's SECOND condition is "present"
  * using the exact same rule the in-memory evaluator uses — a valueless operator (`is_empty`/
- * `is_not_empty`) is complete/present with no value at all (finding 2.8).
+ * `is_not_empty`) is complete/present with no value at all.
  */
 export function isConditionComplete(
   operator: StudioFilterState['operator'],
@@ -753,7 +753,7 @@ export function isConditionComplete(
   if (operator === 'between') {
     const range = value as { from?: unknown; to?: unknown } | null;
     // A genuine `0` bound must count as "set" — a truthiness check treated it as absent,
-    // marking an otherwise-complete "between 0 and N" condition incomplete (finding 2.14/2.25).
+    // marking an otherwise-complete "between 0 and N" condition incomplete.
     return hasBetweenBound(range?.from) || hasBetweenBound(range?.to);
   }
   if (isRelativeDateValue(value)) {
@@ -768,7 +768,7 @@ export function isConditionComplete(
  * before they reach the server filter tree — otherwise the drawer's add-filter default
  * (`{ operator: 'equals', value: '' }`) would ship as a real `col = ''` predicate and an empty
  * selection would invert to match-nothing, both diverging from the in-memory evaluator which drops
- * them here (findings T1.1 / T2.3).
+ * them here.
  */
 export function isFilterComplete(filter: StudioFilterState): boolean {
   if (!filter.field) {
@@ -795,7 +795,7 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
   // This "filter then rank" order matches the adapter push-down path — which evaluates
   // translatable condition predicates server-side and only re-applies the rank reduction on the
   // returned rows client-side — so an adapter-backed and an in-memory source produce identical
-  // numbers for the same dashboard (finding 2.4). It is also the standard BI convention: a
+  // numbers for the same dashboard. It is also the standard BI convention: a
   // "top 5 regions" rank should rank the regions that survive the other filters, not rank the
   // whole dataset and then filter the survivors.
   //
@@ -853,7 +853,7 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       }
       // `finalizeAccumulator` yields `null` for a group with NO usable measurement, and
       // `compareRankScores` sorts `null` to the losing end in EITHER direction — the same
-      // policy the post-aggregation chart rankers apply via `reduceRankScore` (finding M9).
+      // policy the post-aggregation chart rankers apply via `reduceRankScore`.
       // Seeding each group at a concrete `0` (the previous behaviour, whose comment claimed
       // it matched the chart aggregators — it did not) let a no-data group win a "Top 1 by
       // profit" over two genuinely negative groups on every row-level widget, while the bar
@@ -870,12 +870,12 @@ export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {
       // numeric-coercion policy (`coerceAggregateValue`) — the same one the `rankByField`
       // branch above uses — rather than `Number(... ?? 0)`. A non-numeric sentinel ("N/A")
       // would otherwise coerce to NaN, making every comparison false so `toSorted` leaves the
-      // rows in an arbitrary engine-dependent order and top-N picks a meaningless subset
-      // (finding T3.1). A row with no usable value scores `null` — "not measured", not 0 —
+      // rows in an arbitrary engine-dependent order and top-N picks a meaningless subset.
+      // A row with no usable value scores `null` — "not measured", not 0 —
       // and `compareRankScores` sorts it to the losing end in EITHER direction, so it can
       // never displace a real negative measurement from a Top-N or a real positive one from a
       // Bottom-N. Falling back to 0 here did exactly that, and disagreed with the
-      // post-aggregation chart rankers (finding M9).
+      // post-aggregation chart rankers.
       const sorted = result.toSorted((a, b) =>
         compareRankScores(coerceAggregateValue(a[fieldId]), coerceAggregateValue(b[fieldId]), dir),
       );

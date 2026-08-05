@@ -100,7 +100,7 @@ export function aggregateHeatmap(
   // measures), kept separate from an unconditional per-cell row count. This mirrors the
   // package-wide aggregate policy (map/pivot/KPI): `'count'` is COUNT(*) — every row that
   // lands in a cell, including null/non-numeric-measure rows — while sum/avg/min/max skip
-  // non-numeric values via `coerceAggregateValue` (finding 2.17). Previously the heatmap
+  // non-numeric values via `coerceAggregateValue`. Previously the heatmap
   // skipped null/NaN-measure rows BEFORE counting (undercounting `count` and making a cell
   // whose measures are all null vanish) and used raw `Number(...)` (turning an empty-string
   // cell into 0, inflating sum/avg).
@@ -115,7 +115,7 @@ export function aggregateHeatmap(
   const cellRows = isMeasure ? new Map<string, Row[]>() : undefined;
 
   for (const row of rows) {
-    // Drop a null/undefined/empty x the same way the generic aggregators do (T3.2b):
+    // Drop a null/undefined/empty x the same way the generic aggregators do:
     // without this guard, `toXValue(null)` resolves to the truthy `'(empty)'` bucket
     // label, so a null x survived as an `'(empty)'` COLUMN here while a bar/line chart
     // over the same field silently dropped those rows — the two chart families

@@ -30,7 +30,7 @@ export interface GenerateInsightOptions {
    */
   maxTokens?: number;
   /**
-   * Optional `AbortSignal` for request cancellation (finding M5).
+   * Optional `AbortSignal` for request cancellation.
    *
    * These handlers previously passed NO signal at all — unlike
    * `AgenticLoopOptions.signal` — so a caller that gave up (client disconnected,
@@ -41,8 +41,8 @@ export interface GenerateInsightOptions {
    */
   signal?: AbortSignal;
   /**
-   * Called with full server-side detail when the LLM provider returns an error
-   * (finding H4).
+   * Called with full server-side detail when the LLM provider returns an error.
+   *
    *
    * The thrown error deliberately carries only the HTTP status and a correlation
    * id: a provider's error BODY can echo the (partially masked) API key, the
@@ -85,7 +85,7 @@ interface ChatCompletionBody {
  *
  * Exists because `readBodyWithTimeout(response, () => response.json(), …)` had no
  * failure handling at any of its three call sites, unlike the sibling `.text()` reads
- * which all carry a `.catch()` (finding L4). A gateway returning `200 OK` with an HTML
+ * which all carry a `.catch()`. A gateway returning `200 OK` with an HTML
  * error page — a captive portal, a misrouted proxy, an authentication redirect: the
  * single most common real-world misconfiguration these handlers hit — made
  * `response.json()` reject with a raw `SyntaxError` whose message QUOTES the first bytes
@@ -205,8 +205,8 @@ export async function handleGenerateTitle(
   // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
   // at all, unlike the main chat loop) — a hung/overloaded gateway that never
   // resolves would otherwise hang this call indefinitely. `linkAbortSignal`
-  // additionally ABORTS the request on timeout or on the caller's own signal
-  // (finding M5); `withTimeout` alone only stopped this function waiting.
+  // additionally ABORTS the request on timeout or on the caller's own signal;
+  // `withTimeout` alone only stopped this function waiting.
   const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
   try {
     let response: Response;
@@ -271,12 +271,12 @@ export async function handleGenerateTitle(
       throw new Error(report.clientMessage);
     }
 
-    // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+    // Bounded by `LLM_FETCH_TIMEOUT_MS` — the fetch-level
     // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
     // 2xx headers then stalls the body would otherwise hang this call forever. The body
-    // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
+    // is CANCELLED on a timeout rather than left unread on a live socket.
     // A 200 whose body is NOT JSON is turned into a branded, provider-text-free error
-    // rather than a raw `SyntaxError` quoting the body (finding L4).
+    // rather than a raw `SyntaxError` quoting the body.
     const data = await readChatCompletionBody(
       response,
       'Title generation',
@@ -476,7 +476,7 @@ export async function handleCreateWidget(
   // `<data_sources>` region with a "treat as data" instruction, so a hostile value
   // can neither close the block early nor be read as an instruction.
   //
-  // The LINE variant (finding M2): each source is one newline-terminated line with
+  // The LINE variant: each source is one newline-terminated line with
   // quoted field labels, so a value carrying a newline could forge an extra source
   // line and a value carrying `"` could forge a sibling field — neither of which
   // angle-bracket escaping alone prevents.
@@ -505,8 +505,8 @@ export async function handleCreateWidget(
   // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding: this call previously had no timeout
   // at all, unlike the main chat loop) — a hung/overloaded gateway that never
   // resolves would otherwise hang this call indefinitely. `linkAbortSignal`
-  // additionally ABORTS the request on timeout or on the caller's own signal
-  // (finding M5); `withTimeout` alone only stopped this function waiting.
+  // additionally ABORTS the request on timeout or on the caller's own signal;
+  // `withTimeout` alone only stopped this function waiting.
   const fetchAbort = linkAbortSignal(options.signal, LLM_FETCH_TIMEOUT_MS);
   try {
     let response: Response;
@@ -564,12 +564,12 @@ export async function handleCreateWidget(
       throw new Error(report.clientMessage);
     }
 
-    // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+    // Bounded by `LLM_FETCH_TIMEOUT_MS` — the fetch-level
     // timeout above only bounds the wait for HEADERS to arrive; a gateway that returns
     // 2xx headers then stalls the body would otherwise hang this call forever. The body
-    // is CANCELLED on a timeout (finding M5) rather than left unread on a live socket.
+    // is CANCELLED on a timeout rather than left unread on a live socket.
     // A 200 whose body is NOT JSON is turned into a branded, provider-text-free error
-    // rather than a raw `SyntaxError` quoting the body (finding L4).
+    // rather than a raw `SyntaxError` quoting the body.
     const data = await readChatCompletionBody(
       response,
       'Widget creation',
@@ -624,8 +624,8 @@ export async function handleCreateWidget(
 
     assertValidCreateWidgetResponse(parsed);
 
-    // Shape validation alone (kind/title non-empty, config an object) is NOT enough
-    // (finding T3-6): `handleCreateWidget` is exported publicly, so a hostile or
+    // Shape validation alone (kind/title non-empty, config an object) is NOT enough:
+    // `handleCreateWidget` is exported publicly, so a hostile or
     // hallucinated LLM response could name an unknown `kind` or smuggle a config key that
     // belongs to a different widget kind (or a chart config key invalid for its chartType)
     // straight into a client that trusts the middleware. Run the parsed response through

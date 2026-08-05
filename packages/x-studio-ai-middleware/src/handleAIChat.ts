@@ -226,7 +226,7 @@ export interface StudioAIHandlerOptions {
    * reached. Neither can report an ABORT, yet an abort is the normal outcome of a user
    * closing the tab: this handler's own teardown aborts the request controller on every
    * exit. Before this hook, an abandoned chat and a provider hiccup both billed real
-   * tokens upstream and reported zero (finding F1).
+   * tokens upstream and reported zero.
    *
    * A throw from this callback is caught and routed to `onToolError('onUsage', err)`
    * rather than being allowed to break the response.
@@ -381,7 +381,7 @@ export interface StudioAIHandlerOptions {
    * Use this when a host must guarantee an integration can never call certain tools
    * regardless of what the client puts in the request body.
    *
-   * EXHAUSTIVE, and it covers `server-tool` SKILLS too (finding M6). When set, this is
+   * EXHAUSTIVE, and it covers `server-tool` SKILLS too. When set, this is
    * the complete list of tool names the model may be offered and may call — built-in
    * tools AND the `tool.name` of every `server-tool` skill from `skillHandlers`/
    * `body.skills`. A skill whose tool name is absent is dropped from the advertised
@@ -401,7 +401,7 @@ export interface StudioAIHandlerOptions {
    * (name, mode, `promptFragment`, tool schema), and each skill's `promptFragment` is
    * interpolated into the higher-trust **system** prompt region.
    *
-   * IMPORTANT (finding T1-1, iteration 25): naming a skill here does **not**, by
+   * IMPORTANT: naming a skill here does **not**, by
    * itself, admit any client-supplied CONTENT — it only admits a client-supplied
    * SELECTION. The original finding-2.1 fix filtered `body.skills` by `name` alone,
    * but that still let a request assert `{ name: 'an-allowlisted-name', promptFragment:
@@ -474,7 +474,7 @@ export const MAX_REQUEST_MESSAGES = 1_000;
 
 /**
  * Max total size (chars, ~bytes of the JSON text) of a request's `body.messages`
- * array (finding F2, Tier 2). Complements {@link MAX_REQUEST_MESSAGES}: a small
+ * array. Complements {@link MAX_REQUEST_MESSAGES}: a small
  * number of enormous messages is the same unbounded-first-request class as a large
  * number of small ones. Sized generously so only a runaway/hostile payload trips it.
  */
@@ -535,7 +535,7 @@ const MAX_REQUEST_CUSTOM_WIDGETS = 200;
 const MAX_CUSTOM_WIDGET_CONFIG_KEYS = 200;
 
 /**
- * Max number of `body.skills` entries retained (finding H1a). Nothing capped
+ * Max number of `body.skills` entries retained. Nothing capped
  * `skills` AT ALL before: `validateStudioAIRequestBody` only checked that each
  * entry's `name` is a string, and every retained entry's `promptFragment` (and, for
  * `server-tool` mode, its tool `description`/`parameters`) is interpolated into the
@@ -544,7 +544,7 @@ const MAX_CUSTOM_WIDGET_CONFIG_KEYS = 200;
 const MAX_REQUEST_SKILLS = 100;
 
 /**
- * Max length of a skill's `promptFragment` (finding H1a). This is deliberately far
+ * Max length of a skill's `promptFragment`. This is deliberately far
  * larger than {@link MAX_REQUEST_STRING_LENGTH} — a fragment is real instruction
  * prose, not a label — but it must still be bounded: a single
  * `promptFragment: 'A'.repeat(50e6)` produced a 50 MB system prompt, re-sent every
@@ -556,15 +556,15 @@ const MAX_SKILL_PROMPT_FRAGMENT_CHARS = 20_000;
 const MAX_SKILL_TOOL_DESCRIPTION_CHARS = 4_000;
 
 /**
- * Max serialized size of a `server-tool` skill's JSON-Schema `parameters` object
- * (finding H1a). Sent verbatim in the `tools` array of every LLM request. A schema
+ * Max serialized size of a `server-tool` skill's JSON-Schema `parameters` object.
+ * Sent verbatim in the `tools` array of every LLM request. A schema
  * over this size is rejected — replaced with an empty object schema — rather than
  * truncated, since a half-truncated JSON Schema is not a valid schema.
  */
 const MAX_SKILL_TOOL_PARAMETERS_CHARS = 20_000;
 
 /**
- * Max length of `body.pageSnapshot` (finding H1b). Validated as a string but never
+ * Max length of `body.pageSnapshot`. Validated as a string but never
  * length-capped: its mere presence advertises `summarise_page`, whose output is the
  * snapshot VERBATIM — which is then appended to `currentMessages` and re-sent on
  * every remaining turn. Sized to a generous page-summary CSV (~25K tokens).
@@ -573,7 +573,7 @@ const MAX_PAGE_SNAPSHOT_CHARS = 100_000;
 
 /**
  * How many SSE frames may sit in the returned stream's internal queue before the
- * producer waits for the consumer (finding L2). Small enough that a client which
+ * producer waits for the consumer. Small enough that a client which
  * stops reading cannot accumulate a whole response in memory, large enough that a
  * healthy stream never pays a scheduling round-trip per text delta.
  */
@@ -581,7 +581,7 @@ const SSE_QUEUE_HIGH_WATER_MARK = 64;
 
 /**
  * How long (ms) the producer waits before re-checking `desiredSize` while the SSE
- * queue is full (finding L2). Only ever reached when a consumer has stopped
+ * queue is full. Only ever reached when a consumer has stopped
  * draining, so the polling cost is paid exclusively by a stalled client.
  */
 const SSE_DRAIN_POLL_MS = 25;
@@ -693,7 +693,7 @@ export function capIncomingRichContext(
     capped.fieldStats = Object.fromEntries(
       Object.entries(rc.fieldStats)
         .slice(0, MAX_RICH_CONTEXT_FIELD_STATS)
-        // Finding (Tier 2): the entry KEY (the field name itself) was never
+        // Finding: the entry KEY (the field name itself) was never
         // length-capped — only the entry COUNT and each entry's VALUES were.
         // `buildRichContextBlock` echoes the raw key verbatim with no length bound
         // of its own, so an oversized key is the same token-bomb class every
@@ -798,7 +798,7 @@ export function capIncomingCustomWidgets(
 }
 
 /**
- * Cap a client-supplied `skills` array (finding H1a) before its content reaches the
+ * Cap a client-supplied `skills` array before its content reaches the
  * system prompt (`buildAISystemPrompt.ts`'s `buildSkillSection`) and the advertised
  * `tools` array (`agenticLoop.ts`'s `skillToolDefs`).
  *
@@ -895,7 +895,7 @@ export function capIncomingSkills(
 }
 
 /**
- * Cap a client-supplied `pageSnapshot` (finding H1b) to
+ * Cap a client-supplied `pageSnapshot` to
  * {@link MAX_PAGE_SNAPSHOT_CHARS}.
  *
  * Applied at the same request-handling chokepoint as the other caps, BEFORE the
@@ -922,7 +922,7 @@ function encodeSSE(event: StudioAISSEEvent): string {
  * Every call site below gates a field this validator expects to be a plain
  * object/record (the request body, `dashboardState`, `doc`, and `doc`'s
  * `dashboard`/`pages`/`widgets` records) — none of them are legitimately
- * array-shaped. The previous version accepted arrays too (finding 3, iteration 24),
+ * array-shaped. The previous version accepted arrays too,
  * which weakened e.g. the `doc.pages` guard: a crafted `dashboardState.doc.pages: []`
  * would pass this check as an "object" and only crash downstream, with an opaque
  * `TypeError`, once code that expects a `Record<string, StudioPage>` tries to look up
@@ -956,7 +956,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
  * Deliberately shallow: this only guards against the shapes that would otherwise crash
  * with a raw `TypeError`, not full schema validation of every optional field.
  *
- * Exported (finding L5) so a consumer driving `runAgenticLoop` directly — the
+ * Exported so a consumer driving `runAgenticLoop` directly — the
  * documented "build your own loop" path — can run the same request validation
  * `handleAIChat` does, instead of having no reachable input validation at all.
  *
@@ -980,7 +980,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       '`{ messages: ChatMessage[], ... }` and that the host route forwards the parsed body as-is.'
     );
   }
-  // Finding F2 (Tier 2): the client-supplied `messages` array is serialized into the
+  // Finding F2: the client-supplied `messages` array is serialized into the
   // FIRST LLM request with no length/size cap of its own — the per-turn token/turn
   // budgets are checked only AFTER a turn completes, so nothing bounds the initial
   // request. Reject (rather than truncate, which could silently drop the user's latest
@@ -1005,7 +1005,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       );
     }
   }
-  // Each message must carry a `parts` array (finding 3b, iteration 24) — the shape
+  // Each message must carry a `parts` array — the shape
   // `toOpenAIMessages`/`agenticLoop/openaiWire.ts` actually iterate. An OpenAI-shaped
   // `{ role, content }` message (no `parts`) passes the `messages` array check above
   // but crashes `msg.parts.flatMap` the first time the loop serialises it.
@@ -1020,7 +1020,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
         '`{ role, content }` chat-completion message.'
       );
     }
-    // Finding 2 (Tier 3): validate each `parts` ELEMENT too, not just that `parts` is
+    // Finding 2: validate each `parts` ELEMENT too, not just that `parts` is
     // an array. A malformed element (`null`, or a `dynamic-tool` part missing
     // `toolInvocation`) previously passed this shallow check and only crashed later,
     // deep in `agenticLoop/openaiWire.ts`'s `toOpenAIMessages` — `p.type` on `null`
@@ -1049,7 +1049,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
             '`toolInvocation` object with at least `{ toolCallId: string, toolName, input, output, state }`.'
           );
         }
-        // Finding F5 (Tier 3): `toOpenAIMessages` reads `toolInvocation.toolName` into an
+        // Finding F5: `toOpenAIMessages` reads `toolInvocation.toolName` into an
         // OpenAI `function.name` — a non-string value produces a malformed OpenAI message
         // and an opaque provider 400 instead of a clean validation error.
         //
@@ -1157,7 +1157,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       );
     }
   }
-  // Finding F2 (Tier 3): `doc` is not the only partition dereferenced downstream —
+  // Finding F2: `doc` is not the only partition dereferenced downstream —
   // `buildAISystemPrompt`'s `buildDashboardState` destructures `state.session.mode`
   // and `state.runtime.dataSources`, and `executeToolOnState.ts`'s
   // `projectStateForAI` does `Object.entries(state.runtime.dataSources)`. A body that
@@ -1251,7 +1251,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       }
     }
   }
-  // Finding F2 (Tier 3), related smaller gap: a non-array `allowedTools` reaches
+  // Finding F2, related smaller gap: a non-array `allowedTools` reaches
   // `agenticLoop.ts`'s `(allowedTools as string[]).includes(...)` — on a string body
   // this silently degrades to SUBSTRING matching rather than array membership
   // (client-asserted so no privilege is widened, but the behavior is silently wrong
@@ -1269,7 +1269,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       "e.g. `['add_widget', 'remove_widget']`."
     );
   }
-  // Finding F2 (Tier 3), related smaller gap: a non-array `customWidgets` throws
+  // Finding F2, related smaller gap: a non-array `customWidgets` throws
   // inside `buildWidgetFromArgs` the first time a widget-creating tool call reads it.
   const { customWidgets } = body as { customWidgets?: unknown };
   if (customWidgets !== undefined && !Array.isArray(customWidgets)) {
@@ -1280,7 +1280,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       '`StudioCustomWidgetDef` objects.'
     );
   }
-  // Finding F4 (Tier 3): the array check above does NOT validate element shapes — a
+  // Finding F4: the array check above does NOT validate element shapes — a
   // `customWidgets: [null]` (or an element with no string `kind`) throws a raw
   // `TypeError` deeper in `buildAISystemPrompt.ts`'s widget-listing loop and
   // `buildWidgetFromArgs`, currently swallowed by outer try/catches rather than
@@ -1300,7 +1300,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       }
     }
   }
-  // Finding F1 (Tier 2): `handleAIChat` previously computed `effectiveSkills` from
+  // Finding F1: `handleAIChat` previously computed `effectiveSkills` from
   // `body.skills` BEFORE this validator ran, so a malformed `skills` (a truthy
   // non-array, or an array containing a `null`/non-object/nameless entry) threw a
   // synchronous `TypeError` out of `handleAIChat` itself — before the `ReadableStream`
@@ -1350,7 +1350,7 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       }
     }
   }
-  // Finding F6 (Tier 3): a truthy non-string `pageSnapshot` both enables the
+  // Finding F6: a truthy non-string `pageSnapshot` both enables the
   // `summarise_page` tool advertisement and is returned VERBATIM as that tool's output
   // (`agenticLoop.ts`/`executeToolOnState.ts`). A non-string value therefore lands as
   // non-string `content` in the next OpenAI turn message, which the provider rejects
@@ -1419,7 +1419,7 @@ export function handleAIChat(
     }
   };
 
-  // ── Backpressure (finding L2) ───────────────────────────────────────────────
+  // ── Backpressure ───────────────────────────────────────────────
   //
   // Events are PUSHED from `start()`, so nothing throttled the producer: a client
   // that stops reading (a backgrounded tab, a dead TCP peer that hasn't reset yet)
@@ -1464,7 +1464,7 @@ export function handleAIChat(
             return;
           }
 
-          // Finding F2 (Tier 2): cap the client-supplied `dashboardState` BEFORE it is used
+          // Finding F2: cap the client-supplied `dashboardState` BEFORE it is used
           // anywhere — for context enrichment or interpolated into the system prompt via the
           // agentic loop. The per-tool `cap*` helpers only run when an AI tool MUTATES state,
           // so without this the very first request's titles/filter values/widget counts reach
@@ -1490,7 +1490,7 @@ export function handleAIChat(
           //
           // `skills` is the exception: its cap cannot run here, because the
           // `allowedSkills` branch below REPLACES each body entry with a host-registered
-          // definition and so needs bounding AFTER resolution, not before (finding H3).
+          // definition and so needs bounding AFTER resolution, not before.
           // `capIncomingSkills` is applied to `effectiveSkills` instead — see below.
           const cappedPageSnapshot = capIncomingPageSnapshot(pageSnapshot);
           // `focusedWidgetId` is echoed VERBATIM into the `## Per-widget focus` block
@@ -1510,7 +1510,7 @@ export function handleAIChat(
           // in but never out of a server-mandated private mode. When both server options are
           // omitted, both values are bit-identical to the raw body values (current behavior).
           //
-          // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody` has
+          // Finding F1: computed HERE, after `validateStudioAIRequestBody` has
           // already rejected a malformed `body.allowedTools` (a truthy non-array, whose
           // `.includes(...)` is undefined) and INSIDE `start()` — not at the top of
           // `handleAIChat` as before. Previously the intersection ran before validation and
@@ -1534,7 +1534,7 @@ export function handleAIChat(
           }
           const effectivePrivateMode = Boolean(options.privateMode || bodyPrivateMode);
 
-          // Server-side skill allow-list enforcement (finding 2.1, hardened for T1-1).
+          // Server-side skill allow-list enforcement.
           // A client-asserted `body.skills` entry's `promptFragment` (and, for
           // `server-tool` mode, its tool `description`/`parameters`) lands in the
           // higher-trust system region. Filtering by `name` alone is NOT sufficient —
@@ -1550,7 +1550,7 @@ export function handleAIChat(
           // `allowedSkills` preserves the current behavior (`body.skills` trusted
           // as-is, content included).
           //
-          // Finding F1 (Tier 2): computed HERE, after `validateStudioAIRequestBody`
+          // Finding F1: computed HERE, after `validateStudioAIRequestBody`
           // has already rejected a malformed `body.skills` (truthy non-array, or an
           // array with a non-object/nameless entry) and INSIDE `start()` (i.e. after
           // the `ReadableStream` is already under construction) — not at the top of
@@ -1587,7 +1587,7 @@ export function handleAIChat(
           const effectiveSkills = capIncomingSkills(resolvedSkills);
 
           // Best-effort server-side context enrichment. Failures never abort the chat.
-          // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` (finding T2-2) — without this, a
+          // Bounded by `CONTEXT_ENRICHER_TIMEOUT_MS` — without this, a
           // hung `contextEnricher` (e.g. a stalled DB query) would block this `await`
           // indefinitely, stalling the entire SSE stream before the first LLM call is
           // even made. A timeout degrades the same way a thrown error already does:
@@ -1684,7 +1684,7 @@ export function handleAIChat(
             error: (...args: unknown[]) => {
               options.onToolError?.(
                 'handleAIChat',
-                // `asString`, not `String` (finding F7's class): this runs in the
+                // `asString`, not `String`: this runs in the
                 // OUTERMOST catch of the whole request, the one place a second throw has
                 // nothing left to catch it.
                 /* minify-error-disabled */ new Error(args.map((a) => asString(a)).join(' ')),

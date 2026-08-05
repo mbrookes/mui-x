@@ -30,7 +30,7 @@ export type {
   StudioAIContextEnricher,
   StudioAIContextEnricherArgs,
 } from './handleAIChat';
-// Request validation + input caps (finding L5). `runAgenticLoop` is exported below
+// Request validation + input caps. `runAgenticLoop` is exported below
 // "for consumers who want to build custom loops", but until now NONE of the input
 // validation/size-capping `handleAIChat` performs was reachable from that path — so
 // a custom loop had no way to bound a client-supplied `dashboardState`,
@@ -72,7 +72,7 @@ export type {
   StudioAIPageLayout,
   StudioAIRecentMutation,
   StudioAIEnrichedContext,
-  // The element type of `StudioDataQueryParams['having']` (finding L5). A host
+  // The element type of `StudioDataQueryParams['having']`. A host
   // implementing `queryDataSource` receives these predicates but previously had no
   // way to NAME the type without a forbidden deep import.
   StudioDataHavingPredicate,
@@ -127,7 +127,7 @@ export type {
 // (when known) it was raised under. See `StudioAIHandlerOptions.approvalPending`.
 export type { PendingApproval } from './agenticLoop/toolDispatch';
 // The thread-binding check a host's approval-resolution route should reuse rather
-// than hand-roll (finding 5, Tier 3) — see its doc comment for the bypassable
+// than hand-roll — see its doc comment for the bypassable
 // shape it replaces.
 export { isApprovalThreadIdAuthorized } from './agenticLoop/toolDispatch';
 export { executeToolOnState } from './executeToolOnState';

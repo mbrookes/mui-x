@@ -14,7 +14,7 @@ export interface AggregationSpec {
   /**
    * Output alias — used as the key in the result rows.
    *
-   * VALUE-TYPE CONTRACT (F2). For `sum` / `avg` / `count`, the value under this
+   * VALUE-TYPE CONTRACT. For `sum` / `avg` / `count`, the value under this
    * key is always a JS `number` (or `null` when the aggregate itself is NULL,
    * e.g. `SUM` over a group with no non-NULL values) — the SAME type on every
    * dialect. Drivers do not agree on this by themselves: `pg` returns `int8` and
@@ -327,7 +327,7 @@ export interface WidgetQueryResult {
   /**
    * The result rows.
    *
-   * NO-MUTATION CONTRACT (finding L3) — treat this array and its row objects as
+   * NO-MUTATION CONTRACT — treat this array and its row objects as
    * READ-ONLY. Two results in the same `BatchQueryResponse.results` may be the
    * SAME array instance: `handleBatchQuery` single-flights structurally identical
    * widgets (the widget `id` is deliberately excluded from the cache key), so
@@ -372,7 +372,7 @@ export interface WidgetQueryResult {
 /**
  * Full batch response.
  *
- * ENTRIES MAY ALIAS ONE ANOTHER (finding L3): two `results` whose widgets were
+ * ENTRIES MAY ALIAS ONE ANOTHER: two `results` whose widgets were
  * structurally identical share one `rows` array instance — see the no-mutation
  * contract on `WidgetQueryResult.rows`.
  */

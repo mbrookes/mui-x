@@ -347,7 +347,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
 
   // Keyboard-accessible canvas reorder (the drag-and-drop path is pointer-only).
   // The rows come from THIS card's page (`pageId`, a public prop), so `setWidgetLayout` is
-  // given that same `pageId` rather than being left to resolve the ACTIVE page (F3): under
+  // given that same `pageId` rather than being left to resolve the ACTIVE page: under
   // `StudioCanvas` the two always coincide (non-active pages render `inert`), but a host
   // rendering the exported `StudioWidgetCard` for a non-active page otherwise handed
   // `setWidgetLayout` another page's ids and got an uncaught throw from inside a DOM event
@@ -543,7 +543,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   )?.[widget.kind];
 
   // `pageTheme` is doc-authored (`StudioPage.theme`), reachable via `loadSerializedState`/the
-  // AI tool loop, so its color/size values are sanitized before reaching `sx` (finding 1) —
+  // AI tool loop, so its color/size values are sanitized before reaching `sx` —
   // same treatment as the text widget's style fields in `internals/cssValueValidation.ts`.
   // Hoisted into plain-typed locals (rather than calling the generic sanitizers inline inside
   // the `sx={{ ... }}` object literal below) because a generic call sitting in a
@@ -640,8 +640,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         // already has a keyboard path via card selection/`isSelected`). React's
         // `onFocus`/`onBlur` behave like native `focusin`/`focusout` (they bubble from
         // descendants), so this also fires when a toolbar button itself receives focus
-        // via Tab, keeping the buttons visible while they're being tabbed through
-        // (finding 2.14).
+        // via Tab, keeping the buttons visible while they're being tabbed through.
+        //
         onFocus={() => setHovered(true)}
         onBlur={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
@@ -651,7 +651,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         sx={{
           // `pageTheme` colors/sizes are doc-authored (`StudioPage.theme`) and reachable
           // via `loadSerializedState`/the AI tool loop, so they're sanitized the same way
-          // as the text widget's style fields before reaching `sx` (finding 1).
+          // as the text widget's style fields before reaching `sx`.
           borderColor: sanitizedCardBorderColor ?? 'divider',
           borderWidth: sanitizedCardBorderWidth,
           border: pageTheme?.cardBorder === false && !isActive ? 'none' : undefined,
@@ -753,8 +753,8 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                       }),
                       ...(isWidgetOfKind(widget, 'text') && {
                         flexGrow: 1,
-                        // Sanitized before reaching `sx` — see `internals/cssValueValidation.ts`
-                        // (finding 1): these are doc-authored config values reachable via
+                        // Sanitized before reaching `sx` — see `internals/cssValueValidation.ts`:
+                        // these are doc-authored config values reachable via
                         // `loadSerializedState`/the AI `update_widget` tool call, and Emotion
                         // does not escape interpolated `sx` property values.
                         ...(sanitizedTextTitleColor !== undefined && {
@@ -799,7 +799,7 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
                         // (computed) fields, mirroring `resolveFieldDef`'s use elsewhere
                         // for field-label lookups — a cross-filter on a calculated field
                         // previously fell straight through to the raw field id since only
-                        // `source.fields` was checked (finding 3.11).
+                        // `source.fields` was checked.
                         resolveFieldDef(activeCrossFilter.field, source, expressionFields)?.label ??
                         activeCrossFilter.field
                       }: ${formatCrossFilterValueLabel(activeCrossFilter.value)}`}

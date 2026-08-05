@@ -225,7 +225,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     // Only clear the field if it's known to be incompatible; otherwise preserve it.
     let clearField = false;
     if (fieldId) {
-      // Resolve the configured field scoped to its own source first (finding 3.14): a bare-id
+      // Resolve the configured field scoped to its own source first: a bare-id
       // lookup across every source lets an id collision on an unrelated source decide the type,
       // wiping (or wrongly keeping) the configured field on a control-type switch. Fall back to
       // the unscoped lookup only when no source is known.
@@ -248,7 +248,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     }
     controller.updateWidgetConfig(widgetId, {
       filterWidgetType: newType,
-      // When the field is cleared as incompatible, drop its source id too (finding 3.13) —
+      // When the field is cleared as incompatible, drop its source id too —
       // a lingering `filterWidgetSourceId` with no field is stale doc garbage.
       ...(clearField ? { filterWidgetField: undefined, filterWidgetSourceId: undefined } : {}),
     });
@@ -260,7 +260,7 @@ export function FilterSetupPanel(props: { widgetId: string }) {
       // Clearing the field: drop both the field and its source id, storing `undefined` (not
       // the `''` the empty `newSourceId` would otherwise leave via the `!== widget.sourceId`
       // comparison when the widget has no source) — a persisted empty-string source id is
-      // stale doc garbage that no lookup resolves (finding 3.13).
+      // stale doc garbage that no lookup resolves.
       controller.updateWidgetConfig(widgetId, {
         filterWidgetField: undefined,
         filterWidgetSourceId: undefined,
@@ -286,12 +286,12 @@ export function FilterSetupPanel(props: { widgetId: string }) {
     };
     // When the picked field belongs to a different source, adopt that source AND write
     // the field in ONE `updateWidget` commit so the cross-source field pick is a single
-    // undo step (finding 2.2) — a lone Ctrl+Z otherwise lands on a torn state (new
+    // undo step — a lone Ctrl+Z otherwise lands on a torn state (new
     // sourceId, old field) the UI never produced. `clearInteractiveFilter` is a separate
     // non-undoable (session-scoped) commit and never adds an undo entry.
     if (newSourceId && newSourceId !== widget.sourceId) {
       // Fold in the removal of any widget-scoped filter that no longer resolves against
-      // the new source (finding 2.10) — filter widgets support widget-scoped filters, so
+      // the new source — filter widgets support widget-scoped filters, so
       // left in place a stale filter's field is absent from the new source and renders as
       // broken raw-id rows in the edit dialog, leaving permanent doc garbage. Every other
       // source-adopting setup panel (Chart/Gauge/KPI/Grid) folds this into the same commit.

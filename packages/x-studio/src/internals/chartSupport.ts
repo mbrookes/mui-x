@@ -64,7 +64,7 @@ function isSafeWidgetBridgeOwner(
       // junction fields are present — without them there's no way to resolve rows between
       // the two endpoints, matching `findJoinPath`'s completeness check
       // (`dataSourceGraph.ts:133`). Treating an incomplete junction as a safe bridge silently
-      // mis-resolves the owner's rows instead of failing closed (finding 2.12).
+      // mis-resolves the owner's rows instead of failing closed.
       return Boolean(relationship.junctionSourceField) && Boolean(relationship.junctionTargetField);
     }
     return relationship.sourceId === widgetSourceId;
@@ -72,7 +72,7 @@ function isSafeWidgetBridgeOwner(
 
   // Also allow the junction source of a M:N relationship involving widgetSourceId — but only
   // when the junction is complete (both join fields present); an incomplete junction cannot
-  // actually be used to resolve rows, so it must not be treated as a safe bridge (finding 2.12).
+  // actually be used to resolve rows, so it must not be treated as a safe bridge.
   const viaJunction = relationships.some(
     (rel) =>
       rel.type === 'many-to-many' &&
@@ -88,7 +88,7 @@ function isSafeWidgetBridgeOwner(
  * True when `ownerSourceId` is reachable from `widgetSourceId` via a many-to-many relationship —
  * either as its remote endpoint (the direct relationship is `many-to-many`) or as its junction
  * source. This is exactly the fan-out topology that has no single grain when the chart anchors on a
- * DIFFERENT directly-related many side (finding 1.1): the dimension fans out across the M:N link
+ * DIFFERENT directly-related many side: the dimension fans out across the M:N link
  * while the measure lives on an unrelated many-side anchor. Note a `viaJunction` remote/junction
  * owner is only flagged when NO safe direct (M:1/O:O) relationship exists — `findDirectRelationship`
  * returning a non-M:N relationship means the owner is bridgeable the ordinary way and must not fail.
@@ -159,7 +159,7 @@ function findDirectFieldOwner(
     // A M:N relationship is only usable as a two-hop bridge when BOTH junction fields are
     // present — without them there's no way to join the junction table to either endpoint,
     // matching `findJoinPath`'s completeness check (`dataSourceGraph.ts:133`). An incomplete
-    // junction must not be treated as resolving the field's owner (finding 2.12).
+    // junction must not be treated as resolving the field's owner.
     if (
       !relationship.junctionSourceId ||
       !relationship.junctionSourceField ||
@@ -306,7 +306,7 @@ export function analyzeChartSupport(
    * Additional dimension-like fields a non-xy chart family reads but that are not
    * expressed via x / y / series (e.g. heatmap `heatYField`, sankey `sankeyTargetField`,
    * funnel `funnelReachedField`, the `gantt*` fields). Validated / grain-resolved exactly
-   * like `seriesField` — never treated as a y-measure (finding 2.5).
+   * like `seriesField` — never treated as a y-measure.
    */
   extraFields: (string | undefined)[] = [],
 ): ChartSupportResult {
@@ -398,14 +398,14 @@ export function analyzeChartSupport(
 
   let anchorSourceId = widgetSourceId;
   // Set only when we junction-anchor purely to fan a WIDGET-owned measure out across an
-  // M:N remote dimension (finding 1.1). It relaxes the y-owner check below: in that topology
+  // M:N remote dimension. It relaxes the y-owner check below: in that topology
   // the measure legitimately lives on the widget source, not on the (junction) anchor.
   let junctionAnchorForWidgetMeasure = false;
   // Set only when the anchor is a plain many-to-one anchor (widget is the "one" side, anchor is a
   // directly-related MANY side — NOT the widget itself, NOT an M:N junction). In that topology a
   // grouping dimension owned by the remote endpoint / junction of an M:N relationship with the
   // widget has no single grain combining it with the many-side measure, so it must fail closed
-  // rather than be silently mis-attributed by the first-match-only M:N display lookup (finding 1.1).
+  // rather than be silently mis-attributed by the first-match-only M:N display lookup.
   let anchorIsPlainManyToOne = false;
   // Set only when the anchor is the JUNCTION source of an M:N relationship because the measure
   // (y) is a field owned by the junction table itself (`viaJunctionRel` below) — as opposed to
@@ -413,7 +413,7 @@ export function analyzeChartSupport(
   // topology a grouping dimension owned by a DIFFERENT M:N relationship's remote endpoint (or
   // junction) has no single grain combining it with this junction-owned measure: it would
   // silently be resolved via `enrichRowsWithRelatedFields`'s first-match-only two-hop lookup
-  // instead of actually fanning out, mis-attributing links (finding 2). A dimension owned by
+  // instead of actually fanning out, mis-attributing links. A dimension owned by
   // THIS SAME relationship's own remote endpoint is fine — `resolveRowsAtGrain`'s M:N branch
   // already joins that endpoint in as part of the merge — so only a DIFFERENT M:N relationship's
   // reach is disallowed (tracked via `anchorJunctionRemoteSourceId` below).
@@ -432,11 +432,11 @@ export function analyzeChartSupport(
       // declared the other way around fell through to no anchor switch and failed closed even
       // though the identical relationship declared in reverse was accepted — a schema-author-facing
       // inconsistency, not a correctness bug, since the reverse-declared case failed closed rather
-      // than mis-aggregating (finding 6). `anchorIsPlainManyToOne` (which gates the M:N-reachable-
+      // than mis-aggregating. `anchorIsPlainManyToOne` (which gates the M:N-reachable-
       // dimension fail-closed guard below) still applies to a 1:1 anchor in either direction, same
       // as it always did for the forward direction: a 1:1 anchor has no fan-out risk of its OWN,
       // but combining it with a first-match-only M:N-reachable dimension has the identical
-      // silent-mis-attribution risk a plain many-to-one anchor does (finding 1.1), so the guard's
+      // silent-mis-attribution risk a plain many-to-one anchor does, so the guard's
       // applicability is unchanged — only the anchor-selection direction check is widened.
       const widgetIsOneSide =
         anchorRelationship.sourceId === ySourceId && anchorRelationship.targetId === widgetSourceId;
@@ -459,7 +459,7 @@ export function analyzeChartSupport(
         anchorRelationship.junctionTargetField
       ) {
         // many-to-many: anchor on the junction table — one row per (widget, target) pair.
-        // Both junction fields must be present to actually perform the join (finding 2.12);
+        // Both junction fields must be present to actually perform the join;
         // if either is missing, leave `anchorSourceId` at its default (widgetSourceId) so the
         // per-field owner loop below fails closed with `mixed_cross_source_fields` instead of
         // silently anchoring on a junction table with no usable join fields.
@@ -492,7 +492,7 @@ export function analyzeChartSupport(
     // across that M:N link. Leaving `anchorSourceId = widgetSourceId` here routes L4 through
     // `enrichRowsWithRelatedFields`, whose M:N path is first-match-only — it attaches a single
     // arbitrary junction link per widget row and silently discards the rest, so
-    // "sum of order total by tag" attributes each order to only ONE of its tags (finding 1.1).
+    // "sum of order total by tag" attributes each order to only ONE of its tags.
     // Anchor on the M:N junction instead: `resolveRowsAtGrain`'s M:N branch expands each widget
     // row into one row per matching junction entry (merging widget + remote + junction fields),
     // so the widget-owned measure is correctly fanned out across every linked remote value.
@@ -501,7 +501,7 @@ export function analyzeChartSupport(
       if (yFieldSet.has(fieldId) || owner === widgetSourceId) {
         continue;
       }
-      // Both junction fields must be present to actually perform the join (finding 2.12) —
+      // Both junction fields must be present to actually perform the join —
       // an M:N relationship missing either field cannot resolve `owner`'s rows back to the
       // widget grain, so it must not be selected as a usable junction anchor here.
       const mnRel = relationships.find(
@@ -550,7 +550,7 @@ export function analyzeChartSupport(
     if (yFieldSet.has(fieldId)) {
       // The measure must live on the anchor grain so a per-row aggregation can't double count.
       // Exception: a widget-owned measure under a junction anchor selected purely to fan it out
-      // across an M:N remote dimension (finding 1.1) — the expansion join reads it from the
+      // across an M:N remote dimension — the expansion join reads it from the
       // merged widget row, one clean copy per junction link, which is the intended join semantic.
       const measureOwnerOk =
         owner === anchorSourceId || (junctionAnchorForWidgetMeasure && owner === widgetSourceId);
@@ -643,7 +643,7 @@ export function analyzeChartSupport(
 // grain anchor, but `resolveRowsAtGrain` also reads rows from OTHER foreign sources —
 // display/dimension-field enrichment joins, the many-to-many remote endpoint, and
 // join-field-expression targets — none of which is captured by the two WeakMap keys. Their
-// rows changing would otherwise serve a stale re-anchored result (finding 1.5). The entry
+// rows changing would otherwise serve a stale re-anchored result. The entry
 // therefore records the `SourceDep` (rows AND fields) of every such foreign source (reported by
 // `resolveRowsAtGrain` via its `collectReadSourceIds` out-param) and invalidates when either ref
 // changes: those sources are read through `getCachedNormalizedDataSource`, which is keyed on
@@ -710,7 +710,7 @@ export function resolveChartRowsForAggregation(
    * (heatmap `heatYField`, funnel `funnelReachedField`, sankey `sankeyTargetField`, the `gantt*`
    * fields). They must be threaded into the L4 requested-field set (and cache key) so a
    * one-hop cross-source extra dimension is enriched onto the returned rows instead of reading
-   * `undefined` — the guard already reports such a field as SUPPORTED (finding 1.9).
+   * `undefined` — the guard already reports such a field as SUPPORTED.
    */
   extraFields: (string | undefined)[] = [],
   /**
@@ -718,7 +718,7 @@ export function resolveChartRowsForAggregation(
    * exactly what L3 used to produce `widgetRows`). Only the subset targeting the anchor source
    * is applied to the anchor rows before the expansion join (see `resolveRowsAtGrain`) — without
    * it, a filter on an anchor-source field that L3 enforced as a semi-join gets silently
-   * re-widened back to every anchor row for each surviving widget row (finding 1.4). Folded into
+   * re-widened back to every anchor row for each surviving widget row. Folded into
    * the cache key below so a filter edit invalidates the cached re-anchored result.
    */
   widgetFilters: StudioFilterState[] = [],
@@ -781,9 +781,9 @@ export function resolveChartRowsForAggregation(
   }
   const relevantExprFields = collectRelevantExprFields(expressionFields, relevantExprSourceIds);
 
-  // The anchor-scoped filter subset affects `resolveRowsAtGrain`'s output (finding 1.4); so does
+  // The anchor-scoped filter subset affects `resolveRowsAtGrain`'s output; so does
   // the subset scoped to the M:N REMOTE endpoint when the anchor is a many-to-many junction —
-  // those are re-applied to the remote rows before the expansion join (finding 2.3). Fold both
+  // those are re-applied to the remote rows before the expansion join. Fold both
   // fingerprints into the cache key so editing/adding/removing either invalidates the entry
   // instead of serving a stale re-anchored result.
   const anchorScopeSourceIds = new Set<string>([anchorSourceId]);
@@ -802,8 +802,8 @@ export function resolveChartRowsForAggregation(
   }
   // Derive each filter's effective source the same way `resolveRowsAtGrain` does, so a drawer
   // filter on an anchor/remote-owned EXPRESSION field (no explicit `filterSourceId`) is folded into
-  // the key too — otherwise editing/adding such a filter would serve a stale re-anchored result
-  // (finding 1.3a).
+  // the key too — otherwise editing/adding such a filter would serve a stale re-anchored result.
+  //
   const anchorScopedFilterKey = widgetFilters
     .filter((f) => {
       const effectiveSourceId = effectiveFilterSourceId(f, widgetSourceId, expressionFields);
@@ -830,7 +830,7 @@ export function resolveChartRowsForAggregation(
   // internals/grainResolution.ts) so a plain per-row aggregation cannot
   // double-count from a fan-out join. `resolveRowsAtGrain` reports (via the out-param) every
   // foreign source whose rows it read that is NOT the widget/anchor source, so those row refs
-  // can be folded into the cache-validity check above (finding 1.5).
+  // can be folded into the cache-validity check above.
   const readSourceIds = new Set<string>();
   const result = resolveRowsAtGrain(
     widgetRows,
@@ -855,7 +855,7 @@ export function resolveChartRowsForAggregation(
   // `relationships`/expression fields unchanged, and the anchor was filtered out of
   // `readSourceDeps`. The chart went on bucketing `'1/15/2024'` forever while the grid beside it
   // showed the canonicalized `'2024-01-15'`, with no recovery short of replacing the anchor's
-  // rows. This is the same class the non-anchor `readSourceDeps` fixed (finding 1.5); the anchor
+  // rows. This is the same class the non-anchor `readSourceDeps` fixed; the anchor
   // was simply not in the tracked set. The widget source is included for the same reason and
   // costs nothing — its own `rows` ref changing already implies a new `widgetRows`.
   //

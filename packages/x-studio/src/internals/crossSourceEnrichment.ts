@@ -116,7 +116,7 @@ export function enrichWithCrossSourceFields(
     // (`getCachedNormalizedDataSource`) rather than the raw store — otherwise a date/datetime
     // cross-source display column (a grid column or map field referencing a related source) stays
     // a raw `Date`/non-canonical string here, bucketing differently than an L1-normalized date on
-    // the primary source for a non-UTC viewer (finding 4).
+    // the primary source for a non-UTC viewer.
     const rawRelatedRows = getCachedNormalizedDataSource(relatedDataSource).rows as Row[];
     // If a calculated column owned by this related source is requested, L2-enrich the
     // related source's rows (scoped to only the requested calculated-column ids) so the
@@ -163,7 +163,7 @@ export function enrichWithCrossSourceFields(
       // cross-source column can share a bare `fieldId` with a primary column (e.g. a
       // primary `name` plus a related `customers.name`), and clobbering the own-source
       // cell would silently replace the primary column's data with the joined value on
-      // every matched row (finding T1.2). Mirrors `dataSourceGraph.ts`'s
+      // every matched row. Mirrors `dataSourceGraph.ts`'s
       // `enrichRowsWithRelatedFields` own-field guard.
       if (fieldId in row) {
         continue;

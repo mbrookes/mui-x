@@ -116,7 +116,7 @@ export function StudioHeatmapChart({
   const paletteColor = theme.palette[safeScheme].main;
   // Low end of the continuous color ramp: anchoring to a hardcoded `'#ffffff'` made
   // low-value cells render bright white on a dark canvas in dark mode, inverting
-  // perceived intensity (finding 4). `background.paper` already tracks the theme mode
+  // perceived intensity. `background.paper` already tracks the theme mode
   // (light: white-ish, dark: a dark elevation surface), so the ramp always starts from
   // "blends with the canvas" rather than a fixed light color.
   const colorRampBase = theme.palette.background.paper;

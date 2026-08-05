@@ -411,7 +411,7 @@ function formatAbsoluteDate(value: unknown): string {
   // formatting that instant through the LOCAL calendar (`toLocaleDateString`) below
   // day-shifts it for any viewer west of UTC (e.g. `2024-03-15` renders as "Mar 14") —
   // the display-side twin of the ingestion day-shift bug class `temporalUtils.ts`
-  // already guards against for date-only values (finding 2.15). Parse the Y/M/D
+  // already guards against for date-only values. Parse the Y/M/D
   // components directly and construct a LOCAL `Date` from them so the displayed
   // calendar date matches the stored one regardless of the viewer's offset.
   if (typeof value === 'string' && DATE_ONLY_RE.test(value)) {
@@ -440,7 +440,7 @@ function formatAbsoluteDate(value: unknown): string {
  * The date-filter derivation is routed through `selectFiltersForWidget` — the single
  * filter-scoping authority the KPI's trend/sparkline/hover-summary paths already use — before
  * the `findDateFilter`-style matching below, so the auto subtitle honors the `pageId`, the
- * `disabled` flag, and the `dashboard-date-range` sourceId checks (finding 2.17). Passing the
+ * `disabled` flag, and the `dashboard-date-range` sourceId checks. Passing the
  * raw `doc.filters` partition previously let a KPI on page B render page A's "Last 12 months"
  * subtitle (whichever filter came first), or a disabled / different-source date filter, while
  * its value was computed under a different (correctly scoped) filter set. Callers thread the
@@ -651,7 +651,7 @@ export function inferWidgetTitles(
  * `useWidgetRows.ts` and mirrored for export by `StudioWidgetCard/widgetExport.ts`'s
  * `runWidgetExport`) — this function has no knowledge of relationships/data sources and simply
  * reads `row[col]` for each configured column, so a caller that forgets to enrich will silently
- * export an empty column for any cross-source field (finding 2.19).
+ * export an empty column for any cross-source field.
  *
  * `expressionFields` (the widget's own-source calculated columns) are folded into the same
  * field-id → field-def lookup `dataSource.fields` uses, matching the on-screen grid's resolution
@@ -702,7 +702,7 @@ export function buildCsvContent(
     }
   }
   // Cross-source column defs (already normalized to `StudioDataField`) fill the remaining
-  // gaps so a cross-source column's header/format matches the rendered grid (finding 2.6).
+  // gaps so a cross-source column's header/format matches the rendered grid.
   for (const def of crossSourceFieldDefs) {
     if (!fieldMap.has(def.id)) {
       fieldMap.set(def.id, def);
@@ -757,7 +757,7 @@ function quoteNumericCsvCell(value: string): string {
  * is the "safer" of the two filename-sanitization behaviors previously found
  * across the two CSV export call sites — the grid path stripped non-alphanumeric
  * characters from its filename, the pivot path didn't sanitize `widget.title` at
- * all (finding 3.3). Applying it once inside the shared {@link downloadCsv}
+ * all. Applying it once inside the shared {@link downloadCsv}
  * keeps every current and future caller consistent without each one having to
  * remember to sanitize its own title.
  */
@@ -777,7 +777,7 @@ function sanitizeDownloadFilename(filename: string): string {
  * export (`StudioPivotWidget/pivotUtils.ts`'s `downloadCsv` re-export) — the
  * Blob/`createObjectURL`/anchor-click dance was previously duplicated
  * near-line-for-line in both places, with inconsistent filename sanitization
- * between the two (finding 3.3).
+ * between the two.
  */
 export function downloadCsv(csv: string, filename: string): void {
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -997,7 +997,7 @@ export function exportChartToPng(
 
   // MUI X Charts renders the legend as HTML (a `<ul>`, `ChartsLegend`) OUTSIDE the `<svg>` — the
   // `<svg>` alone (captured above) never includes it, so a multi-series chart's exported PNG
-  // silently dropped its legend entirely (finding 9). Rasterizing arbitrary HTML through the
+  // silently dropped its legend entirely. Rasterizing arbitrary HTML through the
   // `<img>`-of-serialized-SVG pipeline above (e.g. wrapping the legend in an SVG
   // `<foreignObject>`) is a known cross-browser-fragile technique (notably unreliable in
   // Safari), so instead each legend row's colour/text/position is read straight from the live
@@ -1088,8 +1088,8 @@ export function exportChartToPng(
     document.body.removeChild(link);
   };
   // Without an error handler, a failed SVG-blob image load (e.g. the browser rejects the
-  // serialized SVG) silently no-ops AND leaks the object URL `onload` would have revoked
-  // (finding 3.10). There's no existing user-facing error surface for this export path, so
+  // serialized SVG) silently no-ops AND leaks the object URL `onload` would have revoked.
+  // There's no existing user-facing error surface for this export path, so
   // a console warning is the best available signal short of adding new UI.
   img.onerror = () => {
     URL.revokeObjectURL(url);

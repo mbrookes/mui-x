@@ -77,7 +77,7 @@ export const MAX_ROWS_PER_REQUEST = MAX_RESULT_ROWS;
 
 /**
  * A mutable per-REQUEST row allowance, threaded through every widget of one
- * batch so their limits compose instead of multiplying (finding H2).
+ * batch so their limits compose instead of multiplying.
  *
  * Created once by `handleBatchQuery` and shared by every widget of that batch.
  * `remaining` is charged by `chargeRowBudgetOrThrow` at each of the three points
@@ -198,7 +198,7 @@ function effectiveLimit(clientLimit: number | undefined, budget: RowBudget | und
  * produce the same error.
  *
  * THE STATEMENT TIMEOUT IS APPLIED HERE, for the same structural reason the LIMIT
- * is (F2): this is the one place `executeForTier`'s three exit paths converge, so
+ * is: this is the one place `executeForTier`'s three exit paths converge, so
  * a fourth exit path cannot ship an untimed query. An untimed query pins a pooled
  * Knex connection for as long as the database takes, and `handler.ts`'s
  * `MAX_CONCURRENT_WIDGET_QUERIES` bounds one REQUEST, not one caller — so
@@ -226,7 +226,7 @@ async function runBounded(
 
 /**
  * The aggregate functions whose SQL result is NUMERIC BY DEFINITION, and whose
- * output is therefore safe to normalize to a JS number (F2).
+ * output is therefore safe to normalize to a JS number.
  *
  * `min`/`max` are deliberately absent: they return the SOURCE COLUMN's type — a
  * date, a padded SKU string, a boolean — and this package holds no schema
@@ -239,7 +239,7 @@ const NUMERIC_AGGREGATE_FUNCTIONS = new Set<PlanAggregation['func']>(['sum', 'av
 
 /**
  * Normalize the JS type of numeric-aggregate output columns so a widget gets the
- * SAME type from every dialect (F2).
+ * SAME type from every dialect.
  *
  * THE PROBLEM. Aggregate results cross the driver boundary carrying the driver's
  * choice of JS type, not the middleware's, and the three supported drivers
@@ -332,12 +332,12 @@ function normalizeAggregateValues(
  *   callers omit it; a plan is then resolved on the spot from `descriptor`, reproducing the pre-refactor
  *   inline `resolveAlias` behavior. Every column reference below reads a pre-resolved `ColumnRef` off the
  *   plan — this module never calls `resolveAlias` itself.
- * @param rowBudget - The request's shared, mutable row allowance (finding H2, request path). Caps this
+ * @param rowBudget - The request's shared, mutable row allowance. Caps this
  *   query's LIMIT at whatever the batch has left and is charged by the rows actually returned, so
  *   `MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS` can no longer multiply into a single-request OOM. THROWS
  *   rather than returning a shortened result when the budget is what shortened it — see `runBounded`.
  *   Direct callers omit it, which restores the previous per-widget-only `MAX_RESULT_ROWS` cap.
- * @param queryTimeoutMs - Per-query statement timeout in milliseconds (F2), resolved once per request
+ * @param queryTimeoutMs - Per-query statement timeout in milliseconds, resolved once per request
  *   from `HandleBatchQueryOptions.queryTimeoutMs` by `resolveQueryTimeoutMs`. Omitted by direct callers,
  *   who get `DEFAULT_QUERY_TIMEOUT_MS` — an omitted timeout must default to a REAL bound, never to
  *   "unbounded", since unbounded is the failure mode this parameter exists to remove. `0` opts out.
@@ -387,7 +387,7 @@ export async function executeForTier(
   // ambiguous under a join as an unqualified direct column, so `qualify()` runs
   // on `col.physical` here too before it goes into the `??` binding. Only the
   // SOURCE reference is qualified; the output row KEY (`col.outputAlias`) is
-  // unaffected, so client row shapes are unchanged (finding 2.2).
+  // unaffected, so client row shapes are unchanged.
   //
   // NO RESULT-KEY COLLISION GUARD HERE (Tier3, iter24 finding) — deliberately.
   // Two projected columns whose result key collides (e.g. `orders.category` and
@@ -427,9 +427,9 @@ export async function executeForTier(
       query.orderBy(orderColumnOf(ob), ob.direction);
     }
     // Always apply an effective limit — `limit: 0` is a legitimate "return zero
-    // rows" request (finding 3.1), and an omitted or excessive client `limit` is
-    // capped at `MAX_RESULT_ROWS` (finding T2) and at the request's remaining
-    // row budget (finding H2) rather than left unbounded.
+    // rows" request, and an omitted or excessive client `limit` is
+    // capped at `MAX_RESULT_ROWS` and at the request's remaining
+    // row budget rather than left unbounded.
     return runBounded(query, queryPlan.limit, rowBudget, queryTimeoutMs);
   };
 
@@ -460,7 +460,7 @@ export async function executeForTier(
   // `queryTypes.ts` documents: "Non-aggregated `columns` entries become GROUP BY".
   //
   // MEMBERSHIP IS "IS THIS COLUMN AGGREGATED", NOT "IS ITS ALIAS SHAPED LIKE THE
-  // COLUMN'S NAME" (F1). The rule used to be `a.pureMeasure` — `agg.alias ===
+  // COLUMN'S NAME". The rule used to be `a.pureMeasure` — `agg.alias ===
   // resultKeyOf(a.physical)` — an alias-NAME heuristic. Under it, the exact shape
   // `security/queryTypes.ts` documents (`{ column: 'revenue', func: 'sum', alias:
   // 'total_revenue' }`) alongside a projection of the same column emitted
@@ -470,7 +470,7 @@ export async function executeForTier(
   // has more than one distinct value inside a group. Renaming the alias to the
   // column's own name was the only way to get the right answer.
   //
-  // Compare on PRIMARY-TABLE-QUALIFIED physicals (finding 2.2): an aggregation may
+  // Compare on PRIMARY-TABLE-QUALIFIED physicals: an aggregation may
   // be qualified (`orders.amount`) while the matching projection column is not
   // (`amount`), or vice-versa, so a raw-string `.has(c.physical)` would miss the
   // match and leave the measure column in GROUP BY (wrong grain). Qualifying both
@@ -497,7 +497,7 @@ export async function executeForTier(
     // Not currently exploitable (agg.alias is charset-restricted by
     // `validateAggregationAliases`, and `col` is either allowlisted or
     // Knex-escaped either way), but this keeps the aggregate clause on the same
-    // binding-based footing as the rest of the query-building code (finding 2.2).
+    // binding-based footing as the rest of the query-building code.
     //
     // `agg.func` is client-JSON-sourced, so its TS type is not a runtime guarantee:
     // gate on own-property membership of the shared `AGGREGATE_SQL_FUNCTIONS` table

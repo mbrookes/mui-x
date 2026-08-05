@@ -99,7 +99,7 @@ export type StudioFilterNode =
        * semantics the in-memory evaluator uses. It matters for an empty selection: a selection-mode
        * `in []` ("any value") must match EVERYTHING, whereas a condition-mode `in []` matches
        * NOTHING. Without this, `leafToClientFilterState` re-stamped every residual as `'condition'`,
-       * inverting an empty selection to match-nothing on the adapter path (finding T2.3).
+       * inverting an empty selection to match-nothing on the adapter path.
        */
       filterMode?: 'condition' | 'selection' | 'rank';
     }
@@ -256,7 +256,7 @@ export interface StudioQueryDescriptor {
    * one row — the client then ranks over group-collapsed rows and picks the wrong Top-N. An adapter
    * should therefore strip `aggregations` (returning raw rows) whenever this is `true`, mirroring
    * the `hasIncomingCrossOrInteractiveFilters` guard, so the client aggregates AFTER ranking over
-   * real rows (finding T2.4).
+   * real rows.
    */
   hasRankFilters?: boolean;
   /**

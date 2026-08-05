@@ -51,7 +51,7 @@ export type RankFilterWidgetPageIndex = ReadonlyMap<string, string>;
  * agree on all three states with no extra mapping.
  *
  * The value stored is the page's RECORD KEY, not its `page.id` field — see
- * {@link resolveRankFilterPageId} for why (R6 F2).
+ * {@link resolveRankFilterPageId} for why.
  */
 export function buildRankFilterWidgetPageIndex(
   pages: StudioDoc['pages'],
@@ -102,7 +102,7 @@ export function buildRankFilterWidgetPageIndex(
  * what `applyMutation.ts`'s `dropConflictingRankFilters` exists to catch in the layout
  * handlers.
  *
- * The resolved page is the page's RECORD KEY, not its `page.id` field (R6 F2). The two are
+ * The resolved page is the page's RECORD KEY, not its `page.id` field. The two are
  * the same for any well-formed doc, but a host `initialState` can install a page whose `id`
  * disagrees with its key, and the key is the source of truth for every OTHER page reference
  * in the system — `state.pages[pageId]`, `dashboard.activePageId`, a filter's
@@ -140,7 +140,7 @@ export function resolveRankFilterPageId(
     for (const [pageKey, page] of Object.entries(pages)) {
       // The RECORD KEY, matching `buildRankFilterWidgetPageIndex` (which must agree with
       // this scan) and every other page reference in the system — see this function's doc
-      // comment (R6 F2).
+      // comment.
       if ((page?.widgetRows ?? []).some((row) => row.includes(scope.widgetId))) {
         return pageKey;
       }

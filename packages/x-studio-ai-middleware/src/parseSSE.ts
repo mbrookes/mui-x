@@ -15,7 +15,7 @@ const DEFAULT_IDLE_TIMEOUT_MS = 60_000;
 
 /**
  * Default ceiling (chars, ~bytes for the UTF-8 SSE text a provider streams) on the
- * undecoded line-assembly `buffer` below (finding 6, iteration 24). Under normal
+ * undecoded line-assembly `buffer` below. Under normal
  * operation `buffer` only ever holds a partial line — it's flushed down to the
  * remainder after every newline-delimited split — so it stays tiny. But a
  * misbehaving gateway that streams data WITHOUT ever emitting a line terminator (or
@@ -90,7 +90,7 @@ export async function* parseSSE(
     return false;
   }
 
-  // try/finally (finding T3): guarantee the reader is cancelled/released on every
+  // try/finally: guarantee the reader is cancelled/released on every
   // exit path — normal completion, an error thrown mid-read (including the idle
   // timeout below), AND the caller stopping early (e.g. `break`-ing out of its
   // `for await` loop, which resumes this generator via `.return()` and runs this
@@ -150,7 +150,7 @@ export async function* parseSSE(
       }
     }
 
-    // Flush the final line (finding T3-4a): a stream that ends WITHOUT a trailing newline
+    // Flush the final line: a stream that ends WITHOUT a trailing newline
     // leaves its last `data:` line sitting in `buffer` — never split out, so it would be
     // dropped when the reader reports `done`, silently losing the final event (which may
     // be the `usage` record or the closing delta). Process whatever remains.

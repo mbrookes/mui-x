@@ -89,7 +89,7 @@ type KpiAggregationOption = { value: StudioKpiAggregation; label: string };
 
 /**
  * Valid aggregation options for the current KPI value field. Shared by the render
- * path and the value-field `onChange` so the two can't drift (finding 2.6): with no
+ * path and the value-field `onChange` so the two can't drift: with no
  * field, only the fieldless row "count" applies; otherwise the field type selects
  * the option set (falling back to `count` for unknown types, `number` when the type
  * isn't resolved yet).
@@ -323,7 +323,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           //
           // The managed date-range filter (and any other widget-scoped filter) still
           // references the OLD source's field; left in place it would silently exclude
-          // every row of the new source (finding 1.5). Fold the removal of those now-
+          // every row of the new source. Fold the removal of those now-
           // unresolvable filters into the SAME commit via `removeFilterIds`.
           // The sparkline field is just as source-specific as the value field (finding
           // 3, iteration 20) — left stale after a cross-source switch, `kpiSparklineField`/
@@ -398,7 +398,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           };
           // When the picked field belongs to a different source, adopt that source AND
           // write the field/aggregation in ONE `updateWidget` commit so the source-switch
-          // gesture collapses to a single undo step (finding 2.2); without a source switch
+          // gesture collapses to a single undo step; without a source switch
           // a plain config patch is already one commit. Also fold in the removal of any
           // widget-scoped filter that no longer resolves against the new source (finding
           // 1.5) so a stale date-range filter can't silently blank the KPI.

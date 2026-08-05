@@ -66,7 +66,7 @@ function getSpeechRecognitionCtor(): SpeechRecognitionCtor | null {
  *
  * @param lang - BCP-47 language tag (e.g. `'fr-FR'`) to set on the recognition
  *   session, so dictation follows the app's active locale rather than always
- *   falling back to the browser/OS default (finding 3.15). The caller is
+ *   falling back to the browser/OS default. The caller is
  *   responsible for resolving this from whatever locale signal the host app
  *   uses — `StudioLocaleText` itself carries only translated strings, not a
  *   BCP-47 tag (see `countryUtils.ts`'s `Intl.DisplayNames` comment for the
@@ -84,7 +84,7 @@ export function useSpeechRecognition(lang?: string): UseSpeechRecognitionReturn 
   // Every instance created that has not yet reported `onend`/`onerror`. `stop()` is
   // asynchronous, so an instance keeps the microphone hot for a while after the handle is
   // released from `recognitionRef`; tracking them here means unmount can still stop
-  // whatever is left running instead of leaking the device until page unload (finding H7).
+  // whatever is left running instead of leaking the device until page unload.
   const liveInstancesRef = React.useRef<Set<SpeechRecognitionInstance>>(new Set());
   const [isListening, setIsListening] = React.useState(false);
   const [transcript, setTranscript] = React.useState('');

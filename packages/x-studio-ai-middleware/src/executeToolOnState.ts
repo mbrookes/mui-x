@@ -62,7 +62,7 @@ const MAX_DISTINCT_VALUES_IN_STATE_OUTPUT = 20;
 /**
  * Max length of a model-supplied stored title (dashboard / page / widget). These
  * strings are re-interpolated into `<dashboard_state>` on EVERY future request, so an
- * unbounded title is a persistent token bomb (finding T3-3) — `sanitizeForPrompt`
+ * unbounded title is a persistent token bomb — `sanitizeForPrompt`
  * neutralizes markup but not size. Capped at the write source so the oversized string
  * never lands in state. Larger than `rename_thread`'s 40-char cap because dashboard and
  * widget titles are legitimately longer than a chat-thread label, but still bounded.
@@ -76,9 +76,9 @@ const MAX_TITLE_LENGTH = 200;
  * {@link MAX_TITLE_LENGTH}: `buildAISystemPrompt.ts` re-interpolates every active
  * filter's `field`/`value` (via `JSON.stringify(f.value)`) into the "Active
  * Filters" block on EVERY subsequent request, so an unbounded value persists as
- * a token bomb across the whole conversation (finding T3-3).
+ * a token bomb across the whole conversation.
  *
- * Exported (finding F4, Tier 2) so `mcp/queryTools.ts` can cap `query_data_source`'s
+ * Exported so `mcp/queryTools.ts` can cap `query_data_source`'s
  * `filters[].field`/`get_field_values.fieldId` strings with the SAME bound already
  * applied to the conceptually identical `add_page_filter`/`add_widget_filter`
  * `field` string, rather than inventing a second constant for the same class of
@@ -109,7 +109,7 @@ const MAX_FILTER_VALUE_OBJECT_KEYS = MAX_FILTER_VALUE_ARRAY_LENGTH;
 
 /**
  * Max length of an object KEY retained inside a model-supplied filter `value` or
- * widget `config` (finding M8).
+ * widget `config`.
  *
  * Every cap in this file bounded object VALUES and entry COUNTS; key NAMES at any
  * depth were never bounded at all. Both containers are re-serialized in full on
@@ -132,8 +132,8 @@ const MAX_FILTER_VALUE_OBJECT_KEYS = MAX_FILTER_VALUE_ARRAY_LENGTH;
 const MAX_OBJECT_KEY_LENGTH = MAX_FILTER_STRING_LENGTH;
 
 /**
- * Max number of TOP-LEVEL keys retained in a model-supplied widget `config`
- * (finding M8). `capConfigStringValues` bounded the shape of every VALUE but never
+ * Max number of TOP-LEVEL keys retained in a model-supplied widget `config`.
+ * `capConfigStringValues` bounded the shape of every VALUE but never
  * the number of keys at the top level, even though its own nested branches
  * (`capShallowConfigValue`) have bounded key count since they were written. An
  * unbounded key count is both a persisted token bomb and an unbounded RESPONSE
@@ -148,7 +148,7 @@ const MAX_CONFIG_KEYS = 200;
 
 /**
  * Max number of operations accepted per array/record arg of a single
- * `apply_bulk_update` call (finding F2, Tier 2). One bulk call counts as ONE
+ * `apply_bulk_update` call. One bulk call counts as ONE
  * mutation against `maxMutationsPerRequest`, but without a per-arg cap a single call
  * could mint unbounded persisted widgets via `widgetAdditions` — a PERSISTENT token
  * bomb, since every widget is re-described in `<dashboard_state>` on every future
@@ -160,7 +160,7 @@ const MAX_BULK_UPDATE_OPS = 200;
 
 /**
  * Max number of layout rows accepted by `set_widget_layout` / `apply_bulk_update`'s
- * `layout` op (finding F3). Same unbounded-work/token-bomb class as
+ * `layout` op. Same unbounded-work/token-bomb class as
  * {@link MAX_BULK_UPDATE_OPS}: an unbounded row array is re-flattened and re-validated
  * on every call and, once committed, re-described on every future request.
  */
@@ -168,7 +168,7 @@ const MAX_LAYOUT_ROWS = 200;
 
 /**
  * Max number of ids interpolated into a single tool-result error string before the
- * list is truncated with a "…N more" suffix (finding F3). Several error paths
+ * list is truncated with a "…N more" suffix. Several error paths
  * (`set_widget_layout` and `apply_bulk_update`'s layout op) join an offending id list
  * into the error text; a model that sends hundreds of bad ids would otherwise echo the
  * whole list straight back into the conversation as an unbounded response bomb.
@@ -177,7 +177,7 @@ const MAX_IDS_IN_ERROR = 10;
 
 /**
  * Max number of `skipped` entries echoed in an `apply_bulk_update` tool result before
- * the list is truncated with a trailing "…N more" marker (finding F2). Each rejected
+ * the list is truncated with a trailing "…N more" marker. Each rejected
  * op appends to `skipped`, and the whole array is echoed back verbatim — an unbounded
  * response echo without this cap.
  */
@@ -185,7 +185,7 @@ const MAX_SKIPPED_IN_OUTPUT = 20;
 
 /**
  * Max characters of an offending argument VALUE echoed back into a tool-result
- * validation error (finding H4). `JSON.stringify(value)` is this file's existing
+ * validation error. `JSON.stringify(value)` is this file's existing
  * idiom for "show the model what it sent", but the value is model-supplied and
  * unbounded, so a megabyte-sized object would be echoed straight back into the
  * conversation — the same response-echo bomb {@link MAX_IDS_IN_ERROR} and
@@ -199,7 +199,7 @@ function capString(value: string, maxLength: number): string {
 }
 
 /**
- * `Number()`'s mirror of `asString` (finding H4). `Number(x)` throws the same
+ * `Number()`'s mirror of `asString`. `Number(x)` throws the same
  * `TypeError: Cannot convert object to primitive value` for the mirror-image shape
  * `{"valueOf": 1, "toString": 2}` (both coercion methods present but neither
  * callable), and throws unconditionally for a symbol.
@@ -224,7 +224,7 @@ function asNumber(value: unknown): number {
 
 /**
  * Render an offending model-supplied argument value for a tool-result error,
- * bounded to {@link MAX_ECHOED_ARG_VALUE_LENGTH} and never throwing (finding H4).
+ * bounded to {@link MAX_ECHOED_ARG_VALUE_LENGTH} and never throwing.
  * Falls back to naming the runtime shape when the value is not JSON-representable
  * (a cyclic structure, a `BigInt`, a function), so the error stays useful without
  * this file having to trust `JSON.stringify` on untrusted input.
@@ -246,7 +246,7 @@ function describeArgValue(value: unknown): string {
 
 /**
  * Reject a model-supplied tool argument that the handler is about to read AS A
- * STRING but that is not string-coercible (finding H4).
+ * STRING but that is not string-coercible.
  *
  * {@link asString} guarantees the handler cannot THROW on such a value, but on its
  * own it would silently normalize `{"toString": 1}` to `''` — committing an empty
@@ -287,7 +287,7 @@ function invalidStringArgsError(
 
 /**
  * Join an id list for a tool-result error string, truncating to the first
- * {@link MAX_IDS_IN_ERROR} with a "…N more" suffix (finding F3). Bounds the response
+ * {@link MAX_IDS_IN_ERROR} with a "…N more" suffix. Bounds the response
  * echo when the model sends a very large list of offending ids.
  */
 function joinIdsForError(ids: string[]): string {
@@ -299,7 +299,7 @@ function joinIdsForError(ids: string[]): string {
 
 /**
  * Truncate an `apply_bulk_update` `skipped` list to a bounded prefix for the tool
- * result (finding F2), appending a "…N more" marker when entries were dropped.
+ * result, appending a "…N more" marker when entries were dropped.
  */
 function truncateSkipped(skipped: string[]): string[] {
   if (skipped.length <= MAX_SKIPPED_IN_OUTPUT) {
@@ -348,7 +348,7 @@ const DEPTH_LIMIT_MARKER = '[truncated: nested too deeply]';
 
 /**
  * Cap a model-supplied filter `value` before persisting it — same token-bomb class
- * `capTitle` guards against (finding T3-3). String values are truncated to
+ * `capTitle` guards against. String values are truncated to
  * {@link MAX_FILTER_STRING_LENGTH}; array values (e.g. an `in` list) are truncated
  * to {@link MAX_FILTER_VALUE_ARRAY_LENGTH} entries. Recurses into array elements and
  * plain-object properties so a huge string or object NESTED inside an array-typed
@@ -358,11 +358,11 @@ const DEPTH_LIMIT_MARKER = '[truncated: nested too deeply]';
  * as much a persistent token bomb as an uncapped top-level string. Object KEY names
  * are length-capped as well as counted ({@link MAX_OBJECT_KEY_LENGTH}, finding M8),
  * and a container found AT the depth limit is replaced with
- * {@link DEPTH_LIMIT_MARKER} rather than returned verbatim (finding L2) — returning
+ * {@link DEPTH_LIMIT_MARKER} rather than returned verbatim — returning
  * it made the depth limit a complete cap bypass. Other JSON-serializable scalar
  * shapes (number/boolean/null) are left as-is.
  *
- * Exported (Tier 3, iteration 25, finding T2-3) so `mcp/queryTools.ts` can apply the
+ * Exported so `mcp/queryTools.ts` can apply the
  * SAME cap to `query_data_source`'s `filters[].value` — that path forwards
  * model-supplied filters straight to the host's `queryDataSource` callback rather
  * than persisting them onto dashboard state, but a megabyte-sized string/array
@@ -386,13 +386,13 @@ export function capFilterValue(value: unknown, depth = 0): unknown {
     return bounded.map((entry) => capFilterValue(entry, depth + 1));
   }
   if (value !== null && typeof value === 'object') {
-    // `Object.create(null)`, not `{}` (finding M8): the keys are model-supplied, so a
+    // `Object.create(null)`, not `{}`: the keys are model-supplied, so a
     // `{"__proto__": {…}}` filter value silently LOST that entry on a normal object
     // literal (assigning an object to `__proto__` rewrites the prototype instead of
     // creating a property) while the tool still reported `{ success: true }`. Same
     // treatment the sibling `capFieldDistinctValues`/`capDataSources` maps already get.
     const capped: Record<string, unknown> = Object.create(null);
-    // Finding F3 (Tier 3): bound the NUMBER of retained keys, not just each key's
+    // Finding F3: bound the NUMBER of retained keys, not just each key's
     // recursively-capped value — an object with thousands of short keys is otherwise
     // persisted and re-interpolated verbatim, the same token-bomb class the array
     // branch above already caps by length.
@@ -543,7 +543,7 @@ function capConfigStringValues(config: unknown): unknown {
   if (config === null || typeof config !== 'object' || Array.isArray(config)) {
     return config;
   }
-  // Null-prototype for the same reason as the two helpers above (finding M8).
+  // Null-prototype for the same reason as the two helpers above.
   const capped: Record<string, unknown> = Object.create(null);
   // Finding M8 — bound the TOP-LEVEL key COUNT and each key's LENGTH, not just the
   // values. The nested branches (`capShallowConfigValue`) already bounded key count;
@@ -664,8 +664,8 @@ const MAX_STATE_LAYOUT_ROW_CELLS = 50;
 const MAX_STATE_WIDGET_COL_SPANS = MAX_STATE_WIDGETS;
 
 /**
- * Max number of `capabilities` entries retained per incoming data-source field
- * (finding H1d). `serializeFieldForAI` renders `f.capabilities.join('+')` into
+ * Max number of `capabilities` entries retained per incoming data-source field.
+ * `serializeFieldForAI` renders `f.capabilities.join('+')` into
  * every field's tag list with no cap of its own, so an unbounded array is the same
  * first-request token bomb as an unbounded `label`. A real field declares one or
  * two capabilities.
@@ -674,13 +674,13 @@ const MAX_STATE_FIELD_CAPABILITIES = 20;
 
 /**
  * Max number of `fieldDistinctValues` map entries retained per incoming data
- * source (finding H1c). Bounded to the same count as the source's own field list,
+ * source. Bounded to the same count as the source's own field list,
  * since a well-formed map never carries more entries than there are fields.
  */
 const MAX_STATE_FIELD_DISTINCT_VALUE_KEYS = MAX_STATE_DATA_SOURCE_FIELDS;
 
 /**
- * Max length of a single `fieldDistinctValues` value retained (finding H1c).
+ * Max length of a single `fieldDistinctValues` value retained.
  * `serializeFieldForAI` renders every value IN FULL when a field has ≤8 of them,
  * so one 50 MB value passed straight into the first system prompt —
  * `MAX_DISTINCT_VALUES_IN_STATE_OUTPUT` already existed for the
@@ -691,8 +691,8 @@ const MAX_STATE_FIELD_DISTINCT_VALUE_KEYS = MAX_STATE_DATA_SOURCE_FIELDS;
 const MAX_STATE_DISTINCT_VALUE_LENGTH = MAX_FILTER_STRING_LENGTH;
 
 /**
- * Max number of distinct values retained per field on the incoming READ path
- * (finding H1c).
+ * Max number of distinct values retained per field on the incoming READ path.
+ *
  *
  * Deliberately NOT `MAX_DISTINCT_VALUES_IN_STATE_OUTPUT` (20), which bounds the
  * `get_dashboard_state` OUTPUT path: `serializeFieldForAI` renders the values in
@@ -710,14 +710,14 @@ function capEntityId(id: string): string {
 }
 
 /**
- * Every id-bearing key across the `StudioFilterScope` union (finding L1). Listed by
+ * Every id-bearing key across the `StudioFilterScope` union. Listed by
  * NAME rather than switched on `scope.kind` because `scope` is unvalidated client
  * JSON: a `kind` that doesn't match any variant must still get its ids capped.
  */
 const FILTER_SCOPE_ID_KEYS = ['pageId', 'widgetId', 'sourceWidgetId', 'sourceId'] as const;
 
 /**
- * Cap the identifiers inside a filter's `scope` (finding L1).
+ * Cap the identifiers inside a filter's `scope`.
  *
  * `scope.widgetId` lands in the `## Active Filters` prompt line's `widget:<id>`
  * label, and the whole `scope` is echoed by `get_dashboard_state` — but
@@ -797,7 +797,7 @@ function capDataSourceField(field: StudioDataField): StudioDataField {
 }
 
 /**
- * Cap an incoming `source.fieldDistinctValues` map (finding H1c).
+ * Cap an incoming `source.fieldDistinctValues` map.
  *
  * `serializeFieldForAI` renders every value IN FULL when a field has ≤8 of them,
  * so a single oversized value landed verbatim in the first system prompt.
@@ -812,7 +812,7 @@ function capFieldDistinctValues(
   if (fieldDistinctValues === undefined || fieldDistinctValues === null) {
     return undefined;
   }
-  // `Object.create(null)` (finding L1): the keys are client-supplied field ids, and
+  // `Object.create(null)`: the keys are client-supplied field ids, and
   // a `__proto__`/`constructor` key must address an ordinary own slot rather than
   // being silently dropped or routed into the prototype.
   const capped: Record<string, string[]> = Object.create(null);
@@ -923,7 +923,7 @@ function capPageWidgetRows(
 function capDataSources(
   dataSources: Record<string, StudioDataSource>,
 ): Record<string, StudioDataSource> {
-  // `Object.create(null)`, not `{}` (finding L1): these keys come straight from the
+  // `Object.create(null)`, not `{}`: these keys come straight from the
   // client body, and a source keyed `__proto__` would otherwise be silently dropped
   // from the prompt (an assignment to `{}`'s `__proto__` with an object value
   // rewrites the prototype instead of creating an entry). A null-prototype map has
@@ -941,7 +941,7 @@ function capDataSources(
 }
 
 /**
- * Cap a client-supplied `dashboardState` (finding F2, Tier 2) by running its
+ * Cap a client-supplied `dashboardState` by running its
  * dashboard title, pages, widgets, and filters through the SAME caps the AI-tool
  * mutation paths already apply at their write sources — `capTitle` for dashboard/
  * page/widget titles, `capEntityId` for each widget/page/data-source `id`,
@@ -994,8 +994,8 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
     activePageId: capEntityId(asString(doc.dashboard.activePageId ?? '')),
   };
 
-  // `Object.create(null)` for both maps (finding L1) and a capped map KEY for every
-  // entry (finding H1g) — see `capDataSources` above for both rationales. The key is
+  // `Object.create(null)` for both maps and a capped map KEY for every
+  // entry — see `capDataSources` above for both rationales. The key is
   // a SEPARATE string from the entry's own `.id`: `buildAISystemPrompt.ts` echoes the
   // key wherever a layout row or `focusedWidgetId` names it, so capping only `.id`
   // left the key unbounded.
@@ -1003,7 +1003,7 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
   for (const [id, widget] of Object.entries(doc.widgets).slice(0, MAX_STATE_WIDGETS)) {
     cappedWidgets[capEntityId(asString(id))] = {
       ...widget,
-      // `widget?.` throughout (finding M3): a `doc.widgets: { w1: null }` body
+      // `widget?.` throughout: a `doc.widgets: { w1: null }` body
       // previously threw a raw `TypeError: Cannot read properties of null (reading
       // 'id')` right here. The validator now rejects that shape; these guards keep
       // the other callers of this cap pass crash-free too.
@@ -1035,7 +1035,7 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
 
   const cappedPages: Record<string, StudioPage> = Object.create(null);
   for (const [id, page] of Object.entries(doc.pages).slice(0, MAX_STATE_PAGES)) {
-    // `page?.` throughout (finding M3): a `doc.pages: { p1: null }` body previously
+    // `page?.` throughout: a `doc.pages: { p1: null }` body previously
     // threw a raw `TypeError: Cannot read properties of null (reading
     // 'widgetColSpans')` right here.
     const cappedColSpans =
@@ -1055,7 +1055,7 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
     };
   }
 
-  // `f?.` throughout (finding M3): a `doc.filters: [null]` body previously threw a
+  // `f?.` throughout: a `doc.filters: [null]` body previously threw a
   // raw `TypeError: Cannot read properties of null (reading 'field')` here.
   const cappedFilters: StudioFilterState[] = doc.filters.slice(0, MAX_STATE_FILTERS).map((f) => ({
     ...f,
@@ -1122,7 +1122,7 @@ export function capIncomingDashboardState(state: StudioState): StudioState {
  * is the intentional, opt-in channel for sample rows — this dump is not.
  */
 export function projectDataSourceMetadata(source: StudioDataSource): Record<string, unknown> {
-  // `Object.create(null)`, not `{}` (finding M8): these keys are DATABASE COLUMN
+  // `Object.create(null)`, not `{}`: these keys are DATABASE COLUMN
   // names, so a column literally named `__proto__` assigned an object value would
   // rewrite the prototype instead of creating an entry — that field's distinct
   // values would silently vanish from `get_dashboard_state` AND from the
@@ -1132,7 +1132,7 @@ export function projectDataSourceMetadata(source: StudioDataSource): Record<stri
   const cappedDistinct: Record<string, { values: string[]; truncated: boolean }> =
     Object.create(null);
   for (const [fieldId, values] of Object.entries(source.fieldDistinctValues ?? {})) {
-    // `Array.isArray` before `.slice` (finding M8): `fieldDistinctValues` is
+    // `Array.isArray` before `.slice`: `fieldDistinctValues` is
     // client-supplied JSON on every path that does not go through
     // `capFieldDistinctValues` (which drops malformed entries for this exact
     // reason), so a `{ revenue: "abc" }` entry reached `.slice`/`.length` on a
@@ -1204,7 +1204,7 @@ export interface ProjectedStateForAI {
  *    conversation's transcript back to the provider (cross-conversation information
  *    disclosure + an unbounded token bomb). The model already has the active thread as
  *    its live message array, so it needs no chat history in this snapshot. The
- *    surviving `id`/`name`/`updatedAt` are length-capped here (finding M8) because
+ *    surviving `id`/`name`/`updatedAt` are length-capped here because
  *    this is their ONLY chokepoint: `rename_thread` bounds the name it writes, but
  *    `doc.ai` arrives from the request body and `capIncomingDashboardState` does not
  *    touch that sub-partition.
@@ -1217,7 +1217,7 @@ export interface ProjectedStateForAI {
  * are bounded only by `capToolOutput` on the chat path.
  */
 export function projectStateForAI(state: StudioState): ProjectedStateForAI {
-  // `Object.create(null)`, not `{}` (finding M8): the keys are client-supplied data
+  // `Object.create(null)`, not `{}`: the keys are client-supplied data
   // source ids, and a source keyed `__proto__` would be silently dropped from BOTH
   // read surfaces (assigning an object to `{}`'s `__proto__` rewrites the prototype
   // rather than creating an entry) — the model would then be told a `sourceId` the
@@ -1231,7 +1231,7 @@ export function projectStateForAI(state: StudioState): ProjectedStateForAI {
   const redactedAi: ProjectedAIState | undefined = ai
     ? {
         ...(ai.activeThreadId ? { activeThreadId: capEntityId(asString(ai.activeThreadId)) } : {}),
-        // `id`/`name` are length-capped here (finding M8). Unlike every other string
+        // `id`/`name` are length-capped here. Unlike every other string
         // this snapshot emits they have no write-source cap: `rename_thread` bounds
         // the name it SETS to 40 chars, but `doc.ai` arrives from the request body
         // and `capIncomingDashboardState` passes the whole `ai` sub-partition through
@@ -1260,12 +1260,12 @@ export interface ToolPlanContext {
    * The id of the page the `pageSnapshot` was built for — captured ONCE at request
    * time (the active page when the request began). `summarise_page` compares the
    * requested page against THIS, not the threaded `state.doc.dashboard.activePageId`,
-   * so a same-turn `set_active_page` cannot make it narrate the wrong page's snapshot
-   * (finding 2-2).
+   * so a same-turn `set_active_page` cannot make it narrate the wrong page's snapshot.
+   *
    */
   snapshotPageId?: string;
   /**
-   * Whether this request runs under `privateMode` (finding F4).
+   * Whether this request runs under `privateMode`.
    *
    * `PRIVATE_MODE_EXCLUDED_TOOLS` (`agenticLoop.ts`) handles the read tools by simply
    * not advertising them, but that lever only works for a tool whose whole purpose is
@@ -1332,7 +1332,7 @@ function hasOwnEntity(map: object, id: string): boolean {
 
 /**
  * `Object.hasOwn`-guarded read of one widget's column span from a page's
- * `widgetColSpans` map (finding M8), returning `null` for "no span set".
+ * `widgetColSpans` map, returning `null` for "no span set".
  *
  * `widgetColSpans` is keyed by a model-supplied widget id, and it is the second of
  * the two maps the MCP-side `ownArrayEntry` helper was introduced for. The bare
@@ -1366,7 +1366,7 @@ function getWidgetColSpan(
  */
 function invalidConfigKeyError(kind: string, config: Record<string, unknown>): string | undefined {
   const invalidKeys = validateConfigKeysForKind(kind, config);
-  // `joinIdsForError`, not a bare `.join` (finding M8 sibling): the offending keys are
+  // `joinIdsForError`, not a bare `.join`: the offending keys are
   // model-supplied and there can be as many of them as the config has keys, so the
   // unbounded join echoed the whole set straight back into the conversation — the same
   // response-echo bomb the layout-id errors already bound.
@@ -1485,7 +1485,7 @@ function invalidChartConfigKeyError(
  * `add_widget_filter` so the wording (and the allow-list) stays identical.
  *
  * This consumes the SAME shared list the schema-side `addFilter` wire boundary
- * (`parseStateMutation.ts`) validates against (schema T2-1), so the AI-tool boundary
+ * (`parseStateMutation.ts`) validates against, so the AI-tool boundary
  * and the persistence/wire boundary can never disagree about which operators are
  * legal. The previous hand-copied `VALID_FILTER_OPERATORS` object literal (a second
  * source of truth that had to be kept in lockstep by hand) is gone.
@@ -1499,7 +1499,7 @@ function invalidFilterOperatorError(operator: string): string | undefined {
 }
 
 /**
- * Runtime allow-list of valid `StudioDataField['type']` values (finding T2-3), kept
+ * Runtime allow-list of valid `StudioDataField['type']` values, kept
  * EXHAUSTIVE against the schema union via the `satisfies Record<StudioDataField['type'],
  * true>` annotation: adding a field type to the schema without listing it here is a
  * compile error, so this gate can never silently drift stale. The `fieldType` filter
@@ -1540,7 +1540,7 @@ function resolveFieldType(
 }
 
 /**
- * Runtime allow-list of every built-in widget kind (finding T2-4), kept EXHAUSTIVE
+ * Runtime allow-list of every built-in widget kind, kept EXHAUSTIVE
  * against `BuiltinStudioWidgetKind` via the `satisfies readonly BuiltinStudioWidgetKind[]`
  * clause plus the `AssertAllBuiltinKindsListed` compile-time lock below (same pattern as
  * the schema package's `STUDIO_FILTER_OPERATORS`/`STUDIO_CHART_TYPES` locks): adding a
@@ -1596,8 +1596,8 @@ export function buildWidgetFromArgs(
   args: { kind?: unknown; title?: unknown; sourceId?: unknown; config?: unknown },
   customWidgets?: StudioCustomWidgetDef[],
 ): { widget: StudioWidget } | { error: string } {
-  // Reject a non-string-coercible `kind`/`title`/`sourceId` BEFORE anything is built
-  // (finding H4). `asString` alone would silently turn `{"toString":1}` into `''` and
+  // Reject a non-string-coercible `kind`/`title`/`sourceId` BEFORE anything is built.
+  // `asString` alone would silently turn `{"toString":1}` into `''` and
   // commit a nameless widget; the model gets the same actionable error its `config`
   // and `chartType` siblings already produce. Reported through this function's own
   // `{ error }` channel, so `apply_bulk_update`'s additions loop turns it into a
@@ -1618,7 +1618,7 @@ export function buildWidgetFromArgs(
   // lands in state (Tier 2, iteration 22 — see `capConfigStringValues`).
   const aiConfig = capConfigStringValues(args.config ?? {}) as StudioWidget['config'];
   // Validate `kind` against the CLOSED, locally-knowable set (built-in kinds ∪
-  // host-registered `customWidgets[].kind`) BEFORE building anything (finding T2-4).
+  // host-registered `customWidgets[].kind`) BEFORE building anything.
   // An unknown kind — even a capitalization slip like `"Chart"` — both mints a widget
   // the client cannot render AND bypasses every config-key check (an unrestricted kind
   // passes `validateConfigKeysForKind`, and the chart-level check only runs for the
@@ -1852,7 +1852,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
 
-      // Treat `config: null` as absent (T3-1): JSON `null` is not `undefined`, so it
+      // Treat `config: null` as absent: JSON `null` is not `undefined`, so it
       // would slip past an `!== undefined` gate straight into the config-key validators,
       // whose `Object.keys(null)` / `Object.hasOwn(null, …)` throw a raw
       // `TypeError: Cannot convert undefined or null to object` — surfaced to the model as
@@ -1903,7 +1903,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // never this merged snapshot. Shipping the whole merged config would re-assert
       // every pre-existing key at its turn-start value, silently reverting a concurrent
       // client edit to a DIFFERENT config key — the same lost-update class already fixed
-      // for `apply_bulk_update` and `set_widget_forecast` (finding 2-1). The reducer
+      // for `apply_bulk_update` and `set_widget_forecast`. The reducer
       // key-by-key merges the raw patch onto the LIVE widget, so untouched keys survive.
       const mergedConfig =
         configArg !== undefined
@@ -2003,7 +2003,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
       const rows = rawRows as string[][];
-      // Cap the row COUNT (finding F3): an unbounded row array is re-flattened and
+      // Cap the row COUNT: an unbounded row array is re-flattened and
       // re-validated on every call and, once committed, re-described on every future
       // request. Reject rather than truncate — a truncated layout would silently orphan
       // every widget beyond the cap.
@@ -2132,7 +2132,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           nextState: state,
         };
       }
-      // Coerce/validate `columns` at the write source (T2-3), mirroring
+      // Coerce/validate `columns` at the write source, mirroring
       // `set_widget_forecast.periods`. `null` is the documented reset (clears the span).
       // The tool schema declares a number, but the value is untrusted: a string like
       // "12" would survive the bare cast and reach the reducer's `clampSpan`, which
@@ -2174,7 +2174,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // work and silently revert on reload. Either way the tool would otherwise read back
       // `null` and report `{ success: true, columns: null }`, telling the model a width took
       // effect that never did. Both cases are reported as errors, with the remediation that
-      // actually applies to each — EXCEPT in private mode (finding F4), where telling the
+      // actually applies to each — EXCEPT in private mode, where telling the
       // two apart is precisely the disclosure: "on another page" vs "on no page at all"
       // is dashboard structure this mode withholds from the prompt and from every
       // `privateModeExcluded` read tool, and it turns this still-advertised write tool
@@ -2323,7 +2323,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
       const operator = operatorRaw as StudioFilterOperator;
       const value = capFilterValue(args.value);
-      // Validate `fieldType` against the exhaustive schema-derived set (finding T2-3),
+      // Validate `fieldType` against the exhaustive schema-derived set,
       // mirroring the sibling `operator` gate above — an unvalidated hint would persist
       // verbatim and break the client's filter-input rendering.
       const fieldTypeResult = resolveFieldType(args.fieldType);
@@ -2381,7 +2381,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       }
       const operator = operatorRaw as StudioFilterOperator;
       const value = capFilterValue(args.value);
-      // Validate `fieldType` (finding T2-3), same as `add_page_filter`.
+      // Validate `fieldType`, same as `add_page_filter`.
       const fieldTypeResult = resolveFieldType(args.fieldType);
       if ('error' in fieldTypeResult) {
         return { output: JSON.stringify({ error: fieldTypeResult.error }), nextState: state };
@@ -2420,7 +2420,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // threaded `state.doc.dashboard.activePageId`: a same-turn `set_active_page`
       // mutates the threaded active page mid-turn, so comparing against it would let a
       // `set_active_page(pageB)` + `summarise_page(pageB)` sequence pass this guard and
-      // return page A's snapshot narrated as page B (finding 2-2). The snapshot cannot
+      // return page A's snapshot narrated as page B. The snapshot cannot
       // be rebuilt for another page within the turn — that needs a fresh request — so we
       // do NOT tell the model to call `set_active_page`. Fall back to the threaded active
       // page only for legacy callers that don't thread `snapshotPageId`.
@@ -2521,7 +2521,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
 
       let widgetRows = (activePage.widgetRows ?? []).map((row) => [...row]);
-      // `Object.assign(Object.create(null), …)`, not a `{ … }` spread (finding M8):
+      // `Object.assign(Object.create(null), …)`, not a `{ … }` spread:
       // both span maps are keyed by a MODEL-supplied widget id (or an id that came in
       // on the request body — `state.doc.widgets` is client JSON), and `colSpans['__proto__']
       // = 12` on a normal object literal is silently discarded (assigning a primitive to
@@ -2541,7 +2541,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // merge re-asserts the stale snapshot spans of widgets this batch never touched,
       // reverting a concurrent client-side resize of a DIFFERENT widget. Track accepted
       // entries separately so the colSpans-only payload carries just the real changes.
-      // Null-prototype for the same reason as `colSpans` above (finding M8).
+      // Null-prototype for the same reason as `colSpans` above.
       const changedSpans: Record<string, number> = Object.create(null);
 
       // The mutation carries only DELTAS (remove/add/update), applied by the reducer
@@ -2567,7 +2567,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // later update/validation checks match the pre-delta-refactor behavior.
       const activePageWidgetIds = new Set((activePage.widgetRows ?? []).flat());
       const liveWidgetIds = new Set(Object.keys(state.doc.widgets));
-      // SHAPE-validate before iterating (finding 2-4), mirroring the `layout` op below:
+      // SHAPE-validate before iterating, mirroring the `layout` op below:
       // a bare `as string[]` cast trusts the model verbatim, so `widgetRemovals: "w1"`
       // would `for…of` over CHARACTERS (removing widgets "w", "1", …) and report
       // `success`, while `{}` / `42` / `[null]` would throw a raw TypeError instead of
@@ -2623,7 +2623,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // can resolve the kind of a same-batch addition (not yet present in
       // `state.doc.widgets`) for its own config-key validation.
       //
-      // A `Map`, matching its two immediate siblings (finding M8): the lookup key is a
+      // A `Map`, matching its two immediate siblings: the lookup key is a
       // MODEL-supplied `update.widgetId`, so a plain object literal resolved
       // `addedWidgetKinds['toString']` through the prototype chain to an inherited
       // FUNCTION. That function then flowed into `invalidConfigKeyError` as the widget
@@ -2655,7 +2655,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         currentChartTypes.set(wid, seed);
         return seed;
       };
-      // SHAPE-validate before iterating (finding 2-4): each addition must be a plain
+      // SHAPE-validate before iterating: each addition must be a plain
       // record carrying at least a string `kind` and string `title`. A non-array, or an
       // element that is a string / null / array / missing those keys, would throw or
       // silently mis-build. Reject with a descriptive `skipped` entry and treat as empty.
@@ -2694,7 +2694,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         }
       }
       // Whether this batch carries a layout or colSpans op that resolves added-widget
-      // refs BY TITLE (finding 2-3). When it does, two additions with the SAME title are
+      // refs BY TITLE. When it does, two additions with the SAME title are
       // ambiguous: `addedTitleToId` is last-write-wins, so the layout/colSpans ref would
       // resolve to only one of them and the other would land in `doc.widgets` referenced
       // by no page — an invisible orphan that still persists, serializes, and survives
@@ -2738,7 +2738,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // Emit each update as a partial patch (never the merged widget snapshot). The
       // reducer merges it onto the LIVE widget, so a concurrent edit to a different
       // key on that widget survives too.
-      // SHAPE-validate before iterating (finding 2-4): each update must be a plain
+      // SHAPE-validate before iterating: each update must be a plain
       // record carrying a string `widgetId`. A non-array, or an element that is a
       // string / null / array / missing `widgetId`, would throw or mis-resolve. Reject
       // with a descriptive `skipped` entry and treat as empty.
@@ -2876,7 +2876,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         } else if (rawLayout.length > MAX_LAYOUT_ROWS) {
           // A layout op REPLACES the active page's rows wholesale, so a truncated layout
           // would orphan every widget beyond the cap. Reject the whole op with guidance
-          // rather than applying a partial arrangement (finding F3).
+          // rather than applying a partial arrangement.
           skipped.push(
             `layout: received ${rawLayout.length} rows, more than the ${MAX_LAYOUT_ROWS} allowed. ` +
               'Layout not applied — send a layout with fewer rows.',
@@ -2923,7 +2923,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
           // widgets). So every widget added in this batch MUST appear in the layout — a
           // widget added-but-not-placed would land in `doc.widgets` referenced by no page
           // (invisible orphan that still persists/serializes/survives undo), reported as
-          // `applied.added` + `layout:true` success (finding 2-3). Reject the layout op if
+          // `applied.added` + `layout:true` success. Reject the layout op if
           // any addition is unplaced so the model resends a layout that includes them.
           const layoutIdSet = new Set(mappedRows.flat());
           const unplacedAddedIds = addedWidgets
@@ -3029,7 +3029,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       // a requested op that was skipped (not found / invalid / out of range) never touched
       // `widgetRows` or `colSpans` and must not be sent either.
       //
-      // Two distinct layout-change shapes attach DIFFERENT fields (finding 2.3):
+      // Two distinct layout-change shapes attach DIFFERENT fields:
       //  - A removal / addition / explicit `layout` op genuinely reorders or re-places rows,
       //    so the full turn-start `widgetRows` snapshot IS the intended new placement and
       //    must ship alongside `widgetColSpans`.
@@ -3086,7 +3086,7 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
       const { name } = args as { name?: string };
       // Check the TRIMMED value, not just `!name`: a whitespace-only name (e.g. "   ")
       // is a truthy non-empty string that passes `!name` but `trim()`s to "", which
-      // would commit an empty thread title (finding T3-3).
+      // would commit an empty thread title.
       if (!name || typeof name !== 'string' || name.trim() === '') {
         return {
           output: JSON.stringify({ error: 'rename_thread requires a non-empty name string.' }),
@@ -3181,11 +3181,11 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         };
       }
 
-      // Coerce/validate `periods` as a number at the write source (finding 3.2). The
+      // Coerce/validate `periods` as a number at the write source. The
       // tool schema declares it a number, but the value is untrusted and unvalidated —
       // a crafted string here both produces a structurally-broken forecast config and
       // (before the prompt-side sanitize fix) was echoed into `<dashboard_state>`
-      // verbatim (finding 1.1). Fail closed with an actionable error on a non-numeric
+      // verbatim. Fail closed with an actionable error on a non-numeric
       // value so the model can retry, rather than storing the raw string.
       let periodsNum: number | undefined;
       if (periods != null) {

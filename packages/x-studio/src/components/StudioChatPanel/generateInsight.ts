@@ -134,7 +134,7 @@ type SourceField = { id: string; label?: string; type?: string; aiAggregation?: 
  * `ownExpressionFields` filter. Without this, `buildNumericStats` only ever saw
  * `source.fields`, so a calculated-column value/measure field (which has no entry in
  * `source.fields`) got no stats line even when it's exactly the field the widget
- * aggregates (finding 2.5).
+ * aggregates.
  */
 function sourceFieldsWithExpressions(
   source: StudioDataSource,
@@ -189,7 +189,7 @@ function aggregateRows(
         } else if (aggFn === 'min') {
           // Reduce with a loop instead of `Math.min(...nums)`: spreading a large
           // array as call arguments throws `RangeError: Maximum call stack size
-          // exceeded` once it exceeds ~65k–125k elements (finding 2.13). A bucket
+          // exceeded` once it exceeds ~65k–125k elements. A bucket
           // here can hold up to `ceil(totalRows / maxRows)` values, so a large
           // source can still overflow a single bucket. Mirrors `numericStats`
           // below and `aggregateNumbers` in `internals/aggregate.ts`.
@@ -226,7 +226,7 @@ export function numericStats(
   }
   // Reduce with a loop instead of `Math.min(...values)` / `Math.max(...values)`:
   // spreading a large array as call arguments throws `RangeError: Maximum call
-  // stack size exceeded` once it exceeds ~65k–125k elements (finding 2.13). This
+  // stack size exceeded` once it exceeds ~65k–125k elements. This
   // function receives ALL filtered rows (no sampling cap), so a 100k+-row source
   // would otherwise crash every chat send synchronously in the pageSnapshot build.
   // Mirrors `aggregateNumbers` in `internals/aggregate.ts`, which avoids the spread
@@ -281,7 +281,7 @@ function formatDate(d: Date): string {
  * unwrapping `doc`/`runtime` internally — the flat shape is the pipeline's own
  * documented "built manually" input.
  *
- * Must forward `globalCrossFilterMode` and `crossFilterAllPages` (finding 2.4): the
+ * Must forward `globalCrossFilterMode` and `crossFilterAllPages`: the
  * pipeline resolves its effective cross-filter mode as
  * `globalCrossFilterMode ?? options?.widgetCrossFilterMode ?? 'cross-highlight'` and scopes
  * cross-filters to all pages when `crossFilterAllPages` is set. Dropping them here meant
@@ -333,7 +333,7 @@ function buildKpiWidgetSummary(
   }
   // Look up through the own-source + own-source-expression-fields merge (not just
   // `source.fields`) so a calculated-field (expression field) KPI value shows its
-  // configured display label instead of its raw field id/expression (finding 2.x) —
+  // configured display label instead of its raw field id/expression —
   // mirrors the same `sourceFieldsWithExpressions` lookup used for `Stats:` below and
   // the widget-level render path's own-source-then-expression-field resolution.
   const fieldLabel = valueField
@@ -370,13 +370,13 @@ function buildKpiWidgetSummary(
         // TODAY — clobbering the explicit previous-period `value`/`value2` below right back
         // to the CURRENT period's window (an object shape the `operator`/`operator2` below
         // don't even expect), which silently zeroed every previous-period row and produced
-        // "Previous period: 0" (finding 2.x). Marking this filter `'custom'` is what tells
+        // "Previous period: 0". Marking this filter `'custom'` is what tells
         // that resolver to leave the explicit previous-period bounds alone.
         dateRangePreset: 'custom',
         operator: 'greater_than_or_equal',
         // `computePreviousPeriodRange` builds LOCAL-time boundaries, so serialize their local
         // calendar components — `toISOString().slice(0, 10)` round-trips through UTC and
-        // day-shifts the bound for non-UTC viewers (finding 3.1, matching the KPI widget).
+        // day-shifts the bound for non-UTC viewers.
         value: toLocalYmd(prevRange.start),
         operator2: 'less_than_or_equal',
         value2: toLocalYmd(prevRange.end),
@@ -472,7 +472,7 @@ function buildChartWidgetSummary(
   const xOrder = source.fields.find((f) => f.id === xField)?.orderedValues;
 
   // Mirror the live chart's data path (`useChartWidgetData.ts`) so the insight text
-  // describes the SAME numbers the chart actually shows (finding 2.12):
+  // describes the SAME numbers the chart actually shows:
   //  - `singleSeriesYAggregation`: the single-series / split-by measure honours its
   //    own per-series `yAggregation` with precedence over the widget-level default.
   //  - `yAggregationByField`: per-field aggregation map for the multi-Y path.
@@ -491,7 +491,7 @@ function buildChartWidgetSummary(
       (f) =>
         // `!f.disabled` mirrors `useChartWidgetData.ts`'s `widgetRankFilter` (the render path):
         // a disabled Top-N rank filter must NOT keep reducing this AI-facing summary to N
-        // categories after the user toggles it off in the drawer (finding 2.1).
+        // categories after the user toggles it off in the drawer.
         !f.disabled &&
         f.scope.kind === 'widget' &&
         f.scope.widgetId === widget.id &&
@@ -513,7 +513,7 @@ function buildChartWidgetSummary(
   // Non-xy dimension fields the chart family reads but that aren't expressed as x/y/series —
   // mirrors `useChartWidgetData.ts`'s `chartTypeExtraFields` exactly, so a cross-source
   // heatmap/funnel/sankey/gantt dimension is enriched onto `enrichedRows` here the same way
-  // it is onto the rendered chart's rows (finding 2.1).
+  // it is onto the rendered chart's rows.
   const chartTypeExtraFields: (string | undefined)[] = (() => {
     switch (chartType) {
       case 'heatmap':
@@ -532,7 +532,7 @@ function buildChartWidgetSummary(
   // The widget's fully resolved/scoped filter set — mirrors `useChartWidgetData.ts`'s
   // `effectiveResolvedFilters` (selectFiltersForWidget with `include` matching the rows
   // baseline in use) so the L4 anchor-filter re-application below can never disagree with
-  // what L3 actually enforced as a semi-join to produce `filteredRows` (finding 2.1).
+  // what L3 actually enforced as a semi-join to produce `filteredRows`.
   const chartCrossFilterMode =
     state.doc.dashboard.globalCrossFilterMode ?? cfg.crossFilterMode ?? 'cross-highlight';
   const widgetFilters = selectFiltersForWidget(state.doc.filters, {
@@ -558,7 +558,7 @@ function buildChartWidgetSummary(
 
   // Look up through the own-source + own-source-expression-fields merge (not just
   // `source.fields`) so a calculated-field (expression field) y-axis measure shows its
-  // configured display label instead of its raw field id (finding 14) — mirrors the same
+  // configured display label instead of its raw field id — mirrors the same
   // `sourceFieldsWithExpressions` lookup used by the KPI/map/raw-row label paths above.
   const yFieldSourceFields = sourceFieldsWithExpressions(source, state.doc.expressionFields);
   const yFieldLabel = (id: string) => yFieldSourceFields.find((f) => f.id === id)?.label ?? id;
@@ -752,7 +752,7 @@ function buildMapWidgetSummary(
   // rendered map joins those values onto rows via `useWidgetRows.ts`'s
   // `mapCrossSourceFields` enrichment. `filteredRows` here only carries L2/L3
   // (own-source expression + filters), so without the same enrichment a cross-source
-  // country/value field is blank on this path (finding 2.5). Mirror
+  // country/value field is blank on this path. Mirror
   // `widgetExport.ts:119-134`'s enrichment.
   const crossSourceFieldRefs: { fieldId: string; sourceId: string }[] = [];
   if (cfg.mapCountrySourceId && cfg.mapCountrySourceId !== widget.sourceId) {
@@ -770,7 +770,7 @@ function buildMapWidgetSummary(
           state.runtime.dataSources,
           state.doc.relationships,
           // Thread the expression fields so a related-source *calculated* country/value field is
-          // L2-enriched before the join, matching the fixed shared render path (finding 1.1) —
+          // L2-enriched before the join, matching the fixed shared render path —
           // without this the AI-facing map summary keeps the identical blind spot the render had,
           // and the two silently diverge once the render is fixed.
           state.doc.expressionFields,
@@ -807,7 +807,7 @@ function buildMapWidgetSummary(
   const slice = result.labels.slice(0, maxRows);
   // Look up through the own-source + own-source-expression-fields merge (not just
   // `source.fields`) so a calculated-field (expression field) map value shows its
-  // configured display label instead of its raw field id/expression (finding 2.x).
+  // configured display label instead of its raw field id/expression.
   const valueLabel = valueField
     ? (sourceFieldsWithExpressions(source, state.doc.expressionFields).find(
         (f) => f.id === valueField,
@@ -907,7 +907,7 @@ export function buildWidgetDataSummary(
   // Compute the active date range once — used in every widget kind's output.
   // Scope the filter list first (matching the KPI widget) so `findDateFilter` can't latch
   // onto a disabled date filter, a different page's date filter, or a `dashboard-date-range`
-  // filter for another source — `findDateFilter` itself checks none of those (finding 2.2).
+  // filter for another source — `findDateFilter` itself checks none of those.
   const scopedFilters = selectFiltersForWidget(state.doc.filters, {
     widgetId: widget.id,
     widgetSourceId: widget.sourceId,
@@ -979,7 +979,7 @@ export function buildWidgetDataSummary(
   // `enrichWithCrossSourceFields` call, and again for CSV export by
   // `widgetExport.ts:119-134` — this raw-row data-sample path never ran that enrichment at
   // all, so a cross-source grid column was blank here and then dropped entirely by the
-  // "exists in the data" filter below (finding 2.5). Mirror that enrichment via the same
+  // "exists in the data" filter below. Mirror that enrichment via the same
   // `enrichWithCrossSourceColumns` convenience wrapper (a no-op when `cfg.columns` is
   // undefined or has no cross-source entries, e.g. for pivot/chart-fallback widgets).
   const enrichedFilteredRows = enrichWithCrossSourceColumns(
@@ -994,7 +994,7 @@ export function buildWidgetDataSummary(
   // against `rawRows` (pre-L2, pre-cross-source) excluded own-source expression columns
   // (only ever added by the pipeline's L2 enrichment) and cross-source columns (only added
   // above) from the sample — the AI was never told about the very column a pivot/grid
-  // widget aggregates (finding 2.5).
+  // widget aggregates.
   fieldIds = [...new Set(fieldIds)].filter(
     (id) => id && enrichedFilteredRows.some((r: Record<string, unknown>) => id in r),
   );

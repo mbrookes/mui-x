@@ -78,7 +78,7 @@ export function ExpressionPreview({
         </Typography>
         <Chip
           label={
-            // A root-level divide/modulo-by-zero yields `null` (finding 3.16) — no
+            // A root-level divide/modulo-by-zero yields `null` — no
             // valid result to format, rather than a fabricated 0. Uses the same localized
             // "no value" label as the column-preview chips below, which had drifted to a
             // bare em dash here.

@@ -93,7 +93,7 @@ const HEX_COLOR = /^#[0-9a-fA-F]{3,8}$/;
  * SVG-generation work (and an unbounded response payload) rather than the
  * bounded chart a legitimate call needs.
  *
- * REJECTED, not truncated (finding L6): `checkChartArrayLength` throws, and the
+ * REJECTED, not truncated: `checkChartArrayLength` throws, and the
  * doc comment here used to claim the opposite ("Truncated (not rejected) … a
  * caller still gets a chart back, just capped") — a doc/behavior mismatch a reader
  * would only catch by stepping into the helper. The BEHAVIOR is the one kept: a
@@ -109,7 +109,7 @@ const MAX_CHART_ARRAY_LENGTH = 1000;
 
 /**
  * Max length of a single model-supplied chart text field (label, series name,
- * title, …) (finding F7, Tier 3). `MAX_CHART_ARRAY_LENGTH` bounds the NUMBER of
+ * title, …). `MAX_CHART_ARRAY_LENGTH` bounds the NUMBER of
  * entries but left each individual string unbounded — a single multi-megabyte label
  * is the same unbounded-work/response-payload class as an oversized array. Truncated
  * (not rejected) in `sanitizeText`, consistent with the file's coerce-at-one-choke-
@@ -120,7 +120,7 @@ const MAX_CHART_TEXT_LENGTH = 200;
 
 /**
  * Hard upper bound on the TOTAL number of plotted values a single `render_chart`
- * call may produce, across all series (finding M9).
+ * call may produce, across all series.
  *
  * {@link MAX_CHART_ARRAY_LENGTH} bounds `data`, `xLabels`, `series`, and each
  * series' `values` INDEPENDENTLY, at 1,000 each — but nothing bounded the PRODUCT.
@@ -208,12 +208,12 @@ function sanitizeText(value: unknown): string {
   if (value === undefined || value === null) {
     return '';
   }
-  // `asString`, not the raw `String` global (finding H1): `render_chart` arguments come
+  // `asString`, not the raw `String` global: `render_chart` arguments come
   // straight off a `JSON.parse`d tool-call buffer, and `String({"toString": 1})` throws
   // `TypeError: Cannot convert object to primitive value` — which at this choke point
   // would fail the whole render rather than blanking one label.
   const str = asString(value);
-  // Truncate an oversized text field (finding F7) — a huge single label is the same
+  // Truncate an oversized text field — a huge single label is the same
   // unbounded-work/response-payload class `MAX_CHART_ARRAY_LENGTH` guards for arrays.
   return str.length > MAX_CHART_TEXT_LENGTH ? str.slice(0, MAX_CHART_TEXT_LENGTH) : str;
 }
@@ -232,7 +232,7 @@ function sanitizeOptionalText(value: unknown): string | undefined {
  */
 function checkChartArrayLength(argName: string, length: number): void {
   if (length > MAX_CHART_ARRAY_LENGTH) {
-    // BRANDED as package-authored (finding M2): the message is built from a
+    // BRANDED as package-authored: the message is built from a
     // server-authored `argName` and two numbers, so there is nothing untrusted in it
     // to leak — and `mcp/utilityTools.ts` relays a branded message to the model
     // (where it is the actionable "split the request" guidance) while redacting
@@ -250,7 +250,7 @@ function checkChartArrayLength(argName: string, length: number): void {
 /**
  * Reject a payload whose TOTAL plotted-value count exceeds
  * {@link MAX_CHART_TOTAL_VALUES} — the product bound the four independent
- * per-array caps never provided (finding M9). Runs BEFORE any rendering, since the
+ * per-array caps never provided. Runs BEFORE any rendering, since the
  * cost this bounds is the rendering itself.
  */
 function checkChartTotalValues(total: number): void {
@@ -288,7 +288,7 @@ function sanitizeSeries(series: ChartSeries[] | undefined): ChartSeries[] | unde
   }
   checkChartArrayLength('series', series.length);
   // Accumulate across series so the PRODUCT is bounded, not just each factor
-  // (finding M9) — see `MAX_CHART_TOTAL_VALUES`. Checked as the sum accrues, so an
+  //  — see `MAX_CHART_TOTAL_VALUES`. Checked as the sum accrues, so an
   // oversized payload is rejected before its values are mapped rather than after.
   let totalValues = 0;
   return series.map((s) => {
@@ -364,7 +364,7 @@ function sanitizeInput(input: ChartRendererInput): SanitizedChartInput {
  * instead of throwing and failing the whole render.
  */
 function esc(value: unknown): string {
-  // `asString` (finding H1) — see `sanitizeText`. This is the last line of defense for
+  // `asString` — see `sanitizeText`. This is the last line of defense for
   // any call site that bypassed the `sanitizeInput` choke point, so it must be total.
   const s = asString(value);
   return s
@@ -403,8 +403,8 @@ function niceMax(rawMax: number, tickCount = 5): number {
 }
 
 /**
- * Whether a resolved axis maximum can actually be divided by to produce geometry
- * (finding M9).
+ * Whether a resolved axis maximum can actually be divided by to produce geometry.
+ *
  *
  * Every renderer guarded its scale with `maxVal <= 0`, which covers zero and
  * negatives and nothing else — and `niceMax` can return a NON-FINITE max from
@@ -448,7 +448,7 @@ function renderBar(input: SanitizedChartInput): string {
   const maxVal = niceMax(Math.max(...data.map((d) => d.value), 0));
   // The `data.some(d => d.value > 0)` gate above covers the zero/negative scale; this
   // covers the NON-FINITE one `niceMax` can produce from a finite `Number.MAX_VALUE`
-  // data point (finding M9) — see `hasUsableScale`.
+  // data point — see `hasUsableScale`.
   if (!hasUsableScale(maxVal)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -547,8 +547,8 @@ function renderLine(input: SanitizedChartInput): string {
   // `maxVal` is 0, so every `yOf(v)` computes `v / 0` → NaN and the whole SVG
   // fills with `y1="NaN"` gridlines/points (BOTH the multi-series and
   // single-series paths reach here). Render the same "No data provided."
-  // placeholder bar/donut/scatter use (finding 2.2). `hasUsableScale` also covers the
-  // NON-FINITE `maxVal` a `Number.MAX_VALUE` value produces (finding M9).
+  // placeholder bar/donut/scatter use. `hasUsableScale` also covers the
+  // NON-FINITE `maxVal` a `Number.MAX_VALUE` value produces.
   if (!hasUsableScale(maxVal)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -646,7 +646,7 @@ function renderPie(input: SanitizedChartInput): string {
   // Guard against empty / all-non-positive data (mirrors renderDonut): with no
   // positive slice `total` is 0, every `d.value / total` is NaN, and the chart body
   // renders blank. Emit the same "No data provided." placeholder the other renderers
-  // use so renderPie has parity (finding T3-2).
+  // use so renderPie has parity.
   if (data.length === 0 || !data.some((d) => d.value > 0)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -661,14 +661,14 @@ function renderPie(input: SanitizedChartInput): string {
   // Sum only POSITIVE values. Non-positive slices are skipped below anyway, but a
   // mixed-sign dataset whose negatives drag `total` to <= 0 (while a positive
   // slice exists) made `slice = (d.value / total) * 360` Infinity/negative, so
-  // `polarToCartesian(∞)` produced NaN path coordinates (finding 2.2). Summing
+  // `polarToCartesian(∞)` produced NaN path coordinates. Summing
   // positives keeps `total` a positive denominator that the drawn slices sum into.
   const total = data.reduce((s, d) => (d.value > 0 ? s + d.value : s), 0);
   // A NON-FINITE `total` (two `Number.MAX_VALUE` slices sum to Infinity) makes every
   // `d.value / total` zero, so the pie body renders as invisible zero-width wedges
   // while the legend still reports "0%" for each — a broken chart the caller cannot
   // distinguish from a real one. Emit the same placeholder as the other degenerate
-  // cases (finding M9).
+  // cases.
   if (!hasUsableScale(total)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -692,8 +692,8 @@ function renderPie(input: SanitizedChartInput): string {
     if (slice >= 359.999) {
       // Single (or effectively-360°) slice: an arc whose start and end points
       // coincide collapses to nothing after `.toFixed` rounding, so the SVG drops
-      // it and the chart body renders blank while the label/legend still show
-      // (finding 3.2). Emit a full circle instead.
+      // it and the chart body renders blank while the label/legend still show.
+      // Emit a full circle instead.
       lines.push(
         `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${fill}" stroke="#fff" stroke-width="1.5"/>`,
       );
@@ -750,7 +750,7 @@ function renderScatter(input: SanitizedChartInput): string {
     rawSeries.forEach((s, si) => {
       s.values.forEach((y, i) => {
         const x = parseFloat(rawXLabels[i]);
-        // `Number.isFinite`, not `!Number.isNaN` (finding M9): an `xLabels` entry of
+        // `Number.isFinite`, not `!Number.isNaN`: an `xLabels` entry of
         // `"1e999"` parses to Infinity, which is not NaN — it was accepted as an x
         // coordinate, made `xRange` Infinity, and turned every `px()` into
         // `Infinity / Infinity` → `cx="NaN"`.
@@ -776,7 +776,7 @@ function renderScatter(input: SanitizedChartInput): string {
   // Guard against empty input: with no usable points, `Math.min()`/`Math.max()` are
   // ±Infinity and `niceMax(0)` is 0, so every `py(tv)` computes `tv / 0` → NaN and the
   // gridline/tick attributes come out as `y1="NaN"`. Render the same "No data provided."
-  // placeholder that bar/line/donut/stacked_bar use (finding 2.2).
+  // placeholder that bar/line/donut/stacked_bar use.
   if (points.length === 0) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -794,8 +794,8 @@ function renderScatter(input: SanitizedChartInput): string {
   // Guard against all-non-positive y values (e.g. a single `{ value: 0 }`
   // point): `yMax` is 0, so every `py(y)` computes `y / 0` → NaN and the
   // gridline/tick/point attributes come out as `NaN`. Render the same "No data
-  // provided." placeholder the empty-`points` branch above uses (finding 2.2).
-  // `hasUsableScale` also covers a NON-FINITE `yMax` (finding M9).
+  // provided." placeholder the empty-`points` branch above uses.
+  // `hasUsableScale` also covers a NON-FINITE `yMax`.
   if (!hasUsableScale(yMax)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -874,10 +874,10 @@ function renderDonut(input: SanitizedChartInput): string {
   // Sum only POSITIVE values (mirrors renderPie): non-positive slices are skipped
   // below, and a mixed-sign dataset whose negatives drag `total` to <= 0 while a
   // positive slice exists made `slice = (d.value / total) * 360` Infinity/negative
-  // → NaN arc coordinates (finding 2.2). The all-non-positive case is already
+  // → NaN arc coordinates. The all-non-positive case is already
   // handled by the placeholder guard above, so `total` here is always positive.
   const total = data.reduce((s, d) => (d.value > 0 ? s + d.value : s), 0);
-  // Non-finite `total` guard, mirroring `renderPie` (finding M9): besides the
+  // Non-finite `total` guard, mirroring `renderPie`: besides the
   // zero-width wedges, the donut's centre label prints `total.toLocaleString()`, so an
   // Infinity total renders the chart's headline figure as "∞".
   if (!hasUsableScale(total)) {
@@ -903,7 +903,7 @@ function renderDonut(input: SanitizedChartInput): string {
     if (slice >= 359.999) {
       // Single (or effectively-360°) slice: a wedge path whose start and end points
       // coincide collapses to nothing after `.toFixed` rounding, blanking the chart
-      // body while the label/legend still show (finding 3.2). Emit a full ring (two
+      // body while the label/legend still show. Emit a full ring (two
       // semicircle arcs, `fill-rule="evenodd"` punches the donut hole) instead.
       const oTop = polarToCartesian(cx, cy, r, 0);
       const oBot = polarToCartesian(cx, cy, r, 180);
@@ -994,10 +994,10 @@ function renderStackedBar(input: SanitizedChartInput): string {
   // Guard against all-zero / all-non-positive stacks: `maxTotal` is 0, so every
   // tick's `(tv / maxTotal) * chartH` and every bar's `(val / maxTotal) * chartH`
   // is NaN. Render the same "No data provided." placeholder the other renderers
-  // use (finding 2.2) rather than the "requires xLabels and series" message,
+  // use rather than the "requires xLabels and series" message,
   // which is reserved for genuinely missing series above. `hasUsableScale` also covers
-  // a NON-FINITE `maxTotal` — two `Number.MAX_VALUE` stack segments sum to Infinity
-  // (finding M9).
+  // a NON-FINITE `maxTotal` — two `Number.MAX_VALUE` stack segments sum to Infinity.
+  //
   if (!hasUsableScale(maxTotal)) {
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><text x="10" y="20" font-family="${FONT_FAMILY}" fill="red">No data provided.</text></svg>`;
   }
@@ -1113,10 +1113,10 @@ export function renderChartSvg(rawInput: ChartRendererInput): string {
     case 'stacked_bar':
       return renderStackedBar(input);
     default: {
-      // `input.type` is already coerced + capped by `sanitizeInput` (finding L6), so
+      // `input.type` is already coerced + capped by `sanitizeInput`, so
       // this message is bounded even for a multi-megabyte model-supplied `type`.
       const never: never = input.type;
-      // SANITIZED as well as capped, and BRANDED (finding M2). `type` is model-supplied
+      // SANITIZED as well as capped, and BRANDED. `type` is model-supplied
       // and this message is relayed to the model as a tool result, so a `type` carrying
       // newlines could forge a sibling line of prose in it; `sanitizeForPromptLine`
       // collapses those exactly as every other echoed identifier in the package is

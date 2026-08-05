@@ -126,7 +126,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   // matching `useChartWidgetData`'s identical `relevantSourceIds` computation (and
   // `useWidgetRows`' pattern), so `getFieldDependencySource`/`isFieldForeignDerived` below
   // can resolve a related-source calculated field the same way `analyzeChartSupport` does,
-  // instead of only ever seeing this widget's own-source expression fields (finding 2.1).
+  // instead of only ever seeing this widget's own-source expression fields.
   // For a many-to-many relationship the junction (bridge) source is included too, so a
   // junction-owned expression field is resolvable here as well (mirrors
   // `getReachableSourceIds`; finding 2.1).
@@ -272,7 +272,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   );
 
   /**
-   * Accessible name for the chart graphic (finding M10). The widget's own title when it has
+   * Accessible name for the chart graphic. The widget's own title when it has
    * one, otherwise the same inferred title (`"Revenue by Region"`) the widget card would
    * display — both are already localized, so this needs no new locale key. Each family
    * forwards it to the x-charts `title` prop, which becomes the chart's `aria-label`.
@@ -485,8 +485,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
           // Field equality must be checked here too (mirroring the 'equals' branch
           // below) — otherwise a single-value 'in' cross-filter scoped to a
           // different field but coincidentally holding the same value would be
-          // treated as "active" for this axis and get toggled/merged incorrectly
-          // (finding 1).
+          // treated as "active" for this axis and get toggled/merged incorrectly.
+          //
           isSingleActive =
             activeCrossFilter.field === config.xField &&
             (activeCrossFilter.value as unknown[]).length === 1 &&
@@ -625,7 +625,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // can flip the physical axes via `barLayout: 'horizontal'` (measure on x, category band on
     // y), so in that layout the mapping to the physical `x`/`y` props must be swapped too —
     // otherwise a numeric threshold lands on the band axis and a category marker lands on the
-    // value axis (finding 3.5).
+    // value axis.
     const isHorizontalBar = isBarType && barLayout === 'horizontal';
 
     return allAnnotations.map((ann) => {
@@ -831,8 +831,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
   }
 
   // No data after filtering — show overlay instead of an empty chart canvas.
-  // Guard on the row set the chart actually RENDERS from, not the include:'all' `filteredRows`
-  // (finding 1.3):
+  // Guard on the row set the chart actually RENDERS from, not the include:'all' `filteredRows`:
+  //
   // - cross-highlight ghost active → the pre-chart-cross baseline (`filteredRowsNoChartCross`), so
   //   a chart whose primary set was emptied purely by a sibling's cross-filter still renders its
   //   dimmed ghost instead of blanking to "No data".
@@ -891,7 +891,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     annotationChildren,
     chartAriaTitle,
     // Threaded to the renderers so a family that owns its own empty-result branch can tell an
-    // in-flight fetch apart from a settled empty result (finding M4). Without it, the gauge
+    // in-flight fetch apart from a settled empty result. Without it, the gauge
     // fabricated a `0`, the mixed chart blamed the author for missing fields, and
     // funnel/sankey/gantt asserted "No data" — all mid-fetch.
     isLoading,

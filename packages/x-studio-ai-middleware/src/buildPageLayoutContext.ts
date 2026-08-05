@@ -19,7 +19,7 @@ import type {
  * `getWidget`/`getPage`). `state.doc.pages` is a plain object keyed by the
  * client-supplied `activePageId`, so a bare `pages[id]` walks the prototype
  * chain: a prototype-member id (`"__proto__"`, `"constructor"`) resolves to a
- * truthy inherited value instead of "no active page" (finding T2-1).
+ * truthy inherited value instead of "no active page".
  */
 function getPage(state: StudioState, id: string): StudioState['doc']['pages'][string] | undefined {
   return Object.hasOwn(state.doc.pages, id) ? state.doc.pages[id] : undefined;
@@ -81,7 +81,7 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
       if (chartType) {
         entry.chartType = chartType;
       }
-      // `Object.hasOwn`-guarded (finding M1) — see `getColSpan`.
+      // `Object.hasOwn`-guarded — see `getColSpan`.
       const colSpan = getColSpan(page.widgetColSpans, widgetId);
       if (colSpan != null) {
         entry.colSpan = colSpan;
@@ -91,7 +91,7 @@ export function buildPageLayoutContext(state: StudioState): StudioAIPageLayout |
   );
 
   const crossFilters: StudioAICrossFilterEdge[] = state.doc.filters.flatMap((f) => {
-    // `f?.scope?.` (finding M3): `filters` is unvalidated client JSON, and a
+    // `f?.scope?.`: `filters` is unvalidated client JSON, and a
     // scope-less (or `null`) entry threw a raw `TypeError` here — the same hole the
     // sibling filter loop in `buildAISystemPrompt.ts` had.
     if (

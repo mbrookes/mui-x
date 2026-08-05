@@ -142,7 +142,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   // selectedXField is used to conditionally show the Group By control below, and its
   // `sourceId` anchors `reachableFields` for every other picker. Resolve it scoped to the
-  // widget's OWN source first (finding 2.12): `buildFieldCatalog` sorts by source label, so a
+  // widget's OWN source first: `buildFieldCatalog` sorts by source label, so a
   // bare-id lookup across the multi-source catalog can match a related source that shares the
   // field id and sorts earlier — re-anchoring the whole panel on the wrong source and hiding
   // the widget's own valid fields. Fall back to the unscoped lookup only when the widget has
@@ -308,8 +308,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
   // `useChartWidgetData.ts`'s `chartTypeExtraFields` exactly so the panel's support check
   // validates the same fields the canvas renderer does — otherwise picking an unresolvable
   // cross-source `heatYField` (or another extra field) shows no warning here while the
-  // rendered widget falls back to the "unsupported chart configuration" overlay
-  // (finding 2.13).
+  // rendered widget falls back to the "unsupported chart configuration" overlay.
+  //
   const chartTypeExtraFields = React.useMemo((): (string | undefined)[] => {
     switch (chartType) {
       case 'heatmap':
@@ -374,7 +374,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
     (overrides: {
       // Anchor the support check on a DIFFERENT source than the widget's current one. Used
       // by the X-field picker to validate an unrelated-source candidate against the source it
-      // would ADOPT on selection, instead of the current (old) source (finding 2.9).
+      // would ADOPT on selection, instead of the current (old) source.
       sourceId?: string | undefined;
       xField?: string | undefined;
       yFields?: string[];
@@ -439,8 +439,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   // Widget-scoped filters that stop resolving once the widget adopts `sourceId`. Left in
   // place, a stale filter's field is absent from the new source's rows and the `between`/`gte`
-  // date branches in `filterUtils.ts` then exclude EVERY row, silently blanking the chart
-  // (finding 1.5). Folded into the same undoable commit as the adoption.
+  // date branches in `filterUtils.ts` then exclude EVERY row, silently blanking the chart.
+  // Folded into the same undoable commit as the adoption.
   const staleFilterIdsFor = (sourceId: string) =>
     collectStaleWidgetFilterIds(allFilters, widgetId, sourceId, allFields, relationships);
 
@@ -473,7 +473,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
 
   // Shared "commit ySeries + derive yField/yAggregation" transition used by both handlers
   // below, so neither can miss the BL-186 fieldless-count re-lock or the own-source `yField`
-  // mirror (finding 2.4 / 2.5). The patch shape itself lives in `buildMeasureSeriesPatch`,
+  // mirror. The patch shape itself lives in `buildMeasureSeriesPatch`,
   // which the single-measure sections (scatter / funnel / heatmap / sankey) share — see that
   // module for the invariants.
   const commitYSeries = (next: typeof ySeries) => {
@@ -725,14 +725,14 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 xField: fieldId,
                 ...(seedFieldlessCount && { yAggregation: 'count' as const }),
               };
-              // The X-field pick and the source adoption it implies are ONE undo step
-              // (finding 2.2), and only the keys this pick changes are sent — never the
+              // The X-field pick and the source adoption it implies are ONE undo step,
+              // and only the keys this pick changes are sent — never the
               // widget's full stored config, which would be re-validated against the current
               // chart type and lose the keys the schema deliberately retains from another
               // chart family. See `commitChartConfigWithSource` for both invariants.
               //
               // The removal of any widget-scoped filter that no longer resolves against the
-              // new source rides along in the same step (finding 1.5) — left in place, a
+              // new source rides along in the same step — left in place, a
               // stale filter's field would be absent from the new source's rows and the
               // `between`/`gte` date branches in `filterUtils.ts` would then exclude every
               // row, silently blanking the chart.
@@ -767,7 +767,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
               // adopts that source (see onChange), so validate the candidate against its OWN
               // source as anchor. Anchoring on the current (old) source reports every
               // unrelated-source field `field_not_found_or_not_direct` and would disable the
-              // panel's own adoption path forever (finding 2.9). The candidate's X field is
+              // panel's own adoption path forever. The candidate's X field is
               // validated alone; the post-adoption Y/split-by validity surfaces via the
               // panel's support warning, where the user re-points those fields.
               //
@@ -982,8 +982,8 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                           (option.id !== s.fieldId && usedYFieldIds.includes(option.id)) ||
                           (option.id !== s.fieldId &&
                             !analyzeCombination({
-                              // Mirror the support memo: validate only native-source series
-                              // (finding 2.9), with the candidate option taking this slot.
+                              // Mirror the support memo: validate only native-source series,
+                              // with the candidate option taking this slot.
                               yFields: ySeries.flatMap((series, seriesIndex) => {
                                 if (seriesIndex === index) {
                                   return option.id ? [option.id] : [];

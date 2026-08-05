@@ -49,7 +49,7 @@ const KPI_NO_SPARKLINE_MIN_SPAN = 4;
 /**
  * The minimum resize column span for a widget, based on its kind and config.
  *
- * Floored at the reducer's `MIN_SPAN` (R6 F4). This function is the canvas's resize
+ * Floored at the reducer's `MIN_SPAN`. This function is the canvas's resize
  * VOCABULARY — it feeds `resolveResizePair`, which sets `RowResizeHandle`'s `minLeft`,
  * its published `aria-valuemin`, and the value announced by `canvasResizeAnnouncement` —
  * while the DOCUMENT's floor is the shared reducer's `MIN_SPAN` (6), applied by
@@ -306,7 +306,7 @@ function StudioPageRows({
         // spans, overflowing rows, and the source page's leftover span — so no manual
         // span-pruning happens here.
         //
-        // Same-row rightward move fix (finding 1.12): the removal below shifts every
+        // Same-row rightward move fix: the removal below shifts every
         // later index in the widget's original row left by one BEFORE we splice at
         // `colIndex`. For a same-row move, `colIndex` was computed against the
         // PRE-removal row, so if the target gap sits after the widget's original
@@ -700,7 +700,7 @@ export const StudioCanvas = React.memo(function StudioCanvas(props: StudioCanvas
     return autoScrollForElements({ element: findScrollParent(canvasNode) });
   }, [mode, canvasNode]);
 
-  // ── Empty-page drop target (finding 2.11) ──────────────────────────────────
+  // ── Empty-page drop target ──────────────────────────────────
   // `StudioPageRows` (and its `InsertionPoint`/`WidgetGap` drop targets) is never
   // rendered for an empty page — it returns `null` for `widgetRows.length === 0`,
   // and the branch below short-circuits before `StudioPageRows` is even reached.

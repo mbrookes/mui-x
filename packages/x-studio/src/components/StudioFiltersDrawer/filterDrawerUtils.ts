@@ -186,7 +186,7 @@ export function isRelativeDateValue(value: unknown): value is RelativeDateValue 
 /**
  * True when `value` carries the `{ from, to }` shape the `between` operator edits, rather than
  * the scalar shape every other operator edits. A `RelativeDateValue` is a non-array object too,
- * but a fully-supported _scalar_, so it is excluded (finding 1.14).
+ * but a fully-supported _scalar_, so it is excluded.
  */
 export function isBetweenShapedValue(value: unknown): boolean {
   return (

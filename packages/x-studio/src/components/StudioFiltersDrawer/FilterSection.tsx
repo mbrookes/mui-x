@@ -30,7 +30,7 @@ interface FilterSectionProps {
   fieldOptions: FieldOption[];
   /**
    * Widget→page lookup for the per-row rank-conflict check, built ONCE by the drawer from the
-   * render's `pages` snapshot (finding R4 F8). Optional: every row falls back to the un-indexed
+   * render's `pages` snapshot. Optional: every row falls back to the un-indexed
    * layout walk when it is absent, which is what the standalone row tests exercise.
    */
   rankFilterPageIndex?: RankFilterWidgetPageIndex;

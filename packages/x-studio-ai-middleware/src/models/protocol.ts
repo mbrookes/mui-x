@@ -77,7 +77,7 @@ export interface StudioAIRequest {
 /**
  * State-derived summary of a proposed mutation's structural consequences, attached to
  * a `tool-approval-request` event so a human can approve a layout / removing op with the
- * real impact in view rather than an opaque widget-id matrix (finding T2-2). Every field
+ * real impact in view rather than an opaque widget-id matrix. Every field
  * is optional and present only when non-empty; entities carry their CURRENT title (read
  * from the pre-mutation state) so removed and orphaned widgets remain human-identifiable.
  */
@@ -154,7 +154,7 @@ export type StudioAISSEEvent =
    * The client should render approve/deny UI (the built-in ToolPart renderer
    * handles this automatically when `state === 'approval-requested'`).
    *
-   * `effects` (finding T2-2) is an OPTIONAL, state-derived summary of the structural
+   * `effects` is an OPTIONAL, state-derived summary of the structural
    * consequences the proposed mutation will have — which widgets/pages/filters get
    * removed and which widgets get orphaned — so a human approving a `set_widget_layout`
    * or bulk `layout` op sees the real impact instead of an opaque id matrix. It parallels
@@ -169,7 +169,7 @@ export type StudioAISSEEvent =
    * a human approving/denying the call had no way to see WHY it was flagged. Additive
    * and optional, like `effects`.
    *
-   * `approvalId` (round-4 finding F5) is the id a client resolves this approval WITH —
+   * `approvalId` is the id a client resolves this approval WITH —
    * the key of the host-shared `approvalPending` map — and it is minted server-side by
    * `randomUUID()`, independently of `toolCallId`. The two were previously the same
    * value, which made the map key PROVIDER-authored: a gateway that numbers

@@ -34,7 +34,7 @@ import { getWidget, getPage } from './internal/entityLookup';
  * This is the single choke point for that escaping — apply it to EVERY
  * state-derived string interpolated into the prompt.
  *
- * Coerces through `asString`, not the raw `String` global (finding H1): every value
+ * Coerces through `asString`, not the raw `String` global: every value
  * reaching here descends from `JSON.parse` output, and `String({"toString": 1})`
  * throws `TypeError: Cannot convert object to primitive value`. A sanitizer that
  * throws on the exact input class it exists to neutralize is not a choke point. A
@@ -48,7 +48,7 @@ export function sanitizeForPrompt(value: unknown): string {
 /**
  * Every code point a model's tokenizer may render as a LINE BREAK.
  *
- * `\r\n|\r|\n` alone was not the whole set (finding L6). `JSON.stringify` — which the
+ * `\r\n|\r|\n` alone was not the whole set. `JSON.stringify` — which the
  * `## Active Filters` line relies on to escape its values — escapes only `"`, `\`, and
  * code units below `0x20`, so **U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH
  * SEPARATOR) survive both it and the old regex**. U+0085 (NEL), U+000B (VT) and
@@ -57,7 +57,7 @@ export function sanitizeForPrompt(value: unknown): string {
  * actually forges a line break depends on the target model's tokenizer — which is
  * exactly why they are neutralized rather than reasoned about.
  *
- * Exported (finding L2) so the one OTHER site in the package that strips line
+ * Exported so the one OTHER site in the package that strips line
  * terminators — `generateFieldDescriptions`'s `aiDescription` normalizer, which
  * hand-rolled a global `\s*[\r\n]+\s*` and therefore missed all five of the non-`\r`/`\n`
  * code points, breaking its own stated "newline-stripped at the source" guarantee —
@@ -84,7 +84,7 @@ function neutralizeLineBreaks(value: string): string {
 
 /**
  * The SINGLE-LINE variant of {@link sanitizeForPrompt}, for every state-derived
- * value rendered inside one line of the prompt (finding M2).
+ * value rendered inside one line of the prompt.
  *
  * Escaping `<`/`>` alone is not enough: inside `<dashboard_state>` the format is
  * markdown headings, newline-separated lines, and `", "`-separated `key: "value"`
@@ -154,7 +154,7 @@ export function serializeFieldForAI(
   distinctValues?: string[],
 ): string {
   // Every value here lands on ONE line of a comma-separated tag list, so all of them
-  // route through `sanitizeForPromptLine` (finding M2) — a newline or a bare `"` in
+  // route through `sanitizeForPromptLine` — a newline or a bare `"` in
   // any of them could otherwise forge a new prompt line or a sibling quoted field.
   const tags: string[] = [sanitizeForPromptLine(f.type)];
   // format hint: helps LLM choose correct aggregation (sum vs avg)
@@ -170,7 +170,7 @@ export function serializeFieldForAI(
     tags.push(`default:${sanitizeForPromptLine(f.defaultAggregationFn)}`);
   }
   // field cardinality from pre-computed distinct values.
-  // `Array.isArray` (finding M1): `distinctValues` reaches here from a
+  // `Array.isArray`: `distinctValues` reaches here from a
   // `fieldDistinctValues[f.id]` lookup whose key is client-controlled, so a
   // non-array value (a prototype member, a malformed body) must not reach `.map`.
   if (Array.isArray(distinctValues)) {
@@ -196,7 +196,7 @@ export function serializeFieldForAI(
  * `add_widget`/`update_widget` accept any string with no existence check — so a bare
  * `sources[id]` walks the prototype chain: an id like `"__proto__"` or `"constructor"`
  * resolves to a truthy inherited value and the widget would be described with a
- * phantom `source: "undefined" (undefined)` instead of "no source" (finding T2-1).
+ * phantom `source: "undefined" (undefined)` instead of "no source".
  */
 function getSource(
   sources: Record<string, StudioDataSource>,
@@ -206,7 +206,7 @@ function getSource(
 }
 
 /**
- * `Object.hasOwn`-guarded distinct-values lookup (finding M1).
+ * `Object.hasOwn`-guarded distinct-values lookup.
  *
  * `fieldDistinctValues` is a plain object keyed by client-controlled field ids, so
  * a bare `fieldDistinctValues[f.id]` walked the prototype chain. Verified: an empty
@@ -215,7 +215,7 @@ function getSource(
  * `serializeFieldForAI` then called `.map` on a function and every chat request for
  * that dashboard died with an opaque `TypeError`. Reachable from a hostile body AND
  * from a legitimate DB column literally named `constructor`. The sibling guards for
- * `sources`/`pages`/`widgets`/`widgetColSpans` already existed here (finding T2-1);
+ * `sources`/`pages`/`widgets`/`widgetColSpans` already existed here;
  * this lookup was the one that was missed. The `Array.isArray` check inside
  * `serializeFieldForAI` is the second half of the fix.
  */
@@ -254,7 +254,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
   // call with any state.
   const cfg = widget.config ?? {};
 
-  // STRUCTURAL sanitize choke point (finding 1.1 / 3.1): every value-bearing field is
+  // STRUCTURAL sanitize choke point: every value-bearing field is
   // appended through `pushField`/`pushQuoted`, whose ONLY stringifier for the value is
   // `sanitizeForPrompt`. No call site interpolates a state-derived value into `parts`
   // raw — that is now structurally impossible, so a crafted config value (e.g. a
@@ -321,7 +321,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
   pushField('kind', widget.kind);
   pushQuoted('title', widget.title);
   if (source) {
-    // Composed from ALREADY-sanitized sub-values and pushed raw (finding M2): routing
+    // Composed from ALREADY-sanitized sub-values and pushed raw: routing
     // the assembled string through `pushField` would escape the trusted quotes this
     // line's own format adds. Each attacker-influenceable sub-value is sanitized
     // individually instead, so the quotes that survive are only ever ours.
@@ -354,7 +354,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       }
     };
     // `chartType` is a resolved config value (`cfg.chartType ?? 'bar'`, unvalidated on
-    // the crafted-body read path) — sanitize it like every other value (finding 1.1).
+    // the crafted-body read path) — sanitize it like every other value.
     pushField('chartType', chartType);
     pushChartField('xField', chartCfg.xField);
     pushChartField('heatYField', chartCfg.heatYField);
@@ -368,7 +368,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     pushChartField('barMinBandSize', chartCfg.barMinBandSize);
     pushChartField('barMaxCategories', chartCfg.barMaxCategories);
     pushChartField('axisTickFontSize', chartCfg.axisTickFontSize);
-    // `Array.isArray`, not `?.length` (finding H2's sibling): `'xy'.length` is 2, so a
+    // `Array.isArray`, not `?.length`: `'xy'.length` is 2, so a
     // string-shaped `annotations` reported a bogus count rather than being skipped.
     if (
       allowed.has('annotations') &&
@@ -378,7 +378,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
       pushField('annotations', chartCfg.annotations.length);
     }
     if (allowed.has('forecast') && chartCfg.forecast?.enabled) {
-      // `method`/`periods` are attacker-influenceable config values (finding 1.1):
+      // `method`/`periods` are attacker-influenceable config values:
       // pass the composite RAW to `pushField`, which sanitizes the whole thing.
       const method = chartCfg.forecast.method ?? 'linear';
       const periods = chartCfg.forecast.periods ?? 3;
@@ -497,7 +497,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
     if (cfg2.pivotShowTotals !== undefined) {
       // `pivotShowTotals` is typed `boolean` but is a valid pivot config KEY, so a
       // crafted `update_widget` could store an arbitrary string here that passed
-      // key validation (finding 1.1) — sanitize it like every other value.
+      // key validation — sanitize it like every other value.
       pushField('showTotals', cfg2.pivotShowTotals);
     }
   } else if (widget.kind === 'map') {
@@ -529,7 +529,7 @@ function describeWidget(widget: StudioWidget, sources: Record<string, StudioData
 // means the provider (OpenAI / Anthropic) can cache it as a stable prefix,
 // reducing cost and latency on multi-turn sessions.
 //
-// INVARIANT (finding M2): this prose must NEVER contain a literal boundary tag —
+// INVARIANT: this prose must NEVER contain a literal boundary tag —
 // any of `PROMPT_BOUNDARY_TAGS` in angle-bracket form. Every such tag in the
 // finished prompt has to be a genuine region delimiter, because that is exactly
 // what makes the framing auditable: "one opening `<dashboard_state>` and one
@@ -777,13 +777,13 @@ function buildDashboardState(
   const { mode } = state.session;
 
   const pageList = Object.values(pages);
-  // `Object.hasOwn`-guarded lookup (finding T2-1): a crafted body
+  // `Object.hasOwn`-guarded lookup: a crafted body
   // `activePageId: "__proto__"` would otherwise resolve to a truthy inherited
   // value and render a phantom `## Active page: "undefined"` block.
   const activePage = getPage(state, dashboard.activePageId);
   const activeWidgetIds = (activePage?.widgetRows ?? []).flat();
   const activeWidgets = activeWidgetIds
-    // `Object.hasOwn`-guarded lookup (finding T2-1): a crafted body
+    // `Object.hasOwn`-guarded lookup: a crafted body
     // `widgetRows: [["constructor"]]` would otherwise resolve to a truthy inherited
     // value and render a phantom widget, inflating the active-widget count.
     .map((id) => getWidget(state, id))
@@ -846,14 +846,14 @@ function buildDashboardState(
       widgetRows.forEach((row, i) => {
         const rowDesc = row
           .map((id) => {
-            // `Object.hasOwn`-guarded lookups (finding T2-1): a crafted id naming an
+            // `Object.hasOwn`-guarded lookups: a crafted id naming an
             // inherited member ("constructor", "__proto__") must not resolve `widgets`
             // or `widgetColSpans` to a truthy prototype value and render a phantom entry.
             const w = getWidget(state, id);
             const span = Object.hasOwn(widgetColSpans, id) ? widgetColSpans[id] : undefined;
             // `widgetColSpans` is client-asserted (part of the request body), so a
             // crafted `span` could carry a `</dashboard_state>`-style break — sanitize
-            // it like every other state-derived value (finding 1.1).
+            // it like every other state-derived value.
             const spanSuffix = span != null ? `, ${sanitizeForPromptLine(span)}col` : '';
             return w
               ? `${sanitizeForPromptLine(id)} ("${sanitizeForPromptLine(w.title)}", ${sanitizeForPromptLine(w.kind)}${spanSuffix})`
@@ -866,7 +866,7 @@ function buildDashboardState(
     }
 
     // Active filters on this page.
-    // `f?.scope` (finding M3): `filters` is unvalidated client JSON — a filter entry
+    // `f?.scope`: `filters` is unvalidated client JSON — a filter entry
     // with no `scope` (or a `null` entry) threw a raw `TypeError` reading
     // `f.scope.kind` here, and it did so for EVERY request that resolves an active
     // page, i.e. a permanent per-dashboard denial of service surfaced as an opaque,
@@ -896,7 +896,7 @@ function buildDashboardState(
           // readable — hence the angle-bracket choke point rather than the full line
           // sanitizer, which would turn its quotes into `&quot;`. But `JSON.stringify`
           // escapes only `"`, `\`, and code units below `0x20`: U+2028/U+2029 pass
-          // straight through it (finding L6), so the line-break neutralizer runs on top.
+          // straight through it, so the line-break neutralizer runs on top.
           // Every other value on this line is bare, so those use the line sanitizer.
           // eslint-disable-next-line no-restricted-syntax -- deliberate: `JSON.stringify` already quotes/escapes this value, and `neutralizeLineBreaks` restores the line guarantee the line sanitizer would have given.
           `  - [id: ${sanitizeForPromptLine(f.id)}] scope:${scopeLabel} — ${sanitizeForPromptLine(f.field)} ${sanitizeForPromptLine(f.operator)} ${neutralizeLineBreaks(sanitizeForPrompt(JSON.stringify(f.value)))}`,
@@ -1012,7 +1012,7 @@ function buildDashboardState(
   );
 
   if (focusedWidgetId) {
-    // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member focusedWidgetId
+    // `Object.hasOwn`-guarded lookup: a prototype-member focusedWidgetId
     // would otherwise resolve to a truthy inherited function and render a bogus
     // per-widget focus block for a widget that does not exist.
     const focused = Object.hasOwn(state.doc.widgets, focusedWidgetId)
@@ -1069,7 +1069,7 @@ const PROMPT_BOUNDARY_TAG_RE = new RegExp(
 /**
  * Neutralizes any prompt-region tag — opening OR closing — inside a client-supplied
  * skill `promptFragment`, so the fragment cannot break out of its own `<skill>`
- * block and forge a trusted region (findings 2.1 and M2).
+ * block and forge a trusted region.
  *
  * Previously this blocked `</skill` alone, which was not enough: a fragment could
  * emit a complete forged `</dashboard_state>…<dashboard_state>## Data Sources (1)…`
@@ -1085,7 +1085,7 @@ const PROMPT_BOUNDARY_TAG_RE = new RegExp(
  * `handleAIChat`; this is defense-in-depth for the tag framing.
  */
 function neutralizeSkillBoundary(fragment: string): string {
-  // `asString`, not the raw `String` global (finding H1): `promptFragment` is declared
+  // `asString`, not the raw `String` global: `promptFragment` is declared
   // `string` but arrives from an unvalidated request body, and `String({"toString": 1})`
   // throws — which here would kill the whole request while building the prompt.
   return asString(fragment).replace(PROMPT_BOUNDARY_TAG_RE, '&lt;$1$2');
@@ -1099,7 +1099,7 @@ function buildSkillSection(skills?: SerializableSkill[]): string {
     .map(
       (s) =>
         // `name`/`mode` sit inside quoted attributes on a single line, so they use the
-        // line sanitizer (finding M2) — a newline or `"` in either would otherwise
+        // line sanitizer — a newline or `"` in either would otherwise
         // forge an attribute or a whole extra line of the block.
         `<skill name="${sanitizeForPromptLine(s.name)}" mode="${sanitizeForPromptLine(s.mode)}">\n${neutralizeSkillBoundary(s.promptFragment ?? '')}\n</skill>`,
     )
@@ -1167,7 +1167,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * nothing to render. Callers must gate this on `privateMode` themselves.
  *
  * EVERY untrusted value below is interpolated through the {@link promptLine} tagged
- * template rather than a hand-picked sanitizer call (finding H3). This function is
+ * template rather than a hand-picked sanitizer call. This function is
  * where the sanitizer-variant mismatch has now been found twice — `pageLayout.colSpan`,
  * then `omitted` — each time in a single-line position whose four siblings were already
  * hardened. `promptLine` takes the choice away: the only text that survives unescaped
@@ -1181,7 +1181,7 @@ function buildRichContextBlock(
 
   if (richContext) {
     const inner: string[] = [];
-    // Finding 2 (Tier 3): `richContext` is client-supplied and only NOMINALLY typed
+    // Finding 2: `richContext` is client-supplied and only NOMINALLY typed
     // `StudioAIRichContext` — a hand-crafted request body can shape any of these
     // fields however it likes (a string instead of an array, `null` array entries,
     // objects missing expected sub-fields, …). Cast to `unknown` here so every shape
@@ -1315,7 +1315,7 @@ function buildRichContextBlock(
 }
 
 /**
- * Hard ceiling on the TOTAL size of an assembled system prompt (finding H1e).
+ * Hard ceiling on the TOTAL size of an assembled system prompt.
  *
  * Every individual input to the prompt is now capped, but the caps multiply: 500
  * data sources × 500 fields each is 250,000 individually-bounded field renderings
@@ -1371,8 +1371,8 @@ const EMITTED_REGION_TAGS = [
 ] as const;
 
 /**
- * Re-closes any region the {@link MAX_SYSTEM_PROMPT_CHARS} backstop cut open
- * (finding L5).
+ * Re-closes any region the {@link MAX_SYSTEM_PROMPT_CHARS} backstop cut open.
+ *
  *
  * A blind `slice()` drops the tail of the prompt, and the tail is exactly where the
  * closing tags live — so the one path where the input was hostile enough to blow 1 MB
@@ -1459,7 +1459,7 @@ export function buildAISystemPrompt(
   // Finding H1e — the aggregate backstop. Truncated (not thrown) because this runs
   // on the READ path with no caller to report a validation error to, and because a
   // partial-but-marked prompt still lets the user's request succeed. The slice is
-  // re-closed (finding L5) so truncation cannot leave a region tag unbalanced and
+  // re-closed so truncation cannot leave a region tag unbalanced and
   // destroy invariant 14's auditability on the one path that needed it most.
   return prompt.length > MAX_SYSTEM_PROMPT_CHARS
     ? closeOpenPromptRegions(prompt.slice(0, MAX_SYSTEM_PROMPT_CHARS)) +

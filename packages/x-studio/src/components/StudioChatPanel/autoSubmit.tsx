@@ -12,7 +12,7 @@ export interface PendingAutoSubmit {
 /**
  * Max number of queued auto-submissions. Only two producers ever push onto this
  * queue (`pendingMessage` and `initialPrompt`), so 2 is enough headroom for both
- * to be pending at once (finding 2.9) without letting the queue grow unbounded.
+ * to be pending at once without letting the queue grow unbounded.
  */
 export const MAX_PENDING_AUTO_SUBMIT = 2;
 
@@ -42,7 +42,7 @@ export const MAX_AUTO_SUBMIT_ATTEMPTS = 5;
 // handles the common case — an auto-submit arriving while a visibly-in-flight
 // response is streaming — by simply not consuming the entry yet: `isSubmitting`
 // is an effect dependency, so this re-runs (and retries) the moment streaming
-// ends, instead of the message silently vanishing (finding 2.2).
+// ends, instead of the message silently vanishing.
 //
 // `isSubmitting` alone is not enough, for two reasons, and BOTH are re-checked at
 // the moment of the action rather than at effect entry:
@@ -72,7 +72,7 @@ export const MAX_AUTO_SUBMIT_ATTEMPTS = 5;
 // component whenever the overlay closes, which would reset a local ref's
 // consumed-set to empty — a fresh mount on reopen would then re-find and
 // re-submit any entry still sitting in `pending`, causing a duplicate LLM call on
-// every reopen (finding 5). Pruning the entry from the state queue itself means a
+// every reopen. Pruning the entry from the state queue itself means a
 // remount has nothing stale left to reprocess.
 //
 // `onConsumed` is called from INSIDE the deferred `setTimeout` callback, right

@@ -47,7 +47,7 @@ export const PieRingDimContext = React.createContext<Map<string, boolean> | null
  * than suffixing the slice's `color` with a hex alpha byte (`${color}40`), which
  * silently renders fully opaque — losing the dim entirely — whenever a host supplies a
  * non-hex color (a CSS variable, `rgb(...)`, `hsl(...)`, …) via `chartColors` or
- * `theme.components.MuiPieChart.defaultProps.colors` (finding 3.7).
+ * `theme.components.MuiPieChart.defaultProps.colors`.
  *
  * Exported (like the sibling `CrossHighlightPieArc`) so it can be unit-tested directly
  * against a mocked `PieArc` — see `RingDimmedPieArc.test.tsx`.
@@ -202,7 +202,7 @@ export function StudioPieChart({
   // grouped concentric rings so they always agree. Priority: explicit chartColors > theme
   // MuiPieChart default props > resolvedChartColors (blueberryTwilightPalette fallback).
   // Hoisted above the ring branch so the ring path can reconcile its slice/dim colours the
-  // same way the single-ring path does (finding 1.3).
+  // same way the single-ring path does.
   const themeDefaultPieColors = (
     theme.components as
       | Record<string, { defaultProps?: { colors?: string[] } } | undefined>
@@ -217,7 +217,7 @@ export function StudioPieChart({
     // rows are empty — computed up front (rather than only where `baseRows` is chosen below) so
     // the entry guard can gate on it too. A sibling widget's cross-filter can empty
     // `enrichedRows` entirely while `allEnrichedRows` still has rows for every category; gating
-    // entry on `enrichedRows.length === 0` alone (finding 6) used to bail out of the ring branch
+    // entry on `enrichedRows.length === 0` alone used to bail out of the ring branch
     // in that case, collapsing an N-series ring chart into the single-ring aggregate-total path
     // below instead of rendering every baseline ring dimmed. Mirrors `StudioBarChart`'s
     // `effectiveSFData` pattern.
@@ -231,7 +231,7 @@ export function StudioPieChart({
     // Mirror the primary ring's aggregation (built by `useChartWidgetData`'s `aggregateByField`):
     // use the configured measure aggregation instead of a hardcoded 'sum', and period-group the
     // ring categories by `xGroupBy` (so a temporal xField groups by day/week/month/… like the
-    // single-ring pie) rather than treating every raw x value as its own ring (finding 2.25).
+    // single-ring pie) rather than treating every raw x value as its own ring.
     const ringAggregation = yAggregation ?? 'sum';
     const categoryKeyOf = (r: Record<string, unknown>): string | null => {
       const rawX = r[xField];
@@ -250,7 +250,7 @@ export function StudioPieChart({
     // mode, so hard filters (which every other widget applies) now filter the rings too.
     // Also gated on `preserveXFieldBaseline`, mirroring the single-ring path's
     // `isPieHighlightActive` (~line 368) — otherwise the grouped-ring ghost baseline would show
-    // regardless of the flag (finding 4). Same condition as `canUseGhostBaseline` above (reused,
+    // regardless of the flag. Same condition as `canUseGhostBaseline` above (reused,
     // not recomputed, to keep the entry guard and the baseline choice below in lockstep).
     const useGhostBaseline = canUseGhostBaseline;
     const baseRows = useGhostBaseline ? allEnrichedRows : enrichedRows;
@@ -258,7 +258,7 @@ export function StudioPieChart({
     // Get unique category values (period-grouped xField), sorted like the single-ring path
     // (`aggregateByField` → `sortLabels`) rather than left in first-seen row order — otherwise
     // temporal rings render in arbitrary chronological order, and the order can visibly swap
-    // when the baseline flips between `allEnrichedRows`/`enrichedRows` (finding 3.4).
+    // when the baseline flips between `allEnrichedRows`/`enrichedRows`.
     const categories = sortLabels(
       [...new Set(baseRows.map(categoryKeyOf))].filter((c): c is string => c != null),
     ) as string[];
@@ -509,7 +509,7 @@ export function StudioPieChart({
         innerRadius,
         outerRadius,
         ...(ringArcLabel ? { arcLabel: ringArcLabel, arcLabelMinAngle } : {}),
-        // Apply the measure valueFormatter so ring tooltips show formatted values (finding 1.3),
+        // Apply the measure valueFormatter so ring tooltips show formatted values,
         // matching the single-ring path instead of showing raw numbers.
         valueFormatter: (item: { value: number }) => valueFormatter(item.value),
         data: ring.slices.labels.map((label, i) => {
@@ -530,7 +530,7 @@ export function StudioPieChart({
             value: ring.slices.values[i] ?? 0,
             // Always the real colour — dimming is applied via `fill-opacity` by
             // `RingDimmedPieArc` (reading `ringDimMap` through `PieRingDimContext`), not by
-            // suffixing an alpha byte here (finding 3.7).
+            // suffixing an alpha byte here.
             color: baseColor,
           };
         }),
@@ -589,7 +589,7 @@ export function StudioPieChart({
             {...CHART_KEYBOARD_NAV_PROPS}
             title={ariaTitle}
             // Rings and their split-by categories are otherwise distinguished by hue alone —
-            // enumerate the rings so the description names each one (finding M10).
+            // enumerate the rings so the description names each one.
             desc={buildChartDescription(
               rings.map((ring) => String(ring.label)),
               localeText.filterSummaryAndMore,
@@ -747,7 +747,7 @@ export function StudioPieChart({
 
   // Keyboard cross-filtering: Enter / Space on the arc x-charts' keyboard navigation has
   // focused emits the same cross-filter as a pointer click, with the same synthetic-"Other"
-  // guard `handleSliceClick` applies (finding M10).
+  // guard `handleSliceClick` applies.
   // The focused item's `dataIndex` addresses the rendered arcs, so activation resolves against
   // `arcLabels` (not `displayLabels`, which also carries the slice-less unmeasured categories).
   const pieKeyboardProps = chartKeyboardActivationProps(
@@ -758,7 +758,7 @@ export function StudioPieChart({
   );
 
   // Text alternative for the single-series pie: slices are distinguished by hue alone once arc
-  // labels are off, so name every slice in the chart's description (finding M10). Unmeasured
+  // labels are off, so name every slice in the chart's description. Unmeasured
   // categories announce the same `NO_VALUE_LABEL` the visible legend shows for them, so the
   // description and the legend never disagree about whether a category was measured.
   const pieAriaDescription = buildChartDescription(
@@ -859,7 +859,7 @@ export function StudioPieChart({
   }
 
   // `pieColors` (the reconciled arc/legend palette) is hoisted to the top of the component so
-  // the grouped-ring branch can reuse it (finding 1.3).
+  // the grouped-ring branch can reuse it.
 
   // Shared series definition for both legend modes
   const pieSingleSeries = [
@@ -953,7 +953,7 @@ export function StudioPieChart({
           // PieChart and the custom legend keep the exact layout they had under a Fragment.
           // The keydown is DELEGATED: it originates on x-charts' own focusable
           // keyboard-navigation proxy inside the chart and bubbles up here, so this wrapper is
-          // deliberately not itself a tab stop (finding M10).
+          // deliberately not itself a tab stop.
           <div style={{ display: 'contents' }} {...pieKeyboardProps}>
             <PieChart
               {...CHART_KEYBOARD_NAV_PROPS}

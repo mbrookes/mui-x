@@ -77,11 +77,11 @@ function extractSummaryValues(
  * `fields` must resolve every configured summary field — including cross-source and
  * expression-field columns (the caller folds `crossSourceFieldDefs` and the widget's own
  * expression fields into this list). A missing field def resolves as non-numeric and
- * silently degrades a `sum`/`avg`/`min`/`max` to `count` (finding 1.2), so the field-def
+ * silently degrades a `sum`/`avg`/`min`/`max` to `count`, so the field-def
  * resolution must happen upstream.
  *
  * `crossSourceFkFields` maps a fanned-out cross-source column's field id to its FK field
- * on the widget's own rows; those columns are FK-deduped before reducing (finding 1.2),
+ * on the widget's own rows; those columns are FK-deduped before reducing,
  * reusing the same value reducer (`gridGrouping.ts`'s `aggregateValues`) the group-by and
  * native-aggregation paths use, so the footer agrees with the grouped view of the column.
  */
@@ -113,9 +113,9 @@ export function computeGridSummary(
     const effectiveAgg: StudioGridSummaryAggregation =
       !isNumeric && !isCountAggregation(aggregation) ? 'count' : aggregation;
 
-    // FK-dedup a fanned-out cross-source column before reducing (finding 1.2); a plain
+    // FK-dedup a fanned-out cross-source column before reducing; a plain
     // column reads one value per row. The shared reducer applies the null-skip +
-    // boolean/numeric-string coercion (finding 2.13) and distinct-count policy (2.23), so
+    // boolean/numeric-string coercion and distinct-count policy (2.23), so
     // the footer agrees with KPI/Chart/Pivot and with the grouped view of this column.
     const values = extractSummaryValues(rows, fieldId, crossSourceFkFields?.get(fieldId));
 

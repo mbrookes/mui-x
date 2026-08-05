@@ -62,7 +62,7 @@ type ApprovalOutcome =
  * mutations, not a newly invented concept) this approval was raised under.
  *
  * The map KEY is an `approvalId` minted by `runApprovalFlow` with `randomUUID()`,
- * NOT the provider's `tool_calls[].id` (round-4 finding F5). Those were once the
+ * NOT the provider's `tool_calls[].id`. Those were once the
  * same value, which made the key of a host-shared, cross-request map
  * provider-authored: a gateway numbering tool-call ids sequentially (`call_1`,
  * `call_2`, …) made the map enumerable, so a caller could guess another user's
@@ -87,8 +87,8 @@ type ApprovalOutcome =
  * && entry.threadId !== threadId` is bypassable simply by omitting `threadId` from
  * the request body, since it degrades to a no-op the moment `threadId` is absent.
  *
- * `resolve`'s optional third argument is the resolving request's asserted thread id
- * (finding F8). Forward it and `waitForApproval` re-checks the binding AT THE
+ * `resolve`'s optional third argument is the resolving request's asserted thread id.
+ * Forward it and `waitForApproval` re-checks the binding AT THE
  * RESOLVER — a mismatch fails closed as `approved: false` rather than being trusted
  * to the caller — so a host that forwards the wrong conversation's id cannot approve
  * a destructive tool even if its own route check is missing or wrong. Omitting the
@@ -107,7 +107,7 @@ export interface PendingApproval {
 /**
  * Whether a resolution request may resolve `entry`, given the entry's own
  * `threadId` (absent when the approval was never bound to a thread) and the
- * resolving request's asserted `threadId` (finding 5, Tier 3).
+ * resolving request's asserted `threadId`.
  *
  * When `entry.threadId` is set, the resolving request MUST present a matching
  * `threadId` — this returns `false` when it is missing OR mismatched. A check
@@ -173,8 +173,8 @@ export interface ApprovalRegistration {
  * and a timeout so an abandoned prompt can't hang the stream and leak the map entry
  * forever. The `approvalPending` entry is always removed once the race settles.
  *
- * The registered resolver also RE-CHECKS the thread binding it was created with
- * (finding F8), rather than only recording it. `isApprovalThreadIdAuthorized` was
+ * The registered resolver also RE-CHECKS the thread binding it was created with,
+ * rather than only recording it. `isApprovalThreadIdAuthorized` was
  * exported for host routes to call, and every real call site was a host route — so
  * the binding was enforced entirely outside the package and not at all within it. A
  * resolution that ASSERTS a thread id now has to present a matching one here too, or
@@ -269,7 +269,7 @@ export function registerApproval(
  *
  * Kept for callers that have nothing to do between the two halves. `runApprovalFlow`
  * deliberately does NOT use it: it must register before yielding the
- * `tool-approval-request` event and await after (finding F6).
+ * `tool-approval-request` event and await after.
  */
 export function waitForApproval(
   approvalId: string,
@@ -294,7 +294,7 @@ export interface ToolDispatchContext {
    *  once per request so a same-turn `set_active_page` can't misdirect `summarise_page`. */
   snapshotPageId?: string;
   /**
-   * Whether the request runs under `privateMode` (finding F4). `PRIVATE_MODE_EXCLUDED_TOOLS`
+   * Whether the request runs under `privateMode`. `PRIVATE_MODE_EXCLUDED_TOOLS`
    * withdraws the read tools; this threads the flag down to the WRITE tools that stay
    * advertised, so their rejection strings state the constraint instead of the withheld
    * state — see `ToolPlanContext.privateMode` in `executeToolOnState.ts`.
@@ -316,7 +316,7 @@ export interface ToolDispatchContext {
   approvalFallback: 'allow' | 'deny';
   signal?: AbortSignal;
   onToolError?: (toolName: string, error: Error) => void;
-  /** Names of tools actually advertised to the model this request (T1-1 gate). */
+  /** Names of tools actually advertised to the model this request. */
   advertisedToolNames: Set<string>;
   /**
    * The per-call authorization policy (the single chokepoint). Consulted after the
@@ -389,7 +389,7 @@ function redactedHostError(
   return redactedHostErrorMessage(context, err, {
     log: () => {},
     error: (...args: unknown[]) => {
-      // `asString`, not the raw `String` global (finding H1): this sink runs while
+      // `asString`, not the raw `String` global: this sink runs while
       // handling a failure, so a non-coercible log argument must not throw a second
       // one out of the catch that is already recovering.
       ctx.onToolError?.(
@@ -452,8 +452,8 @@ async function consultToolPolicyArgsOnlyGuarded(
 }
 
 /**
- * Extracts a human-readable error message from an `isError` tool result's text
- * (finding 7, Tier 3, latent, iteration 24).
+ * Extracts a human-readable error message from an `isError` tool result's text.
+ *
  *
  * `output` here is whatever text a tool handler returned alongside `isError: true` —
  * today, for the `query_data_source` handler this is always JSON (`errorResult` in
@@ -500,7 +500,7 @@ export function extractToolErrorMessage(output: string): string {
  * Exported so the MCP transport's approval bridge (`mcp.ts` `bridgeApproval`) can
  * apply the SAME state-derived label enrichment before handing `input` to the host
  * `approvalHandler` — otherwise the two transports would disagree and the MCP path
- * would forward the raw, spoofable model label (finding T2-A).
+ * would forward the raw, spoofable model label.
  *
  * Every id read here goes through `asString`, never the raw `String` global (finding
  * H1). `toolInput` is un-narrowed `JSON.parse` output straight off the model's
@@ -522,7 +522,7 @@ export function buildApprovalDisplayInput(
   state: StudioState,
 ): unknown {
   const input = (toolInput ?? {}) as Record<string, unknown>;
-  // `Object.hasOwn`-guarded lookups (finding T2-1) via the shared `getWidget`/`getPage`
+  // `Object.hasOwn`-guarded lookups via the shared `getWidget`/`getPage`
   // (`../internal/entityLookup`): a prototype-member id must not resolve to an
   // inherited value via the prototype chain — display-only here, but kept consistent
   // with the executor's own-property discipline.
@@ -556,7 +556,7 @@ export function buildApprovalDisplayInput(
 
 /**
  * Builds the OPTIONAL, state-derived `effects` summary attached to a
- * `tool-approval-request` event (finding T2-2). The chat channel historically shipped
+ * `tool-approval-request` event. The chat channel historically shipped
  * only `{toolName,input}`, so a human approving an orphaning `set_widget_layout` or bulk
  * `layout` op saw an opaque id matrix — while the MCP transport already forwards the
  * structural `effects` to its host `approvalHandler`. This closes that gap: it turns the
@@ -575,7 +575,7 @@ export function buildApprovalEffectsSummary(
   if (!effects) {
     return undefined;
   }
-  // `Object.hasOwn`-guarded lookups (finding T2-1) via the shared `getWidget`/`getPage`
+  // `Object.hasOwn`-guarded lookups via the shared `getWidget`/`getPage`
   // (`../internal/entityLookup`) — see `buildApprovalDisplayInput` above.
   const widgetTitle = (id: string): string => getWidget(state, id)?.title ?? '(unknown widget)';
   const pageTitle = (id: string): string => getPage(state, id)?.title ?? '(unknown page)';
@@ -633,7 +633,7 @@ type ApprovalFlowResult =
  * auto-deny fallback below. Threaded into the `tool-approval-request` event for the
  * former, and appended to the fallback denial message for the latter.
  *
- * The `approvalPending` key is minted HERE with `randomUUID()` (round-4 finding F5),
+ * The `approvalPending` key is minted HERE with `randomUUID()`,
  * independently of `toolCallId`. Keying the map by the provider's `tool_calls[].id`
  * put a host-shared, cross-request map under an id an upstream gateway authored: a
  * gateway numbering them sequentially made every in-flight approval enumerable, and
@@ -679,7 +679,7 @@ async function* runApprovalFlow(
   // out". `release()` in the `finally` covers the consumer that abandons the generator
   // between the yield and the await, so an unobserved approval can't outlive the flow.
   //
-  // The key is minted here, not taken from `toolCallId` (finding F5) — see this
+  // The key is minted here, not taken from `toolCallId` — see this
   // function's doc comment.
   const approvalId = randomUUID();
   const approval = registerApproval(
@@ -727,7 +727,7 @@ async function* runApprovalFlow(
 
 /**
  * Reconciles a `server-tool` skill's independently-supplied `mutation` and `nextState`
- * so the two can't disagree (finding L1).
+ * so the two can't disagree.
  *
  * This is the ONE dispatch path where invariant 8 — "server-threaded and client-applied
  * state cannot disagree, because they run the same code" — did not hold. Every built-in
@@ -938,7 +938,7 @@ export async function* dispatchToolCall(
   // connection can reach. The MCP transport does not share this gap: its state box
   // is server-held, never request-supplied.
   //
-  // This branch is therefore FAIL-CLOSED by default (finding F1): when the host has
+  // This branch is therefore FAIL-CLOSED by default: when the host has
   // not configured `StudioAIDataConfig.allowedTables`, it refuses to resolve any
   // source rather than trusting the client-supplied catalog. A host opts in with an
   // explicit `allowedTables` array (validated inside `resolveSource`).
@@ -988,7 +988,7 @@ export async function* dispatchToolCall(
             'Pass a `data` config in AgenticLoopOptions to enable this tool.',
         });
       } else if (ctx.data.allowedTables === undefined) {
-        // Finding F1 (Tier 1): FAIL-CLOSED table scoping on the chat transport. Here
+        // Finding F1: FAIL-CLOSED table scoping on the chat transport. Here
         // `currentState.runtime.dataSources` descends from the CLIENT-SUPPLIED request
         // body, so trusting an omitted allowlist would let a hostile caller point an
         // innocuous `sourceId` at any table the DB connection can reach and have the
@@ -1006,7 +1006,7 @@ export async function* dispatchToolCall(
             'the physical table from server-held configuration and ignores `params.tableName`.',
         });
       } else {
-        // `createDataToolHandlers` redacts a host/DB failure (finding H4): it writes the
+        // `createDataToolHandlers` redacts a host/DB failure: it writes the
         // full detail to its `logger` and returns only a correlation id to the model. The
         // chat transport has no logger of its own, so without this sink the detail would be
         // dropped entirely and the reference id in the model-visible message would point at
@@ -1022,7 +1022,7 @@ export async function* dispatchToolCall(
           logger: {
             log: () => {},
             error: (...args: unknown[]) => {
-              // `asString` (finding H1) — see `redactedHostError`'s sink above.
+              // `asString` — see `redactedHostError`'s sink above.
               hostErrorDetail = args.map((a) => asString(a)).join(' ');
             },
           },
@@ -1060,7 +1060,7 @@ export async function* dispatchToolCall(
     .some((s) => s.tool!.name === name);
 
   if (isUnregisteredSkillTool) {
-    // Finding F3 (Tier 2): same accounting rationale as the parse-failure and
+    // Finding F3: same accounting rationale as the parse-failure and
     // unadvertised-tool early returns above — this happens before any policy
     // consult increments `usage.toolCalls`, so a skill declared in `body.skills`
     // with no `skillHandlers` entry would otherwise dispatch for free against the
@@ -1087,7 +1087,7 @@ export async function* dispatchToolCall(
   // decision happen for every built-in tool. A read-only tool produces no mutation,
   // so `executeToolWithPolicy` simply returns `allowed` with no `state-mutation`.
   let outcome: Awaited<ReturnType<typeof executeToolWithPolicy>>;
-  // Built INSIDE the try below (finding H1). These were computed after it, so a throw
+  // Built INSIDE the try below. These were computed after it, so a throw
   // from either — `buildApprovalDisplayInput` used the non-total `String()` on raw
   // model arguments — escaped `dispatchToolCall`, escaped the `while (true) { await
   // dispatch.next() }` driver in `agenticLoop.ts` (whose enclosing try covers only the

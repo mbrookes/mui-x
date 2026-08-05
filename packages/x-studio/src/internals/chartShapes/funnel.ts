@@ -232,7 +232,7 @@ export function buildFunnelStages(
       // Coerce via the shared `coerceAggregateValue` policy rather than raw `Number(...)`:
       // an empty-string cell coerces to `null` (skipped, contributing 0) instead of `Number('')
       // === 0` inflating the sum. The label is still registered unconditionally so a stage whose
-      // measures are all null/empty stays present (at 0) rather than disappearing (finding 2.17).
+      // measures are all null/empty stays present (at 0) rather than disappearing.
       stageMap.set(label, prev + (coerceAggregateValue(row[valueField]) ?? 0));
     }
   }

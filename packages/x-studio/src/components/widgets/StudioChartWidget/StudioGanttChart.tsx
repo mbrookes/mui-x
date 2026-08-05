@@ -28,7 +28,7 @@ const MIN_BAR_W = 4;
 // A gantt over thousands of filtered rows must not build a multi-hundred-KB
 // string every render, and a screen reader announcing thousands of entries is
 // not usable either — describe the first few visible rows plus a total count
-// instead (finding 3).
+// instead.
 const ARIA_LABEL_MAX_ITEMS = 15;
 
 /**
@@ -43,7 +43,7 @@ const ARIA_LABEL_MAX_ITEMS = 15;
  * day earlier for any viewer whose local offset is negative (e.g. `2024-03-15`
  * renders as "Mar 14" for a US-timezone viewer) — the display-side twin of the
  * ingestion day-shift bug class already fixed for `temporalUtils.ts`/
- * `widgetUtils.tsx`'s date-only handling (finding 2.15). Reading the UTC Y/M/D
+ * `widgetUtils.tsx`'s date-only handling. Reading the UTC Y/M/D
  * components back out and constructing a new LOCAL `Date` from them cancels the
  * shift: the constructed date's local components now equal the original
  * intended calendar day regardless of the viewer's offset.
@@ -68,7 +68,7 @@ function formatDate(ms: number): string {
  * rendered in two places that are otherwise fully localized — the item tooltip, directly after
  * `localeText.chartGanttDurationLabel`, and the chart's `aria-label` — so a hardcoded suffix
  * produced strings like `"Durée : 62d"`: a translated caption with an English unit welded onto
- * it, in the one place a user cannot work around it (finding M21).
+ * it, in the one place a user cannot work around it.
  */
 function formatDuration(ms: number, localeText: StudioLocaleText): string {
   const days = Math.round(ms / 86_400_000);
@@ -107,7 +107,7 @@ function shortDate(ms: number): string {
  * `left: calc(140px + pct%)` inside a FULL-width row container, so `pct%` resolved
  * against `containerWidth` instead of `containerWidth - LABEL_W` — a different
  * reference width than the axis/gridlines used, causing bars to drift right of
- * their gridlines proportionally to date (finding 1.10).
+ * their gridlines proportionally to date.
  */
 export function msToPct(ms: number, minMs: number, rangeMs: number): number {
   return ((ms - minMs) / rangeMs) * 100;
@@ -154,8 +154,8 @@ export function StudioGanttChart({
     return null;
   }
 
-  // Reduce over the items rather than spreading them into `Math.min`/`Math.max`
-  // (finding 3.5): the `maxRows` cap is applied later, so `items` can hold one entry per
+  // Reduce over the items rather than spreading them into `Math.min`/`Math.max`:
+  // the `maxRows` cap is applied later, so `items` can hold one entry per
   // filtered row, and spreading a large array into a variadic call throws `RangeError`
   // (call-stack overflow) past ~125k args — the same crash class fixed with reduce loops
   // in `aggregate.ts`, `gridGrouping.ts`, `gridSummary.ts`, and `generateInsight.ts`.
@@ -184,7 +184,7 @@ export function StudioGanttChart({
   // row — and cap even that to `ARIA_LABEL_MAX_ITEMS`, appending a total count for the
   // remainder. Enumerating every one of possibly thousands of rows here would rebuild a
   // multi-hundred-KB string on every render and hand screen readers an unusable wall of
-  // text (finding 3).
+  // text.
   const describedItems = visibleItems.slice(0, ARIA_LABEL_MAX_ITEMS);
   const describedCount = items.length - describedItems.length;
   const ariaLabelDetails =
@@ -192,7 +192,7 @@ export function StudioGanttChart({
       .map((it) =>
         // Per-item detail goes through locale text too: this string is interpolated INTO the
         // localized `ganttChartAriaLabel`, so a literal `" to "` here meant every translation
-        // announced a French/German/Spanish sentence containing English joiners (finding M21).
+        // announced a French/German/Spanish sentence containing English joiners.
         localeText.ganttItemAriaLabel(
           // The colour category is otherwise conveyed by the bar's FILL COLOUR and by the
           // per-bar hover tooltip alone — the tooltip wraps a plain `<Box>` inside this
@@ -312,7 +312,7 @@ export function StudioGanttChart({
               // `item.id` is a stable per-row identity token (see `rowIdentity.ts`), unique even
               // for two rows sharing the same label/start time — `${item.label}-${item.startMs}`
               // collided in that case, letting the reconciler pair the wrong row's bar/tooltip
-              // state to the wrong DOM node on a cross-filter-driven list change (finding 15).
+              // state to the wrong DOM node on a cross-filter-driven list change.
               key={item.id}
               sx={{ position: 'absolute', top, left: 0, right: 0, height: ROW_H }}
             >
@@ -350,7 +350,7 @@ export function StudioGanttChart({
                   directly against the full-width row Box (as before) mismatched the two
                   scales: the bar's leftPct% was a percentage of the FULL container width
                   while gridlines used only the post-label width, so bars drifted right of
-                  their gridlines proportionally to date (finding 1.10). */}
+                  their gridlines proportionally to date. */}
               <Box sx={{ position: 'absolute', left: LABEL_W, right: 0, top: 0, height: ROW_H }}>
                 <Tooltip title={tooltipContent} arrow placement="top">
                   <Box

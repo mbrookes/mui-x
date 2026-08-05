@@ -213,9 +213,9 @@ function asColumnRef(physical: string): ColumnRef {
  * The result-row KEY a directly-projected physical column lands under — the last
  * dot-segment of its (possibly table-qualified) name, e.g. `orders.category` →
  * `category`. Knex assigns a bare `SELECT orders.category` this key on the row
- * object, so it is the key an aggregation alias can collide with (findings 2.1/2.2).
+ * object, so it is the key an aggregation alias can collide with.
  *
- * NON-STRING TOLERANCE (finding L1): `physical` derives from client JSON via
+ * NON-STRING TOLERANCE: `physical` derives from client JSON via
  * `resolveAlias`, so an aggregation with a missing/non-string `column` reached
  * `undefined.lastIndexOf` here and threw a raw `TypeError` that
  * `sanitizeBoundaryError` degraded to a generic message. The request path now
@@ -231,7 +231,7 @@ function resultKeyOf(physical: string): string {
 }
 
 /**
- * Reject a WILDCARD in `aggregations[].column` (F3).
+ * Reject a WILDCARD in `aggregations[].column`.
  *
  * CORRECTNESS INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), mirroring
@@ -312,7 +312,7 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
 
 /**
  * Validate every ORDER BY TARGET of an AGGREGATION widget against the query's
- * actual grain (F4).
+ * actual grain.
  *
  * CORRECTNESS INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), and is a no-op for a descriptor
@@ -343,7 +343,7 @@ function validateOrderByDirections(descriptor: BatchWidgetDescriptor): void {
  *
  * A legal target is a declared aggregation ALIAS, or a projected column that is a
  * GROUP BY DIMENSION — that is, a projected column the descriptor does NOT
- * aggregate (F1). Membership is compared on primary-table-qualified physicals,
+ * aggregate. Membership is compared on primary-table-qualified physicals,
  * exactly as `execute.ts`'s `measureColSet` / `dimensionColumns` split does, so a
  * qualified dimension and an unqualified order target still match.
  */
@@ -399,7 +399,7 @@ function validateOrderByTargets(descriptor: BatchWidgetDescriptor): void {
 const SAFE_JOIN_TYPE = /^(inner|left|right)$/i;
 
 /**
- * Validate every JOIN `type` against a fail-closed allowlist (finding 2.3).
+ * Validate every JOIN `type` against a fail-closed allowlist.
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
  * whether a `columnAllowlist` is configured), mirroring `validateOrderByDirections`.
@@ -412,7 +412,7 @@ const SAFE_JOIN_TYPE = /^(inner|left|right)$/i;
  * INNER and the joined table's tenant predicate lands in WHERE instead of ON. So
  * constrain the value to `inner`/`left`/`right` (fail-closed).
  *
- * NON-MUTATING (finding T3.4): this validator does NOT rewrite `join.type` on the
+ * NON-MUTATING: this validator does NOT rewrite `join.type` on the
  * caller's descriptor — the descriptor is the host-owned parsed request body, and a
  * pure validator must not mutate it. Canonical lowercasing happens where it is
  * actually consumed: `buildPlan` lowercases `join.type` onto the PLAN (so
@@ -673,7 +673,7 @@ function validateSemiJoins(
 /**
  * Validate the row LIMIT against a fail-closed non-negative-integer guard.
  *
- * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (finding 3.1),
+ * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget,
  * independent of whether a `columnAllowlist` is configured. `descriptor.limit` is
  * client JSON that `execute.ts` passes straight to Knex's `.limit()`. The TS type
  * (`number`) is not a runtime guarantee — the wire value can be a string, a float,
@@ -702,7 +702,7 @@ function validateLimit(descriptor: BatchWidgetDescriptor): void {
  *
  * Uses the SAME shared `SAFE_ALIAS_PATTERN` (`shared/columnValidation.ts`) that
  * `validateAggregationAliases` applies to aggregation aliases — previously this
- * was a byte-identical module-private duplicate (finding 3.4); now there is one
+ * was a byte-identical module-private duplicate; now there is one
  * definition to keep in sync if the charset is ever tightened.
  *
  * SECURITY INVARIANT — runs UNCONDITIONALLY for every widget (independent of
@@ -763,7 +763,7 @@ function synthesizeProjectionFromAllowlist(
   table: string,
   columnAllowlist: Record<string, string[]>,
 ): void {
-  // Own-property gate (finding 2.4), matching `checkColumnAgainstAllowlist`: a
+  // Own-property gate, matching `checkColumnAgainstAllowlist`: a
   // primary `table` naming an inherited `Object.prototype` member would otherwise
   // read a truthy inherited value and skip the fail-closed "has no entry" throw,
   // then crash on `.includes`. Treat a non-own key as "no entry".
@@ -878,7 +878,7 @@ function buildPlan(descriptor: BatchWidgetDescriptor): ValidatedQueryPlan {
 
   const semiJoins = resolveSemiJoins(descriptor.semiJoins, descriptor.table);
 
-  // NO PRE-COMPUTED "is this a pure measure" FLAG (F1). The plan used to carry
+  // NO PRE-COMPUTED "is this a pure measure" FLAG. The plan used to carry
   // `pureMeasure: agg.alias === resultKeyOf(physical)`, which `execute.ts` used to
   // decide whether an aggregated column also belonged in GROUP BY — an alias-NAME
   // heuristic standing in for "is this column aggregated", and wrong whenever the
@@ -1002,11 +1002,11 @@ export function validateQueryPlan(
     }),
     (descriptor.aggregations ?? []).length,
   );
-  // The other half of the wildcard guard (F3): `validateWildcardProjection` above
+  // The other half of the wildcard guard: `validateWildcardProjection` above
   // only sees `descriptor.columns`, so a wildcard in `aggregations[].column`
   // reached query construction and emitted `count(<table>.*)`.
   validateAggregationColumns(descriptor);
-  // Compute the RESULT-ROW KEY of every projected column (findings 2.1 / 3.4) so
+  // Compute the RESULT-ROW KEY of every projected column so
   // `validateAggregationAliases` can reject an `agg.alias` that would collide with
   // one on the row object:
   //   - a renamed expression field (resolveAlias(col) !== col) is SELECT-ed AS its
@@ -1021,7 +1021,7 @@ export function validateQueryPlan(
   // unqualified column and its qualified aggregation still match.
   //
   // EVERY aggregation registers, not only those whose alias happens to equal the
-  // column's own name (F1). The old `agg.alias === resultKeyOf(physical)` test was
+  // column's own name. The old `agg.alias === resultKeyOf(physical)` test was
   // the same alias-NAME heuristic `execute.ts` used for the GROUP BY split, and it
   // failed CLOSED on this side: a projected expression field aggregated under its
   // own logical id (`columnAliases: { 'expr-1': 'orders.amount' }`, `alias:
@@ -1032,7 +1032,7 @@ export function validateQueryPlan(
   const qualify = (physical: string): string => qualifyAgainst(descriptor.table, physical);
   const measurePhysicals = new Set<string>();
   for (const agg of descriptor.aggregations ?? []) {
-    // Optional-chained (finding L1): this pre-pass runs BEFORE
+    // Optional-chained: this pre-pass runs BEFORE
     // `validateAggregationAliases` (which owns the fail-closed shape rejection),
     // so a malformed element must not crash it with a raw `TypeError` before that
     // validator can report the real problem. A malformed entry simply doesn't
@@ -1074,7 +1074,7 @@ export function validateQueryPlan(
   if (columnAllowlist) {
     validateDescriptorColumns(descriptor, columnAllowlist);
   }
-  // Runs LAST, deliberately AFTER the allowlist check (F4). An ORDER BY column
+  // Runs LAST, deliberately AFTER the allowlist check. An ORDER BY column
   // that is both unlisted and not a dimension violates two rules at once, and the
   // ALLOWLIST one is the more fundamental — "that column is not yours to
   // reference" outranks "that column is at the wrong grain", and reporting the

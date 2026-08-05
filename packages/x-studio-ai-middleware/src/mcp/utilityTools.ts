@@ -20,7 +20,7 @@ export interface UtilityToolDeps {
   recentChanges: StudioAIRecentMutation[];
   /**
    * Diagnostic logger. `render_chart` logs the FULL renderer error server-side and
-   * relays only a bounded excerpt to the model (finding H4).
+   * relays only a bounded excerpt to the model.
    */
   logger?: StudioMcpLogger;
 }
@@ -40,8 +40,8 @@ export interface UtilityToolDeps {
 const MAX_RECENT_CHANGES_RESPONSE = 50;
 
 /**
- * Hard upper bound on the total serialized size of a single `render_chart` result
- * (finding M6).
+ * Hard upper bound on the total serialized size of a single `render_chart` result.
+ *
  *
  * `renderBar` emits one `<text>` element per data point and the input caps allow
  * 1000 entries × 200-char labels, so a single render could produce ~800 KB of SVG —
@@ -69,7 +69,7 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
     get_recent_changes: (args) => {
       // Clamp a caller-supplied `limit` to a positive integer within
       // [1, MAX_RECENT_CHANGES_RESPONSE]; a falsy/`NaN`/absent value falls back
-      // to the hard cap. Mirrors the `query_data_source` limit clamp (T2-6): a
+      // to the hard cap. Mirrors the `query_data_source` limit clamp: a
       // negative/`NaN`/huge value from an untrusted caller must never widen the
       // response beyond the bound.
       const rawLimit = (args as { limit?: unknown } | undefined)?.limit;
@@ -153,7 +153,7 @@ export function createUtilityToolHandlers(deps: UtilityToolDeps): Record<string,
         // `renderChartSvg`'s own throws (unknown chart type, the array-length and
         // total-value caps) are what the model needs in order to correct its call, so
         // unlike the host/DB catch blocks in `queryTools.ts` that text IS relayed — and
-        // it is bounded (findings H4/L6): the unknown-type message interpolates
+        // it is bounded: the unknown-type message interpolates
         // `input.type`, capped and sanitized at the renderer's own choke point.
         //
         // Finding M2: it now routes through `redactedHostErrorResult` like every other

@@ -121,7 +121,7 @@ export interface EvaluationContext {
    * when fields are added/updated, but a persisted doc created before that validation
    * existed, or a host integration that bypasses the controller, could still hand the
    * evaluator a circular reference graph — this guard makes the evaluator itself safe
-   * against that (finding 2.8) instead of relying solely on upstream validation.
+   * against that instead of relying solely on upstream validation.
    */
   resolvingFieldIds?: Set<string>;
 }
@@ -150,8 +150,8 @@ function toBoolean(v: unknown): boolean {
   // such row evaluated truthy here (e.g. `if(on_time, 1, 0)` always took the truthy branch) —
   // diverging from `filterUtils.ts`'s explicit string-boolean `equals` branch (~267-269), which
   // string-compares rather than relying on JS truthy coercion and handles the identical data
-  // correctly. Matching that policy here keeps expression evaluation and filtering in agreement
-  // (finding 12).
+  // correctly. Matching that policy here keeps expression evaluation and filtering in agreement.
+  //
   if (typeof v === 'string') {
     if (v === 'false') {
       return false;
@@ -366,7 +366,7 @@ function evaluateExpressionAtDepth(
     // Fast path: use pre-built index from enrichRowsWithExpressions (O(1) lookup).
     const precomputed = joinIndexes?.get(joinSourceId);
     if (precomputed) {
-      // Keys are normalized (finding 3.16) so a numeric FK matches a string PK, the
+      // Keys are normalized so a numeric FK matches a string PK, the
       // same policy `gridGrouping.symmetricAggregate` uses for the same kind of
       // cross-source join — see `normalizeJoinKey`'s doc comment.
       const fkKey = normalizeJoinKey(row[precomputed.sourceField]);
@@ -396,7 +396,7 @@ function evaluateExpressionAtDepth(
     // `dataSourceGraph.ts` — instead of reading `.rows` raw. A raw `Date`/non-ISO string
     // copied from a foreign row here can bucket differently downstream in UTC-based chart
     // grouping vs. the local-calendar filter engine, and never matches an equality
-    // cross-filter on that column (finding 10).
+    // cross-filter on that column.
     const relatedRows = relatedSource
       ? getCachedNormalizedDataSource(relatedSource).rows
       : undefined;
@@ -410,7 +410,7 @@ function evaluateExpressionAtDepth(
       return val as ScalarValue;
     }
     // Try evaluating a referenced expression field (calculated column only). Guard
-    // against cyclic field references (finding 2.8): if `expr.id` is already being
+    // against cyclic field references: if `expr.id` is already being
     // resolved somewhere up this recursion chain, bail out to the same "unresolvable"
     // fallback (`null`) used elsewhere in this branch instead of recursing forever.
     const resolvingFieldIds = context.resolvingFieldIds ?? new Set<string>();
@@ -517,7 +517,7 @@ function evaluateFunctionExpression(
     // `if` need — `toBoolean(1)`/`toBoolean('yes')` are both `true`). The one widening is the
     // string-boolean form: a CSV/API boolean column routinely serializes as `'true'`/`'false'`,
     // and every other consumer of such a column already treats those as the booleans they
-    // encode — `toBoolean` above (finding 12) and `filterUtils`' `fieldType: 'boolean'`
+    // encode — `toBoolean` above and `filterUtils`' `fieldType: 'boolean'`
     // `equals` branch, which string-compares. Without this, `isTrue(on_time)` was `false` for
     // every row of a string-boolean column while `if(on_time, 1, 0)` scored 1 and the
     // equivalent filter matched: three answers to one question on one column.
@@ -606,7 +606,7 @@ export function enrichRowsWithExpressions(
       // root node (the previous `isJoinFieldExpression(ef.expression)` check) — a join nested
       // inside a function call (e.g. `if(join(customers.country) == 'US', 1, 0)`) has a
       // FunctionExpression root, so the root-only check skipped the prebuild for it entirely
-      // and fell back to the O(n×m) per-row linear scan in the slow path above (finding 11).
+      // and fell back to the O(n×m) per-row linear scan in the slow path above.
       for (const joinSourceId of collectJoinSourceIds(ef.expression)) {
         if (!joinIndexes.has(joinSourceId)) {
           // Resolved through the SAME direction-independent helper as the slow path above —
@@ -616,14 +616,14 @@ export function enrichRowsWithExpressions(
           // answer (`null`) for a reverse-declared relationship — see `findJoinFields`.
           const rel = findJoinFields(sourceId, joinSourceId, relationships);
           if (rel) {
-            // Keys are normalized (finding 3.16) via the shared `normalizeJoinKey`
+            // Keys are normalized via the shared `normalizeJoinKey`
             // policy so a numeric FK matches a string PK, same as
             // `gridGrouping.symmetricAggregate`'s cross-source join.
             const index = new Map<string, Record<string, unknown>>();
             // Route through `getCachedNormalizedDataSource` for L1 normalization, same as
             // the slow-path fallback above and every other reader in this codebase
             // (`grainResolution.ts`/`crossSourceEnrichment.ts`/`dataSourceGraph.ts`) —
-            // instead of reading `.rows` raw (finding 10).
+            // instead of reading `.rows` raw.
             const joinDataSource = dataSources[joinSourceId];
             const normalizedJoinRows = joinDataSource
               ? (getCachedNormalizedDataSource(joinDataSource).rows ?? [])
@@ -705,7 +705,7 @@ function evalMeasureExpression(
     const { aggregation = 'sum' } = expr;
     // ONE aggregation name, ONE meaning — the whole branch routes through the shared
     // `aggregateCellValues`, the single place that decides what each name means over a row
-    // set (finding M8). In particular `count` is `COUNT(*)` here, exactly as it is for the
+    // set. In particular `count` is `COUNT(*)` here, exactly as it is for the
     // KPI (`computeAggregate`), the grid footer/group-by (`gridGrouping.aggregateValues`),
     // the pivot (`pivotUtils.resolveAgg`) and all three chart aggregators. This branch used
     // to answer TWO other questions under the same name — a count of numerically-valid
@@ -716,8 +716,8 @@ function evalMeasureExpression(
     //
     // `count_distinct` measures distinctness over the RAW cell values (never the numeric
     // coercion — that would collapse a distinct count over a string field to 0), and
-    // `sum`/`avg`/`min`/`max` skip null/non-numeric rows rather than folding them in as 0
-    // (finding 1.6); both policies now live in `aggregateCellValues`.
+    // `sum`/`avg`/`min`/`max` skip null/non-numeric rows rather than folding them in as 0;
+    // both policies now live in `aggregateCellValues`.
     return aggregateCellValues(
       rows.map((r) => r[expr.id]),
       aggregation,
@@ -791,7 +791,7 @@ function evalMeasureExpression(
       // Conditional and logical operators: evaluate row-by-row then aggregate (sum).
       // This enables conditional sums like: if(on_time, 1, 0) → sum per-row results.
       // Coerce with the shared policy (booleans → 0/1) and skip null/non-numeric row
-      // results before aggregating, mirroring the field-expression branch (finding 1.6).
+      // results before aggregating, mirroring the field-expression branch.
       const rowValues = rows.flatMap((row) => {
         const v = coerceAggregateValue(
           evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }, depth),
@@ -808,7 +808,7 @@ function evalMeasureExpression(
       // and skip null/invalid results (mirrors the field-expression branch's null-skip policy).
       // Aggregate with `avg`: summing raw day-differences across an arbitrary row count has no
       // sensible business meaning, whereas an average always does — and it matches this
-      // operator's only documented real-world use, "average days to ship" (finding 6).
+      // operator's only documented real-world use, "average days to ship".
       const rowValues = rows.flatMap((row) => {
         const v = coerceAggregateValue(
           evaluateFunctionExpression(expr, { row, expressionFields, allRows: rows }, depth),
@@ -823,7 +823,7 @@ function evalMeasureExpression(
 }
 
 // Thin alias over the shared reducer so measure aggregation shares the one
-// null-skip / boolean-coercion policy (finding 2.1). `StudioKpiAggregation` is the
+// null-skip / boolean-coercion policy. `StudioKpiAggregation` is the
 // same union as the shared `AggregateFn`.
 function aggregate(values: number[], aggregation: StudioKpiAggregation): number | null {
   return aggregateNumbers(values, aggregation);

@@ -54,7 +54,7 @@ export function autoGranularity(start: Date, end: Date): Granularity {
  * The window is inclusive of both `today` (end-of-day) and the first day, so it must
  * span exactly `days` calendar days: subtract `days - 1` from `today` for the start.
  * Subtracting the full `days` (the previous behavior) produced an inclusive `days + 1`-day
- * block (31/91/366) that contradicted the documented widths above (T3-1). The extra day was
+ * block (31/91/366) that contradicted the documented widths above. The extra day was
  * harmless for the delta — current and previous windows stayed equal-length — but the
  * window should match its documentation.
  */
@@ -88,8 +88,8 @@ export function computeFixedPeriodRange(
  * calendar space as the window bounds (`filterRowsByDateRange` reduces them via `toLocalYmd`,
  * also LOCAL). The previous leading-10-chars fast path returned a datetime's UTC day,
  * mismatching the LOCAL bounds and misclassifying near-UTC-midnight datetime rows for
- * off-UTC viewers (T2-1). NOTE: the sparkline buckets (`getBucketKey`) deliberately do NOT
- * follow this LOCAL convention — see that function's own docstring (T2-3).
+ * off-UTC viewers. NOTE: the sparkline buckets (`getBucketKey`) deliberately do NOT
+ * follow this LOCAL convention — see that function's own docstring.
  */
 function toDayKey(raw: unknown): string | null {
   if (typeof raw === 'string') {
@@ -113,7 +113,7 @@ function toDayKey(raw: unknown): string | null {
  * (`computeFixedPeriodRange` via `setHours`), so unifying the row side on LOCAL keeps both
  * sides of the comparison provably in one calendar space. Comparing a UTC-parsed row date
  * against a locally-built bound (as the old `d >= start && d <= end` did) misclassified
- * boundary-day rows for non-UTC viewers (finding F3 / T2-1).
+ * boundary-day rows for non-UTC viewers.
  */
 export function filterRowsByDateRange(
   rows: Record<string, unknown>[],
@@ -153,8 +153,8 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     // components) all read LOCAL calendar fields — so a UTC-midnight anchor day-shifts the
     // derived window for any viewer off UTC: the `previous-period` window comes out a day
     // short (UTC) or overlapping the current window (UTC+), and `previous-calendar-period` /
-    // `year-over-year` resolve to the wrong calendar period entirely west of UTC
-    // (findings F1/F2). Mirror the package's documented local-components policy.
+    // `year-over-year` resolve to the wrong calendar period entirely west of UTC.
+    // Mirror the package's documented local-components policy.
     if (typeof str === 'string') {
       const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(str);
       if (m) {
@@ -165,7 +165,7 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
       // it with `new Date` and reading LOCAL calendar fields (as `computePreviousPeriodRange`
       // does, in whole-LOCAL-day space) lands it on the NEXT local day for viewers east of UTC,
       // so the UTC `23:59:59.999Z` suffix inflates the inclusive-day count and shifts the
-      // derived previous window by a day (T2-2). Collapse it to LOCAL midnight of its intended
+      // derived previous window by a day. Collapse it to LOCAL midnight of its intended
       // calendar day (the leading `YYYY-MM-DD`, i.e. the day the preset built) so the KPI's
       // day-granular window math stays timezone-stable. Bare `date` bounds are handled above
       // and never reach here.
@@ -218,7 +218,7 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
       // that one calendar day — [start-of-day X, end-of-day X] — NOT the open-ended
       // "since X" window below. Deriving `{ start: X, end: today }` here (the previous
       // operator-blind fall-through) made the trend compare a single-day headline against
-      // an ~open-ended previous aggregate, always producing a bogus huge delta (T1.5).
+      // an ~open-ended previous aggregate, always producing a bogus huge delta.
       const end = new Date(v1);
       end.setHours(23, 59, 59, 999);
       return { start: v1, end };
@@ -226,14 +226,14 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
     if (op === 'not_equals' || op === 'is_empty' || op === 'is_not_empty') {
       // "not X" / emptiness filters define no contiguous date window at all, so no trend
       // badge can be meaningfully derived from them — return null instead of falling through
-      // to the "since X" window, which would fabricate an ~open-ended delta (T1.5).
+      // to the "since X" window, which would fabricate an ~open-ended delta.
       return null;
     }
     if (op === 'less_than' || op === 'less_than_or_equal') {
       // "until X": the filter keeps rows up to (and maybe including) X, so X is
       // the END of the current period — NOT the start. Deriving `{ start: X,
       // end: today }` here (the old, operator-blind behavior) inverted the window
-      // to exactly the region the filter excludes (finding 1.11). Mirror the
+      // to exactly the region the filter excludes. Mirror the
       // open-ended "since X" window backwards so the derived window has an
       // equivalent length but ends at the filter value. `Math.abs` keeps `start`
       // on or before `end` whether X is in the past (the common case) or future.
@@ -256,7 +256,7 @@ export function extractDateRange(filter: StudioFilterState): { start: Date; end:
  * Falls back to looking up the field type in `dataSource.fields` for legacy filters
  * that were stored without a `fieldType`. Shared by `findDateFilter` below and by
  * the fixed-period trend's "strip the active date filter(s)" logic in
- * `StudioKpiWidget.tsx` (T2-2), so both agree on what counts as a date filter.
+ * `StudioKpiWidget.tsx`, so both agree on what counts as a date filter.
  */
 export function isDateFieldFilter(
   filter: StudioFilterState,
@@ -297,7 +297,7 @@ const DATE_FILTER_SCOPE_PRIORITY: Partial<Record<StudioFilterState['scope']['kin
  * dashboard-date-range — rather than whichever happened to appear first in `filters` (an
  * arbitrary array-order tiebreak that could latch onto either one depending on authoring
  * order, occasionally yielding a bogus ∞/"New" trend badge when the ignored filter would
- * have produced a sane one) (T3-1). L3's own row-filtering (`selectFiltersForWidget` /
+ * have produced a sane one). L3's own row-filtering (`selectFiltersForWidget` /
  * `applyFilters`) has no analogous single-choice precedence to mirror here — every
  * in-scope filter is AND-combined against the rows rather than one arbitrating the
  * other — so this picks the narrowest scope as the most deliberate, specific choice: a
@@ -477,7 +477,7 @@ type CalendarPeriod = 'week' | 'month' | 'quarter' | 'year';
  * for sparkline BUCKETING (how many buckets to draw), which maps any 15–90-day
  * range to `'week'`. Feeding that into the previous-period math shifts a ~monthly
  * range back by a single week, so the "previous" window overlaps the current one
- * and the trend delta degenerates toward a self-comparison (finding 2.18). Here the
+ * and the trend delta degenerates toward a self-comparison. Here the
  * thresholds are centered on the actual lengths of calendar periods so the previous
  * window never overlaps the current one:
  * - ≤ 10 days  → week    (~7-day range)
@@ -559,7 +559,7 @@ export function computePreviousPeriodRange(
   // NOT via instant subtraction: `duration = end − start` measures one day short of the
   // inclusive window (a Jul 8–14 filter spans 7 calendar days but `end − start` is 6 days),
   // and the `end: start − 1ms` construction lands the previous window's end 1ms after the
-  // prior day's midnight, day-shifting the boundary for non-UTC viewers (findings F1/F3).
+  // prior day's midnight, day-shifting the boundary for non-UTC viewers.
   // Instead: the previous window ends the day before the current window starts, and is as
   // many whole days long as the current one — so the two windows are adjacent, equal-length,
   // and never overlap in any timezone.
@@ -583,7 +583,7 @@ export function computeAggregate(
 ): number | null {
   // One value per row (prototype-chain-safe `lookup`, `undefined` for a missing key),
   // handed to the shared `aggregateCellValues` — the single place that decides what each
-  // aggregation NAME means over a row set (finding M8). This preserves every semantic this
+  // aggregation NAME means over a row set. This preserves every semantic this
   // function already had (it IS the reference implementation the others were aligned to):
   // `count` is `COUNT(*)` (`values.length` === `rows.length`), `count_distinct` is measured
   // over the RAW values, and `sum`/`avg`/`min`/`max` skip null/non-numeric rows so they
@@ -605,7 +605,7 @@ export function computeAggregate(
  * `'YYYY-MM-DD'` row value (the common case for a KPI's time field) to UTC midnight of
  * that calendar day. Reading LOCAL components off that UTC-midnight instant rolls it
  * back to the PREVIOUS calendar day for any viewer west of UTC (negative offset),
- * misclassifying the row into the wrong sparkline bucket (T2-3). `toDayKey` above
+ * misclassifying the row into the wrong sparkline bucket. `toDayKey` above
  * already sidesteps this same trap for its own bare-date case by returning the literal
  * string; reading UTC components achieves the equivalent — the day the canonical string
  * names — without needing a separate raw-string special case.
@@ -639,7 +639,7 @@ export function computeSparklineData(
   // never enriched onto rows, unlike calculated columns). Passing the measure field
   // here routes each bucket through the same computation the headline/trend use,
   // instead of `computeAggregate` reading a nonexistent `row[measureId]` and silently
-  // producing a flat zero series (finding 2.6).
+  // producing a flat zero series.
   measureExprField?: StudioExpressionField,
   expressionFields?: StudioExpressionField[],
 ): (number | null)[] {

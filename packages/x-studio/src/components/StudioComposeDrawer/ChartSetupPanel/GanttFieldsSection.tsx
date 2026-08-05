@@ -55,8 +55,8 @@ export function GanttFieldsSection({
   // Commit a gantt field pick. A from-scratch gantt widget has no source, and this
   // section holds the ONLY source-adopting controls the gantt panel offers (the shared
   // X-field picker is hidden for gantt), so each pick must adopt the picked field's
-  // source or the widget can never acquire one and renders permanently blank
-  // (finding 1.6). The adoption and the field write are one undo step carrying only the
+  // source or the widget can never acquire one and renders permanently blank.
+  // The adoption and the field write are one undo step carrying only the
   // changed key, and any widget-scoped filter that no longer resolves against the new
   // source rides along — see `commitChartConfigWithSource`, shared with the X-field /
   // Gauge paths.

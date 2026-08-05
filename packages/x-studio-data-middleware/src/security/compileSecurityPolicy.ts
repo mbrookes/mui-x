@@ -18,7 +18,7 @@
  *     key so two nodes running different config never serve one node's cached rows
  *     to the other node's differently-scoped requests (Gap B), and so two option
  *     sets in ONE process that expose different tables do not collide on the same
- *     shared cache (finding 3).
+ *     shared cache.
  *
  * SECURITY: tenancy is now an EXPLICIT, REQUIRED decision. A deployment declares
  * either `{ mode: 'multi-tenant', tenantColumn }` or `{ mode: 'single-tenant' }`
@@ -57,7 +57,7 @@ export interface SecurityPolicyOptions {
    * `HandleBatchQueryOptions.schemaAllowlist`.
    *
    * Folded into `digest` — and therefore into the cache key — so that the set of
-   * tables a request may reach is part of the cached result's identity (finding 3).
+   * tables a request may reach is part of the cached result's identity.
    * That gives the common multi-database deployment automatic cache separation at
    * zero configuration: the cache key is otherwise derived only from
    * `(claims, policy, descriptor)` and carries no data-source dimension, so one
@@ -137,7 +137,7 @@ function canonicalizeColumnAllowlist(
  * — when supplied — the `columnAllowlist` so tightening column visibility yields a
  * different cache key, plus the `schemaAllowlist` so two option sets exposing
  * different TABLES (the ordinary shape of "one process, two logical databases")
- * key differently without any explicit `cacheScope` (finding 3). Both allowlists
+ * key differently without any explicit `cacheScope`. Both allowlists
  * are sorted before hashing so array order never changes the digest, and each key
  * is only present in the hashed input when supplied, so an omitted allowlist stays
  * byte-identical to a digest computed before it was folded in (backward
@@ -217,7 +217,7 @@ function describeColumnValue(value: unknown): string {
 }
 
 /**
- * Validate an OPTIONAL security-column override value (finding 2.1).
+ * Validate an OPTIONAL security-column override value.
  *
  * `undefined` (inherit the default) is always legitimate. `null` is legitimate
  * ONLY inside `perTable`, where it is the documented drop / whole-entry opt-out
@@ -281,7 +281,7 @@ function assertOptionalColumnName(value: unknown, label: string, nullMeansDrop: 
  * Their shape is therefore asserted at RUNTIME here, at the single config choke
  * point, exactly as `tenancy.tenantColumn` is. See `shared/allowlistShape.ts`.
  *
- * Fail-closed tenant-column validation (finding 2.1): a `multi-tenant` deployment
+ * Fail-closed tenant-column validation: a `multi-tenant` deployment
  * whose `tenantColumn` is empty / whitespace-only / non-string (the realistic
  * `tenantColumn: process.env.TENANT_COLUMN!`-is-unset path) THROWS here. Without
  * this guard the downstream truthiness gates silently emit NO tenant predicate on
@@ -317,7 +317,7 @@ export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecu
     assertPerTableAllowlist(opts.writableColumns, 'writableColumns');
   }
 
-  // Fail closed: multi-tenant REQUIRES a real tenant column at runtime (finding 2.1).
+  // Fail closed: multi-tenant REQUIRES a real tenant column at runtime.
   if (tenancy.mode === 'multi-tenant' && !isUsableColumnName(tenancy.tenantColumn)) {
     throw new Error(
       `MUI X Studio Server: tenancy.mode is "multi-tenant" but tenancy.tenantColumn is ` +
@@ -330,7 +330,7 @@ export function compileSecurityPolicy(opts: SecurityPolicyOptions): CompiledSecu
   }
 
   // Fail closed: an empty-string override must not silently opt a table/dimension
-  // out of scoping (finding 2.1). Applies to the top-level region/department
+  // out of scoping. Applies to the top-level region/department
   // defaults and every per-table dimension override.
   if (securityColumns) {
     // `nullMeansDrop: false` at the TOP level — see `assertOptionalColumnName`. A

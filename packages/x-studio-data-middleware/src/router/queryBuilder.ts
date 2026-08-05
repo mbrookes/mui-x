@@ -104,7 +104,7 @@ export function buildSecureQuery(
   // join conditions for one widget, regardless of how the client distributes
   // them across the `joins` array.
   //
-  // OUTER-JOIN SECURITY PLACEMENT (finding 2.3): the security predicate for the
+  // OUTER-JOIN SECURITY PLACEMENT: the security predicate for the
   // NULLABLE side of an outer join goes in the JOIN's ON clause, not WHERE. A
   // joined-table tenant predicate in WHERE drops every NULL-extended row a LEFT
   // JOIN was meant to keep (turning it into an INNER join); the symmetric case for
@@ -145,7 +145,7 @@ export function buildSecureQuery(
     const joinedSecurity = policy.forJoinedTable(join.table);
     const primarySecurity = policy.forPrimaryTable(queryPlan.table);
     query[joinMethod](join.table, function joinOn(this: any) {
-      // TABLE-QUALIFICATION (finding 2.1, iter9): the join `on` pair is the last
+      // TABLE-QUALIFICATION: the join `on` pair is the last
       // read-path column reference to reach raw SQL unqualified — every other one
       // (SELECT/GROUP BY/ORDER BY/aggregations via `execute.ts`'s `qualify()`,
       // security predicates, and user filter columns just below) is already
@@ -183,7 +183,7 @@ export function buildSecureQuery(
   // the host explicitly opts it out as a shared/lookup table (`perTable[table] =
   // null`). See `resolveJoinSecurityColumns`.
   //
-  // Placement (finding 2.3): the primary table is scoped in WHERE, UNLESS a RIGHT
+  // Placement: the primary table is scoped in WHERE, UNLESS a RIGHT
   // join makes it the nullable side (then its predicate moved to that join's ON
   // above). Joined tables are scoped in WHERE for inner/right joins; a LEFT join's
   // joined-table predicate already went into its ON clause above.
@@ -263,7 +263,7 @@ export function buildSecureQuery(
   // checked against `columnAllowlist`), so execution can never target a different
   // physical column than validation approved.
   //
-  // TABLE-QUALIFICATION (finding 2.1): every OTHER column reference on the read
+  // TABLE-QUALIFICATION: every OTHER column reference on the read
   // path is table-qualified to avoid "ambiguous column" errors under joins — SELECT
   // / GROUP BY / ORDER BY / aggregations (`execute.ts`'s `qualify()`) and all three
   // security-predicate dimensions (`emitSecurityPredicates` in `shared/predicates.ts`,
@@ -500,7 +500,7 @@ function joinNullIndicatorColumn(join: {
  * The alias is already validated against aggregations by the caller (handler.ts).
  * Uses havingRaw with Knex bindings to prevent injection.
  *
- * DIALECT PORTABILITY (finding 2.5): the predicate re-emits the actual aggregate
+ * DIALECT PORTABILITY: the predicate re-emits the actual aggregate
  * EXPRESSION (`SUM(col) > ?`) rather than the SELECT output alias (`total > ?`).
  * PostgreSQL (and standard SQL) does not allow referencing a SELECT output alias
  * in HAVING — `HAVING total > 10000` errors with `42703 column "total" does not
@@ -542,7 +542,7 @@ function applyHaving(
   }
   const op = opMap[h.operator];
 
-  // Re-emit the aggregate expression rather than the alias (finding 2.5). The
+  // Re-emit the aggregate expression rather than the alias. The
   // matching aggregation is guaranteed to exist on the request path
   // (`validateHavingAliases` rejects a HAVING alias with no aggregation before this
   // runs); a direct caller that skipped validation fails closed with a clear error.

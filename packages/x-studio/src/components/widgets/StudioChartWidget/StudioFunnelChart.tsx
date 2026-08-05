@@ -81,7 +81,7 @@ export function StudioFunnelChart({
   return (
     <FunnelChart
       title={ariaTitle}
-      // Stages are otherwise distinguished by position/hue alone (finding M10).
+      // Stages are otherwise distinguished by position/hue alone.
       desc={buildChartDescription(
         data.map((d) => `${d.label}: ${valueFormatter({ value: d.value })}`),
         andMore,

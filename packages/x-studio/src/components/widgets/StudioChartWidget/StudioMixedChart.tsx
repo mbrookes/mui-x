@@ -51,7 +51,7 @@ export interface StudioMixedChartProps {
    * Doc-wide computed (expression) fields. Resolved via `resolveFieldDef` alongside each
    * series/axis's native fields (bar, line/area via `lineSeries.ts`, pie, and scatter all
    * already do this) so a calculated mixed-chart measure gets its real label/format
-   * instead of rendering its raw field id (finding 3.3). Expression field ids are unique
+   * instead of rendering its raw field id. Expression field ids are unique
    * doc-wide, so the same list resolves foreign-source blended series correctly too — no
    * per-source filtering is needed.
    */
@@ -61,8 +61,8 @@ export interface StudioMixedChartProps {
   /**
    * Format a raw category label for display (applies period labels when x is grouped).
    * Threaded through so the band x-axis/tooltip agree with every other categorical
-   * chart, which formats period-grouped keys (e.g. `2024-W07`) via this same helper
-   * (finding 2.3).
+   * chart, which formats period-grouped keys (e.g. `2024-W07`) via this same helper.
+   *
    */
   formatLabel: (label: string | number) => string;
   /**
@@ -102,14 +102,14 @@ export function StudioMixedChart({
     // `blendSeries.flatMap((s) => (s.fieldId ? [...] : []))`, which drops fieldless
     // entries — so an incomplete `ySeries` row (no `fieldId` yet, e.g. mid-configuration
     // in the setup panel) before a configured one shifts every subsequent series one
-    // index out of alignment with a positional lookup (finding 2.2).
+    // index out of alignment with a positional lookup.
     //
     // For a real blended chart, `blendedMultiYData` always populates `s.sourceId` on
     // every entry (see its construction in `useChartWidgetData.ts`), and two series can
     // legitimately share a `fieldId` while blending different sources (e.g. `amount`
     // from `orders` and `amount` from `refunds`) — matching by fieldId alone would
     // config-match the second series to the first's `ySeries` entry, rendering it with
-    // the wrong chart type/label/format/axis (finding 2.12). So when the data entry
+    // the wrong chart type/label/format/axis. So when the data entry
     // itself carries a sourceId, also require the config's resolved sourceId (falling
     // back to the widget's primary source, same as `seriesSourceId` below) to match it.
     const seriesConfig = ySeries.find((c) => {
@@ -127,7 +127,7 @@ export function StudioMixedChart({
     // The field may live in a foreign source for blended series — fall back across
     // all sources, then to the explicit series label, then the field id. `resolveFieldDef`
     // also checks `expressionFields` (doc-wide, so this covers a foreign source's
-    // expression fields too), matching every sibling chart family (finding 3.3).
+    // expression fields too), matching every sibling chart family.
     const seriesSourceId = seriesConfig?.sourceId ?? widgetSourceId;
     const fieldDef =
       resolveFieldDef(
@@ -138,7 +138,7 @@ export function StudioMixedChart({
     const seriesLabel = seriesConfig?.label ?? fieldDef?.label ?? s.fieldId;
     // Series values must honour the field's format/currencyCode/precision the same way
     // the y-axes already do (lines below) — otherwise the tooltip shows raw numbers
-    // while the axis they're plotted against shows formatted ones (finding 2.3).
+    // while the axis they're plotted against shows formatted ones.
     const valueFormatter = makeValueFormatter(
       fieldDef?.format,
       fieldDef?.currencyCode,
@@ -240,7 +240,7 @@ export function StudioMixedChart({
         <ChartsWrapper>
           <ChartsSurface
             title={ariaTitle}
-            // Bar and line series are otherwise distinguished by hue/shape alone (finding M10).
+            // Bar and line series are otherwise distinguished by hue/shape alone.
             desc={buildChartDescription(
               mixedSeries.map((entry) => String(entry.label ?? '')),
               andMore,

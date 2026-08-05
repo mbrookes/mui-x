@@ -108,7 +108,7 @@ export function collectSelectFields(widget: StudioWidget): string[] {
  *
  * @param relationships - Declared source relationships. Needed to resolve the FK column
  *   backing a `JoinFieldExpression` nested inside a `FunctionExpression` (e.g.
- *   `if(customers.country == 'US', 1, 0)`) — see the nested-join branch below (finding 2.9).
+ *   `if(customers.country == 'US', 1, 0)`) — see the nested-join branch below.
  */
 export function expandToNativeFields(
   fields: string[],
@@ -155,7 +155,7 @@ export function expandToNativeFields(
     // field (the column on THIS source used to join to the foreign source) to the native
     // field set, so the raw row the adapter returns carries the FK and client-side
     // re-enrichment (`getCachedEnrichedRows`, which always runs on adapter rows) can resolve
-    // the join locally instead of evaluating against `undefined` (finding 2.9).
+    // the join locally instead of evaluating against `undefined`.
     for (const joinSourceId of new Set(collectJoinSourceIds(expr.expression))) {
       const rel = relationships.find((r) => r.sourceId === sourceId && r.targetId === joinSourceId);
       if (rel) {
@@ -254,7 +254,7 @@ export function buildQueryDescriptor(
   // Adapters use this to decide whether to strip a server-side aggregation push-down and fetch
   // raw rows instead — a server-aggregated response is one row per group with only the grouped/
   // alias columns, so a cross-filter on any other field would read `undefined` on every row and
-  // empty the widget (finding 2.9).
+  // empty the widget.
   const incomingFilters = selectFiltersForWidget(filters, {
     widgetId: widget.id,
     widgetSourceId: widget.sourceId,
@@ -271,14 +271,14 @@ export function buildQueryDescriptor(
   // predicate (the leaf's `value` is the N, e.g. 10) and the actual top-N reduction would never
   // run server-side. Strip them from the server filter tree; the rank reduction is applied
   // client-side after the fetch via `applyFilters` (the same `compileRowTest`/`applyFilters` path
-  // the in-memory/sync path uses) — see `useWidgetRows`' adapter branch (finding 1.6).
+  // the in-memory/sync path uses) — see `useWidgetRows`' adapter branch.
   //
   // `selectFiltersForWidget`'s own 'widget' scope case unconditionally excludes
   // `filterMode === 'rank'` filters (they're handled as a special post-aggregation reduction, not
   // an ordinary row predicate, by `useChartWidgetData`'s own `widgetRankFilter` lookup) — so a
   // WIDGET-scoped rank filter never reaches `serverFilters` at all. Only page-scoped rank filters
   // do. Both scopes are collected here directly from the raw `filters` array so a widget-scoped
-  // "top N by measure" filter's field-widening (below) isn't silently skipped (finding 2.5).
+  // "top N by measure" filter's field-widening (below) isn't silently skipped.
   const widgetScopedRankFilters = filters.filter(
     (f) =>
       !f.disabled &&
@@ -295,7 +295,7 @@ export function buildQueryDescriptor(
   // tree. In-memory `applyFilters` drops them via `isFilterComplete`, so shipping them as real
   // predicates (`col = ''`, or an empty-`in` that inverts to match-nothing) diverges from the
   // in-memory evaluator AND churns the cacheKey on every keystroke while the user is still
-  // authoring the filter (findings T1.1 / T2.3). This fixes both the batching and simple adapters
+  // authoring the filter. This fixes both the batching and simple adapters
   // (both consume this `filter` tree) and stabilizes the cacheKey.
   const filter = filtersToFilterNode(
     serverFilters.filter((f) => (f.filterMode ?? 'condition') !== 'rank' && isFilterComplete(f)),
@@ -304,7 +304,7 @@ export function buildQueryDescriptor(
   // this to strip a server-side aggregation push-down and fetch raw rows instead: the client rank
   // reduction must sum `rankByField` per group over RAW rows, but a pushed-down aggregation
   // GROUP BYs `rankByField` into a grouping dimension and collapses duplicate rows, so the client
-  // would rank over group-collapsed rows and pick the wrong Top-N (finding T2.4).
+  // would rank over group-collapsed rows and pick the wrong Top-N.
   const hasRankFilters = rankFilters.length > 0;
 
   // A rank-by-measure filter (e.g. "top 5 by profit") reduces on `rankByField`, not `field`
@@ -313,7 +313,7 @@ export function buildQueryDescriptor(
   // widget's own config (xField/yField/columns), so without explicitly widening `select` here,
   // the adapter never fetches the rank measure column and the client-side rank reduction (in
   // `useWidgetRows`) reads `Number(row['profit'] ?? 0)` = 0 for every row — an arbitrary "top 5"
-  // in insertion order instead of a real ranking (finding 2.5).
+  // in insertion order instead of a real ranking.
   const rankFilterFieldRefs = rankFilters.flatMap((f) =>
     [f.field, f.rankByField].filter((v): v is string => Boolean(v)),
   );
@@ -324,7 +324,7 @@ export function buildQueryDescriptor(
   // deliberately projects ONLY `select` (= `plan.columns`). A cross/interactive field that is not
   // already part of the widget's own config (xField/yField/columns) would therefore be MISSING
   // from every returned row, so the residual `row[field] == value` is `undefined == value` →
-  // false for every row and the widget empties (finding T1.1).
+  // false for every row and the widget empties.
   //
   // Only the FIELD SET is folded in here — never the per-value selection. `select` feeds the
   // cacheKey, so this changes the key at most once, when a cross/interactive filter first lands on
@@ -421,7 +421,7 @@ export function buildQueryDescriptor(
   };
 }
 
-// ── Shared "descriptor from state" helper (finding 2.3) ─────────────────────
+// ── Shared "descriptor from state" helper ─────────────────────
 
 /**
  * The subset of `StudioState` needed to build a widget's query descriptor, bundled into a
@@ -448,7 +448,7 @@ export interface WidgetQueryDescriptorState {
  * Both the on-screen adapter fetch (`useAdapterRows`) and the CSV export path
  * (`runWidgetExport`) must call this — never `buildQueryDescriptor` directly with a hand-picked
  * subset of arguments — so the two can never again build descriptors with different `cacheKey`s
- * for what is otherwise the same query (finding 2.3).
+ * for what is otherwise the same query.
  */
 export function buildWidgetQueryDescriptor(
   widget: StudioWidget,

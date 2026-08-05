@@ -30,7 +30,7 @@ export interface TierThresholds {
 export const DEFAULT_THRESHOLDS: TierThresholds = { client: 10_000, server: 100_000 };
 
 /**
- * Namespace prefix applied to tier-cache keys (finding 2.1).
+ * Namespace prefix applied to tier-cache keys.
  *
  * The data cache and the tier cache are two independent planes, but they derive
  * their key from the SAME `generateCacheKey` output. When a host wires BOTH planes
@@ -47,7 +47,7 @@ export const TIER_CACHE_KEY_PREFIX = 'tier:';
 /**
  * Map a preflight row count to a routing tier.
  *
- * THE single implementation of "what tier do we report", exported (finding M2)
+ * THE single implementation of "what tier do we report", exported
  * so the DATA plane uses it too. `handler.ts` used to echo a data-cache entry's
  * stored `tier` verbatim while this module deliberately re-derived the tier
  * plane's — two implementations of one rule, free to disagree, with neither site
@@ -98,9 +98,9 @@ export async function decideTierWithCache(
 
   // 2. Tier-cache hit → reuse the cached tier decision.
   //    The tier cache is a best-effort layer in FRONT of the preflight COUNT(*),
-  //    mirroring the data cache's posture (finding 2.6): a read failure (e.g.
+  //    mirroring the data cache's posture: a read failure (e.g.
   //    Redis down) must degrade to a tier-cache miss (falling through to the
-  //    preflight), not fail the widget (finding 2.1).
+  //    preflight), not fail the widget.
   if (tierCacheProvider) {
     let cached: Awaited<ReturnType<TierCacheProvider['get']>>;
     try {
@@ -132,7 +132,7 @@ export async function decideTierWithCache(
     }
     if (cached) {
       // Re-map the cached `rowCount` through the CURRENT `thresholds` instead of
-      // trusting `cached.tier` verbatim (finding 2.4). `thresholds` is folded into
+      // trusting `cached.tier` verbatim. `thresholds` is folded into
       // neither the cache key nor the policy digest, so a cached decision may have
       // been computed under different thresholds (mid-rollout config change, or a
       // different node in a cluster during a deploy); re-deriving here makes a
@@ -140,7 +140,7 @@ export async function decideTierWithCache(
       // change and no extra I/O.
       //
       // `handler.ts`'s DATA-cache hit applies the identical rule through the same
-      // exported `tierFromRowCount` (finding M2). Keep them together: a change to
+      // exported `tierFromRowCount`. Keep them together: a change to
       // how a cached tier is reported must land on both planes, or a widget's
       // reported tier starts depending on which cache happened to serve it.
       const tier = tierFromRowCount(cached.rowCount, thresholds);
@@ -157,7 +157,7 @@ export async function decideTierWithCache(
     // discard it. Catch and degrade to "decided, uncached" (finding 2.1,
     // mirroring the data cache's `set` guard for finding 2.6).
     //
-    // NOTE (finding 3.2 — best-effort `rowCount`): the `rowCount` persisted here is
+    // NOTE: the `rowCount` persisted here is
     // the preflight COUNT(*) at write time. Unlike the DATA cache, the tier cache
     // is NOT tag-invalidated on a mutation — the `TierCacheProvider` interface has
     // only `get`/`set`/`invalidatePrefix`, no `deleteByTag` — so a subsequent

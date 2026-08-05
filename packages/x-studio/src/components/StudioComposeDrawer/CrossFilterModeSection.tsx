@@ -84,7 +84,7 @@ export function CrossFilterModeSection(props: CrossFilterModeSectionProps) {
           }
           // `undefined` means "default", so compare against the RESOLVED current value: a
           // pick that lands back on the mode already in effect must not push an undo entry
-          // whose content matches its predecessor (finding 2.8).
+          // whose content matches its predecessor.
           if (next === (value ?? defaultMode)) {
             return;
           }

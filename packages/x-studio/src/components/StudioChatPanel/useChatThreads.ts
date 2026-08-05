@@ -111,7 +111,7 @@ export function useChatThreads(controller: StudioController): UseChatThreadsResu
   const writeTargetThreadIdRef = React.useRef(activeThreadId);
   // Holds the current `useChat().stopStreaming` action, mirrored out of the ChatBox
   // context by `StreamThreadPin`, so the thread-switch handlers below (which live
-  // outside that context) can abort an in-flight stream before switching (finding 2.15).
+  // outside that context) can abort an in-flight stream before switching.
   const stopStreamRef = React.useRef<(() => void) | null>(null);
 
   // Abort any in-flight stream that belongs to the thread we're leaving. On a thread
@@ -320,7 +320,7 @@ interface StreamThreadPinProps {
  *
  * Also mirrors `useChat().stopStreaming` out to `stopStreamRef` so the thread-switch
  * handlers (which live outside the `useChat` context) can abort an in-flight stream
- * before switching threads (finding 2.15).
+ * before switching threads.
  */
 export function StreamThreadPin({
   activeThreadIdRef,

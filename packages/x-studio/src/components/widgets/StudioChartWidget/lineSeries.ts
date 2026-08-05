@@ -16,7 +16,7 @@ import {
  * and the bar multi-Y path (`StudioBarChart.tsx`). Previously this used a private
  * `fields?.find(...)` lookup that never consulted expression fields, so a computed
  * y-field's legend/tooltip only showed the correct label/format while a cross-filter
- * ghost was active (finding 2.1).
+ * ghost was active.
  *
  * Also uses the shared `makeValueFormatter` defaults (no `compact`/`noFormatFallback`
  * override) so the tooltip number style matches both the y-axis formatter (which also

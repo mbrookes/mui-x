@@ -14,7 +14,7 @@
  *     `[cursor, keys]` tuple; node-redis v4 returns `{ cursor, keys }`.
  *
  * `RedisCacheProvider` and `RedisTierCacheProvider` used to each implement
- * their own byte-identical copies of both normalizations (finding 2.1). This
+ * their own byte-identical copies of both normalizations. This
  * module is the single shared implementation; a future client-quirk fix only
  * needs to land here.
  *

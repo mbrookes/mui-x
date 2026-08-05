@@ -29,7 +29,7 @@ export function applyXGroupBy(
  *
  * Exported so other chart-type-specific prep (e.g. `chartShapes/scatter.ts`'s
  * color-by-field empty bucket) can reuse the same configurable label instead of
- * hardcoding an English literal (finding 4).
+ * hardcoding an English literal.
  */
 export function emptyBucketLabel(localeText?: Partial<StudioLocaleText>): string {
   return localeText?.chartEmptyCategoryLabel ?? DEFAULT_STUDIO_LOCALE_TEXT.chartEmptyCategoryLabel;
@@ -75,11 +75,11 @@ export function toXValue(raw: unknown, localeText?: Partial<StudioLocaleText>): 
  *   fabricating one (an `(empty)` bar, a scatter point at the origin) invents a data point the
  *   source never contained. Two earlier fixes converged on this deliberately rather than by
  *   accident: heatmap was changed to drop so it would stop disagreeing with bar/line over the
- *   same field (T3.2b), and scatter to drop so null costs stopped stacking on `y = 0` (M13).
+ *   same field, and scatter to drop so null costs stopped stacking on `y = 0` (M13).
  * - **Split / color dimension → the row is KEPT, under {@link emptyBucketLabel}.** A split
  *   partitions a category's rows; silently deleting the unlabelled partition would make the
  *   stacked bars at that category sum to less than the single-series bar for the same rows
- *   (T3.2a).
+ *  .
  *
  * The consequence to know when reading a dashboard: a chart's bars can sum to LESS than a KPI
  * counting the same rows, by exactly the number of rows whose x value is empty. That is the

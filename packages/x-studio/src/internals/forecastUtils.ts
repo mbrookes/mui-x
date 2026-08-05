@@ -53,7 +53,7 @@ export function linearRegression(values: (number | null)[]): LinearRegressionRes
 
   // Residual standard error. Needs at least 3 points: with only 2 the line fits them
   // exactly (ssRes === 0) and the `n - 2` divisor is 0, so `0 / 0` would be `NaN` and
-  // poison every confidence-band value downstream (finding 2.28). Fall back to 0.
+  // poison every confidence-band value downstream. Fall back to 0.
   let ssRes = 0;
   for (const [x, y] of pairs) {
     const predicted = slope * x + intercept;
@@ -81,7 +81,7 @@ export function extendLabels(labels: (string | number)[], periods: number): (str
 
   // Week (`YYYY-Www`) / quarter (`YYYY-Qn`) period keys. These fail the date/numeric
   // patterns below, so without this branch a weekly/quarterly forecast would degrade to
-  // `+1`, `+2`, … garbage tail labels and a point-scale axis (finding 2.28).
+  // `+1`, `+2`, … garbage tail labels and a point-scale axis.
   const periodKeyLabels = tryExtendAsPeriodKeyLabels(labels, periods);
   if (periodKeyLabels) {
     return periodKeyLabels;
@@ -336,7 +336,7 @@ export function computeWidgetForecast(
   // index (`n - 1`) so the dashed line connects to the end of the historical series even
   // with `connectNulls: false`, then carry every forecast value at indices n … n+periods-1.
   // Placing the connection point at index `n` instead (and slicing off `forecastValues[0]`)
-  // shifts the whole overlay one period late and drops the first prediction (finding 1.9).
+  // shifts the whole overlay one period late and drops the first prediction.
   const historicalSeries: (number | null)[] = [...values, ...Array(periods).fill(null)];
   const forecastSeries: (number | null)[] = [
     ...Array(n - 1).fill(null),
@@ -351,7 +351,7 @@ export function computeWidgetForecast(
     // Only floor the lower band at 0 when the historical series itself never went
     // negative (e.g. counts/revenue) — a series that legitimately takes negative values
     // (net margin, balance, temperature, …) would otherwise have its lower confidence
-    // band incorrectly clamped to 0 (finding 3.12).
+    // band incorrectly clamped to 0.
     const hasNegativeHistory = values.some((v) => v != null && v < 0);
     const lowerBoundValues = forecastValues.map((v) =>
       hasNegativeHistory ? v - stdError : Math.max(0, v - stdError),

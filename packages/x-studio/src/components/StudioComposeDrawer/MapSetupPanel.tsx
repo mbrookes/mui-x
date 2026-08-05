@@ -113,7 +113,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   // can be picked from any source (including related ones). The join enrichment
   // in useWidgetRows handles the actual data binding for cross-source fields, and
   // `StudioMapWidget`'s region aggregation FK-dedups a fanned-out many-to-one value so
-  // a cross-source measure is not double-counted per widget row (finding 1.1) — matching
+  // a cross-source measure is not double-counted per widget row — matching
   // how the grid's group-by aggregation (`utils/gridGrouping.ts`'s `symmetricAggregate`)
   // handles the same fan-in topology.
   const numericFields = React.useMemo<DataSourceFieldEntry[]>(() => {
@@ -140,7 +140,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       // Only genuinely numeric expression fields belong in the value-field list — mirroring
       // `allStringFields`'s `ef.type !== 'string'` check. Offering a non-numeric expression
       // field routed into the map renderer's numeric coercion, which skips every row and
-      // silently rendered a blank map (finding 2.1).
+      // silently rendered a blank map.
       //
       // A MEASURE is excluded for the same reason one type deeper (HIGH 1): the map's per-region
       // reducer (`StudioMapWidget`'s `aggregateValues`) reads `row[valueField]` per row, and a
@@ -168,7 +168,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   }, [dataSources, expressionFields]);
 
   // Full cross-source field catalog, used to detect widget-scoped filters that no longer
-  // resolve after the map adopts a source (finding 1.6) — mirrors the sibling setup panels.
+  // resolve after the map adopts a source — mirrors the sibling setup panels.
   const fieldCatalog = React.useMemo(
     () => buildFieldCatalog(dataSources, expressionFields),
     [dataSources, expressionFields],
@@ -222,7 +222,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
   );
 
   function update(changes: Partial<typeof config>) {
-    // Route config edits through `updateWidgetConfig` (T3.3): it shallow-merges only the changed
+    // Route config edits through `updateWidgetConfig`: it shallow-merges only the changed
     // keys and runs the write-side `validateConfigKeysForKind` guard, instead of `updateWidget`
     // replacing the whole config object wholesale from a render-time `config` snapshot (which
     // bypasses the guard and can clobber a concurrent edit). The source-adoption branch below
@@ -241,7 +241,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
    * permanently blank, with the aggregation Select unlocking to "Sum" and no warning anywhere.
    *
    * The removal of any widget-scoped filter that no longer resolves against the adopted
-   * source rides along (finding 1.6): a filter added to this source-less map keeps matching by
+   * source rides along: a filter added to this source-less map keeps matching by
    * `widgetId`, and once its field is absent from the new source's rows the `filterUtils.ts`
    * branches exclude every row, silently blanking the map. Every other source-adopting setup
    * panel (Chart/KPI/Grid/Filter) folds this into the same commit.
@@ -297,7 +297,7 @@ export function MapSetupPanel({ widgetId }: MapSetupPanelProps) {
       // Clearing the value field falls back to a synthetic per-row count. Reset the
       // aggregation to 'count' (mirroring KpiSetupPanel) so the renderer stops applying a
       // stale avg/min/max to per-row 1s — which showed a constant 1 for every region while
-      // the panel's locked label claimed "Count" (finding 2.1).
+      // the panel's locked label claimed "Count".
       update({ mapValueField: undefined, mapValueSourceId: undefined, mapAggregation: 'count' });
       return;
     }

@@ -19,8 +19,8 @@ type Row = Record<string, unknown>;
  * **no** explicit `filterSourceId` — L3 derives the owner on the fly (`resolveRows` routes it as a
  * cross-filter using `expressionField.sourceId`). L4's anchor/remote-scoped-filter classification
  * (and its result-cache key in `resolveChartRowsForAggregation`) must derive the same owner, or
- * such a filter is invisible here and the anchor-row "resurrection" fix (finding 1.4) silently does
- * not apply to this exact filter shape (finding 1.3a).
+ * such a filter is invisible here and the anchor-row "resurrection" fix silently does
+ * not apply to this exact filter shape.
  *
  * Returns the explicit `filterSourceId` when present; otherwise the source of a non-measure
  * expression field matching the filter's `field` that is NOT owned by the widget source; otherwise
@@ -75,7 +75,7 @@ function enrichSourceRowsWithExpressions(
  * many-to-one/M:N re-anchor branches (which always run their related/anchor/junction rows through
  * `enrichSourceRowsWithExpressions` before joining): a related-source expression column used as a
  * chart dimension must resolve to a real value, not `undefined`, whether or not a filter happens
- * to also target that field (finding 2.x).
+ * to also target that field.
  */
 function enrichForeignExpressionFields(
   rows: Row[],
@@ -128,7 +128,7 @@ function enrichForeignExpressionFields(
     // Route through the same L1 date normalization applied to every other foreign source this
     // module reads (anchor/junction/remote rows) rather than the raw store — an expression
     // referencing a raw date/datetime field on the owner source would otherwise bucket
-    // differently than the widget's own L1-normalized dates for a non-UTC viewer (finding 4).
+    // differently than the widget's own L1-normalized dates for a non-UTC viewer.
     const ownerDataSource = dataSources[ownerSourceId];
     const enrichedOwnerRows = enrichSourceRowsWithExpressions(
       ownerDataSource ? (getCachedNormalizedDataSource(ownerDataSource).rows ?? []) : [],
@@ -213,7 +213,7 @@ export function resolveRowsAtGrain(
    * join-field-expression target — is added to it (the widget source and the anchor source are
    * NOT added; the caller already tracks those directly). `resolveChartRowsForAggregation` folds
    * these row refs into its L4 (`rcfaCache`) validity check so a non-anchor related source's rows
-   * changing invalidates the entry instead of serving stale rows (finding 1.5).
+   * changing invalidates the entry instead of serving stale rows.
    */
   collectReadSourceIds?: Set<string>,
   /**
@@ -227,8 +227,8 @@ export function resolveRowsAtGrain(
    * only some need to match. Without this parameter, the expansion join below reads ALL of a
    * surviving widget row's anchor rows straight from the (unfiltered) data-source store,
    * resurrecting exactly the anchor rows the filter excluded — e.g. summing every order
-   * (paid + unpaid) for a customer with at least one paid order, instead of just the paid ones
-   * (finding 1.4).
+   * (paid + unpaid) for a customer with at least one paid order, instead of just the paid ones.
+   *
    */
   widgetFilters: StudioFilterState[] = [],
 ): Row[] {
@@ -242,10 +242,10 @@ export function resolveRowsAtGrain(
 
   // The subset of the widget's resolved filters that target the ANCHOR source's own fields
   // (a cross-filter or page filter whose effective source is the anchor). Applied directly to the
-  // anchor rows, before the expansion join, in both re-anchor branches below (finding 1.4). The
+  // anchor rows, before the expansion join, in both re-anchor branches below. The
   // effective source is derived (not just read off `filterSourceId`) so a drawer filter on an
   // anchor-owned EXPRESSION field — which carries no explicit `filterSourceId`, exactly as L3
-  // handles it — is recognized as anchor-scoped too (finding 1.3a).
+  // handles it — is recognized as anchor-scoped too.
   const anchorScopedFilters = widgetFilters.filter(
     (f) => effectiveFilterSourceId(f, widgetSourceId, expressionFields) === anchorSourceId,
   );
@@ -314,7 +314,7 @@ export function resolveRowsAtGrain(
         : manyToManyRel.sourceField;
 
     // The junction (anchor) rows are tracked by the caller as `anchorRows`; the remote endpoint
-    // is a distinct foreign source whose rows this branch reads and must be reported (finding 1.5).
+    // is a distinct foreign source whose rows this branch reads and must be reported.
     collectReadSourceIds?.add(remoteSourceId);
 
     // A THIRD source reachable many-to-one from widgetSourceId (distinct from the junction and
@@ -322,7 +322,7 @@ export function resolveRowsAtGrain(
     // junction while x/series is owned by `customers`, one-hop from `orders`. `analyzeChartSupport`
     // validates and reports this configuration as supported, so it must actually be enriched onto
     // the widget rows here (mirroring the many-to-one branch's own third-source enrichment)
-    // instead of silently resolving to `undefined` on every output row (finding 1.3).
+    // instead of silently resolving to `undefined` on every output row.
     const thirdSourceFieldIds = requestedFields.filter(
       (fieldId) =>
         fieldOwners.get(fieldId) !== anchorSourceId && fieldOwners.get(fieldId) !== remoteSourceId,
@@ -341,7 +341,7 @@ export function resolveRowsAtGrain(
     // every output row despite `analyzeChartSupport` reporting the configuration as supported. Run
     // the same `enrichForeignExpressionFields` pass the no-re-anchor branch already applies, so a
     // third-source expression-field dimension resolves consistently whether or not the chart
-    // re-anchors (finding 1).
+    // re-anchors.
     const widgetRowsEnrichedWithExpr = enrichForeignExpressionFields(
       widgetRowsEnriched,
       widgetSourceId,
@@ -357,7 +357,7 @@ export function resolveRowsAtGrain(
     const allowedWidgetKeys = collectKeySet(widgetRows, widgetJoinField);
     const widgetRowLookup = indexRowsByKey(widgetRowsEnrichedWithExpr, widgetJoinField);
 
-    // Re-apply the filter subset scoped to the M:N REMOTE endpoint (finding 2.3). L3 enforced a
+    // Re-apply the filter subset scoped to the M:N REMOTE endpoint. L3 enforced a
     // remote-endpoint filter (e.g. `tags.category = 'priority'`) only as a semi-join on the widget
     // rows ("keep orders having >=1 matching tag"); the expansion join below then walks EVERY
     // junction row of a surviving widget row — including links to remote rows the filter excluded,
@@ -374,7 +374,7 @@ export function resolveRowsAtGrain(
     // canonical string here, and the filter engine (`filterUtils.ts`'s LOCAL-calendar-day
     // policy) and the chart grouping engine (`@mui/x-studio-schema`'s `truncateToPeriod`, a
     // UTC-component policy) can bucket the SAME raw value into different days for a non-UTC
-    // viewer (finding 7). Normalizing to the canonical `YYYY-MM-DD` string here closes that gap
+    // viewer. Normalizing to the canonical `YYYY-MM-DD` string here closes that gap
     // — both policies treat a canonical string identically (no `Date` construction involved).
     const remoteDataSource = dataSources[remoteSourceId];
     const rawRemoteRows = remoteDataSource
@@ -384,7 +384,7 @@ export function resolveRowsAtGrain(
     // remote-scoped filter happens to be active. A remote-owned expression column requested as a
     // chart dimension (x/series) is read straight off `remoteRowLookup` below with no other L2
     // pass over it, so gating this enrichment on filter presence left it `undefined` on every row
-    // whenever no filter happened to target that same field (finding 2.x).
+    // whenever no filter happened to target that same field.
     const enrichedRemoteRows = enrichSourceRowsWithExpressions(
       rawRemoteRows,
       remoteSourceId,
@@ -402,14 +402,14 @@ export function resolveRowsAtGrain(
 
     // Junction-owned expression fields (e.g. a calculated column on the M:N junction table)
     // need L2 enrichment too — the junction rows were previously read raw, unlike every other
-    // anchor branch, which routes through `enrichSourceRowsWithExpressions` (finding 1.3).
+    // anchor branch, which routes through `enrichSourceRowsWithExpressions`.
     // Enrichment must also fire when an anchor(junction)-scoped FILTER references a junction-owned
     // expression column that is NOT among the requested chart fields; otherwise `applyFilters`
-    // below evaluates that column as `undefined` on every junction row and empties the chart
-    // (finding 1.3b). `exprFieldIdsOnSource` already covers every non-measure junction expression
+    // below evaluates that column as `undefined` on every junction row and empties the chart.
+    // `exprFieldIdsOnSource` already covers every non-measure junction expression
     // field, so no extra field ids need threading — only the enrichment gate widens.
-    // Same L1 date normalization as `rawRemoteRows` above, applied to the junction rows
-    // (finding 7).
+    // Same L1 date normalization as `rawRemoteRows` above, applied to the junction rows.
+    //
     const junctionDataSource = dataSources[anchorSourceId];
     const junctionRowsRaw = junctionDataSource
       ? (getCachedNormalizedDataSource(junctionDataSource).rows ?? [])
@@ -434,7 +434,7 @@ export function resolveRowsAtGrain(
     // L3 as a one-hop semi-join against the junction's own rows (`dataSourceGraph.findJoinPath`'s
     // dedicated junction-source case, finding 3) keeping widget rows with >=1 matching junction
     // row — doesn't get silently re-widened back to every junction row for each surviving widget
-    // row (finding 1.4). (This comment previously claimed L3 already did this semi-join, but
+    // row. (This comment previously claimed L3 already did this semi-join, but
     // `findJoinPath` had no case for a `filterSourceId` naming the junction directly, so the
     // filter was actually being silently DROPPED at L3 for every non-junction-anchored widget —
     // finding 3 closes that gap so every widget on a page now agrees on the filtered row set.)
@@ -450,7 +450,7 @@ export function resolveRowsAtGrain(
       const remoteRow = targetKey === null ? undefined : remoteRowLookup.get(targetKey);
       // With a remote-endpoint filter active, a junction row whose target is absent from the
       // filtered remote key set links to an excluded remote row — drop it entirely rather than
-      // emitting a row with the excluded value stripped (finding 2.3). Without such a filter,
+      // emitting a row with the excluded value stripped. Without such a filter,
       // keep the row even if the remote lookup misses (unchanged display-enrichment behavior).
       if (remoteScopedFilters.length > 0 && remoteRow === undefined) {
         return [];
@@ -462,7 +462,7 @@ export function resolveRowsAtGrain(
       // `enrichRowsWithRelatedFields`. Spreading `remoteRow` unconditionally over `widgetRow` let a
       // remote column that coincidentally shares a field id with a widget-owned field (e.g. a
       // remote `amount` vs. the widget's own `orders.amount`) silently win, since it was applied
-      // after `widgetRow` with no ownership check (finding 1).
+      // after `widgetRow` with no ownership check.
       const merged: Row = { ...widgetRow };
       for (const [key, value] of Object.entries(remoteRow ?? {})) {
         if (key in merged && fieldOwners.get(key) !== remoteSourceId) {
@@ -476,7 +476,7 @@ export function resolveRowsAtGrain(
       // `crossSourceEnrichment.ts`/`dataSourceGraph.ts`'s `enrichRowsWithRelatedFields`. Spreading
       // `jRow` last unconditionally let a junction column that coincidentally shares a field id
       // with a widget- or remote-owned field (e.g. a junction `amount` allocation weight vs. the
-      // widget's own `orders.amount`) silently win, since it was applied last (finding 3).
+      // widget's own `orders.amount`) silently win, since it was applied last.
       for (const [key, value] of Object.entries(jRow)) {
         if (key in merged && fieldOwners.get(key) !== anchorSourceId) {
           continue;
@@ -495,13 +495,13 @@ export function resolveRowsAtGrain(
   ) {
     // Reached for a one-to-one anchor declared in the REVERSE direction (`sourceId ===
     // widgetSourceId`, `targetId === anchorSourceId`) — direction-independence for a 1:1 anchor
-    // is now supported by `analyzeChartSupport` (finding 6), and each widget row still maps to at
+    // is now supported by `analyzeChartSupport`, and each widget row still maps to at
     // most one related row (no fan-out either way for a genuine 1:1), so a plain FK-based
     // enrichment of the widget rows is the correct result here, same as the many-to-one anchor
     // switch below produces for the forward direction. `enrichRowsWithRelatedFields` only
     // resolves PHYSICAL columns, so a requested field that is a CALCULATED column owned by the
     // anchor (or another directly-related) source must also go through `enrichForeignExpressionFields`
-    // or it silently resolves to `undefined` (finding 1).
+    // or it silently resolves to `undefined`.
     const related = enrichRowsWithRelatedFields(
       widgetRows,
       widgetSourceId,
@@ -555,7 +555,7 @@ export function resolveRowsAtGrain(
   // Widen the enrichment set to also include any field referenced by an anchor-scoped filter.
   // Enrichment is otherwise scoped to the REQUESTED anchor fields, so a filter on an anchor-owned
   // EXPRESSION column outside that set would be `undefined` when `applyFilters` evaluates it below —
-  // dropping every anchor row and emptying an otherwise-correct chart (finding 1.3b). A native
+  // dropping every anchor row and emptying an otherwise-correct chart. A native
   // filter field is harmless here (it is not an expression column, so enrichment ignores it).
   for (const f of anchorScopedFilters) {
     if (f.field) {
@@ -567,9 +567,9 @@ export function resolveRowsAtGrain(
   // (kept a widget row if it has >=1 matching anchor row); without re-applying it here, EVERY
   // anchor row for a surviving widget row is read straight from the (unfiltered) store,
   // resurrecting exactly the rows the filter excluded — e.g. summing all orders (paid + unpaid)
-  // for a customer with >=1 paid order instead of just the paid ones (finding 1.4).
+  // for a customer with >=1 paid order instead of just the paid ones.
   // Same L1 date normalization as the M:N branch's `rawRemoteRows`/`junctionRowsRaw` above,
-  // applied to the many-to-one anchor ("many"-side) rows before they're read here (finding 7).
+  // applied to the many-to-one anchor ("many"-side) rows before they're read here.
   const manyToOneAnchorDataSource = dataSources[anchorSourceId];
   const enrichedAnchorRows = applyFilters(
     enrichSourceRowsWithExpressions(
@@ -604,7 +604,7 @@ export function resolveRowsAtGrain(
   // `analyzeChartSupport` reporting the configuration as supported. Run the same
   // `enrichForeignExpressionFields` pass the no-re-anchor branch already applies, so a
   // third-source expression-field dimension resolves consistently whether or not the chart
-  // re-anchors (finding 1).
+  // re-anchors.
   const widgetRowsForLookupWithExpr = enrichForeignExpressionFields(
     widgetRowsForLookup,
     widgetSourceId,
@@ -631,7 +631,7 @@ export function resolveRowsAtGrain(
       // merely because the raw anchor row happens to already carry a same-named column. A
       // same-named anchor-source column that is NOT the field's real owner (e.g. a coincidental
       // physical column on the anchor source sharing an id with a widget-owned field) must not
-      // silently win over the correctly-owned widget value (finding 3).
+      // silently win over the correctly-owned widget value.
       if (isAnchorOwnedField(fieldId)) {
         continue;
       }

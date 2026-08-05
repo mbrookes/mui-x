@@ -49,7 +49,7 @@ function compareGridCellValues(a: unknown, b: unknown): number {
  * in edit mode that model is the authored `gridSortField` / `gridSortDirection`; in view mode
  * it is the viewer's own header click, which is component-local state published for this
  * export through `gridViewSortRegistry`. Neither was read here before, so a grid sorted by
- * Revenue desc exported in raw source order (finding M1a).
+ * Revenue desc exported in raw source order.
  *
  * Deliberately NOT reproduced: row grouping (`gridGroupByField`) and the aggregation summary
  * row. Both are presentation structures the Data Grid synthesizes at render time — a group
@@ -135,7 +135,7 @@ export function runWidgetExport({
     // projects `descriptor.select`. Running the full filter set over them a second time
     // therefore evaluates authored filters against columns the server never returned and
     // silently drops every row — a dashboard date range produced a headers-only CSV beside a
-    // populated grid (finding M1b). Feed the pipeline only the RESIDUAL filter set for that
+    // populated grid. Feed the pipeline only the RESIDUAL filter set for that
     // case, which is precisely what the on-screen adapter path applies
     // (`useWidgetRows.ts`'s adapter branch). The sync path keeps the full set: it starts from
     // raw, fully-projected source rows, so every authored filter must be applied here.
@@ -167,14 +167,14 @@ export function runWidgetExport({
     // the on-screen grid's local `useAdapterRows` state, seeded from (and written back
     // to) the module-singleton `studioRequestCache`. Exporting `source?.rows ?? []`
     // unconditionally was therefore always an empty array for an adapter source, with
-    // no indication to the user why the CSV came out empty (finding 2.9). Rebuild the
+    // no indication to the user why the CSV came out empty. Rebuild the
     // EXACT descriptor `useAdapterRows` builds for the on-screen grid so this reads the
     // SAME cache entry instead of silently exporting nothing. Go through the shared
     // `buildWidgetQueryDescriptor` helper (rather than calling `buildQueryDescriptor`
     // directly) so this can never again omit `relationships` /  `crossFilterAllPages` —
     // both feed the cacheKey, so omitting either produces a descriptor with a DIFFERENT
     // cacheKey than the live grid's, and this cache lookup misses despite the exact same
-    // data already being cached under the live path's key (finding 2.3).
+    // data already being cached under the live path's key.
     let sourceRows: Record<string, unknown>[];
     let cacheMiss = false;
     if (hasAdapter) {
@@ -195,7 +195,7 @@ export function runWidgetExport({
       // (`getCachedNormalizedDataSource`, via `useWidgetRows`) before feeding them to
       // `resolveWidgetRows` — whose contract is raw, pre-normalized rows. Without this, exported
       // date/datetime cells keep their raw ingestion form instead of the canonical YYYY-MM-DD / ISO
-      // the grid renders (finding 3.2). All fields are normalized (the '*' slot) since a CSV export
+      // the grid renders. All fields are normalized (the '*' slot) since a CSV export
       // includes every column.
       sourceRows = source ? (getCachedNormalizedDataSource(source).rows ?? []) : [];
     }
@@ -213,7 +213,7 @@ export function runWidgetExport({
       return;
     }
 
-    // NOTE (finding 2.19, cross-highlight mode): when `hasChartCrossFilters` is true and the
+    // NOTE: when `hasChartCrossFilters` is true and the
     // widget's effective mode is `cross-highlight`, the on-screen grid (`StudioGridWidget.tsx`)
     // shows ALL baseline rows (page/widget/interactive filters only) and dims the ones the
     // chart cross-filter doesn't match — see `filteredRowsNoChartCross` in `useWidgetRows.ts`.
@@ -240,7 +240,7 @@ export function runWidgetExport({
     // primary source) are joined onto rows for DISPLAY by `useWidgetRows.ts`'s
     // `enrichWithCrossSourceFields` call, but that enrichment previously never ran on the
     // export path — a cross-source column rendered correctly on screen but exported as an
-    // empty column (finding 2.19). Mirror the same enrichment here so the exported CSV matches
+    // empty column. Mirror the same enrichment here so the exported CSV matches
     // what's shown.
     const gridColumns = (widget.config as StudioWidgetConfig).columns;
     const crossSourceFieldRefs = (gridColumns ?? []).flatMap((c) =>
@@ -257,7 +257,7 @@ export function runWidgetExport({
             state.runtime.dataSources,
             state.doc.relationships,
             // A related-source *calculated* column needs an L2 pass over the related
-            // source before its value exists (finding 2.3) — pass all expression fields so
+            // source before its value exists — pass all expression fields so
             // it resolves in the export exactly as it does on screen.
             state.doc.expressionFields,
           )
@@ -274,7 +274,7 @@ export function runWidgetExport({
     // Resolve each cross-source column's field def (physical field, or the related
     // source's calculated column) exactly as `StudioGridWidget` does on screen, so the
     // CSV header label and number/currency formatting match the rendered grid instead of
-    // drifting to the raw field id (finding 2.6).
+    // drifting to the raw field id.
     const crossSourceFieldDefs = Array.from(
       resolveCrossSourceFieldDefs(
         gridColumns,
@@ -286,7 +286,7 @@ export function runWidgetExport({
 
     // Order the file the way the user is looking at the grid. Everything above this point
     // reproduces WHICH rows the grid shows; without this the CSV still disagreed with the
-    // screen on the order they appear in (finding M1a).
+    // screen on the order they appear in.
     const sortedRows = applyGridSortModel(enrichedRows, widget);
 
     exportGridToCsv(widget, source, sortedRows, ownExpressionFields, crossSourceFieldDefs);
@@ -307,7 +307,7 @@ export function runWidgetExport({
     // is null) or when a custom kind never registered one at all. `canExport` is derived from
     // the widget DEF's declared capability, not from the ref, so the button is offered in both
     // of those states — and `imperativeExport?.()` then did nothing at all, leaving the user to
-    // conclude the export silently failed (finding M12). Report it the same way the adapter
+    // conclude the export silently failed. Report it the same way the adapter
     // cache-miss above does.
     if (!imperativeExport) {
       downloadCsv(localeText.widgetExportUnavailableMessage, `${widget.title}_export.csv`);
@@ -318,7 +318,7 @@ export function runWidgetExport({
     // Reached only when a grid widget has no `sourceId`. `canExport` gates purely on kind, so
     // the export button is shown for an unconfigured grid; before this branch existed the
     // click fell through EVERY branch and returned silently, indistinguishable from a failed
-    // download (finding M12). There is no snackbar/toast in x-studio, so — exactly as the
+    // download. There is no snackbar/toast in x-studio, so — exactly as the
     // adapter cache-miss path above — the explanation is delivered as the file itself.
     downloadCsv(localeText.widgetExportUnavailableMessage, `${widget.title}_export.csv`);
   }

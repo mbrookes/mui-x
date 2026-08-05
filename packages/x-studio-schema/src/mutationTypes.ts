@@ -167,7 +167,7 @@ export type StateMutation =
           config?: StudioWidget['config'];
         }>;
         /**
-         * Active-page layout snapshot. OPTIONAL (finding T2-4): both the wire validator
+         * Active-page layout snapshot. OPTIONAL: both the wire validator
          * (`parseStateMutation`) and the reducer (`applyMutation`) treat these as
          * protocol-optional — a bulk carrying only `updatedWidgets` (no removals,
          * additions, or layout change) omits BOTH, and the reducer then SKIPS layout

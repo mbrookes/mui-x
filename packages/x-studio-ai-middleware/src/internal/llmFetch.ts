@@ -1,5 +1,5 @@
 /**
- * Abort/cleanup helpers shared by every LLM fetch in this package (finding M5).
+ * Abort/cleanup helpers shared by every LLM fetch in this package.
  *
  * `withTimeout` (`mcp/helpers.ts`) is a bare `Promise.race`: it makes the CALLER
  * stop waiting, but it never aborts the underlying request. So a fetch that

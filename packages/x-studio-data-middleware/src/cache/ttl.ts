@@ -11,7 +11,7 @@
  * Left unguarded, `LRUCacheProvider` and `MapTierCacheProvider` silently
  * disagreed with their Redis siblings: an entry written with `ttlMs: 0` was
  * IMMORTAL in-process but expired in ~1s against Redis — a footgun for a host
- * that swaps a single-node deployment for a multi-node one (finding 2.1).
+ * that swaps a single-node deployment for a multi-node one.
  * `MIN_TTL_MS` matches the Redis floor (1 second) so all four shipped
  * providers agree on what `ttlMs: 0` means.
  */

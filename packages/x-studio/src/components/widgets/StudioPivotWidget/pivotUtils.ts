@@ -16,20 +16,20 @@ import type { StudioDataField, StudioExpressionField } from '../../../models';
 // the Blob/`createObjectURL`/anchor-click download plumbing now lives in one
 // place (`internals/widgetUtils.tsx`), shared with the grid's CSV export, instead
 // of being duplicated near-line-for-line here with its own (missing) filename
-// sanitization (finding 3.3).
+// sanitization.
 export { downloadCsv };
 
 // ── Aggregation ───────────────────────────────────────────────────────────────
 
 // The per-cell accumulator is the shared one, so the pivot matrix, the chart
-// aggregators and the KPI/map reducers all apply a single null/boolean policy
-// (finding 2.1).
+// aggregators and the KPI/map reducers all apply a single null/boolean policy.
+//
 //
 // `rowCount` is tracked separately from the accumulator's own `count` (which
 // only advances for usable/coerced measure values, and backs `avg`'s
 // denominator). `count` aggregation means COUNT(*) semantics — every row for
 // a cell counts, regardless of whether its measure value is null/non-numeric
-// (finding 2.7) — so it can't reuse the accumulator's null-skipping `count`.
+//  — so it can't reuse the accumulator's null-skipping `count`.
 interface AggState {
   acc: AggregateAccumulator;
   rowCount: number;
@@ -73,7 +73,7 @@ export function resolvePivotAggregation(fn: string | undefined): PivotAggregatio
 export function resolveAgg(agg: AggState | undefined, fn: PivotAggregation): number | null {
   if (fn === 'count') {
     // COUNT(*) semantics: every row that landed in this cell counts, even one
-    // whose measure value was null/non-numeric (finding 2.7). A cell that
+    // whose measure value was null/non-numeric. A cell that
     // never occurred in the input (`agg` undefined) still has no data, so it
     // stays `null` — same as every other aggregation function.
     return agg ? agg.rowCount : null;
@@ -165,7 +165,7 @@ export function buildPivotMatrix(
     const rv = String(lookup(row, rowField) ?? '');
     const cv = String(lookup(row, colField) ?? '');
     // Route the raw cell value through the shared null-skip + boolean-coercion
-    // policy every other aggregation reducer uses (finding 1.4) — hand-rolling
+    // policy every other aggregation reducer uses — hand-rolling
     // `Number(v ?? 0)` silently turned null/undefined into `0` (inflating `avg`
     // denominators and dragging `min` toward 0) and any non-numeric string into
     // `NaN` (poisoning the shared accumulator's running `sum` for the cell, its
@@ -208,7 +208,7 @@ export function buildPivotMatrix(
 
     // `count` means COUNT(*) semantics — every row landing in this cell/row/col/
     // grand-total counts, regardless of whether its measure value is
-    // null/non-numeric (finding 2.7). Increment unconditionally, before the
+    // null/non-numeric. Increment unconditionally, before the
     // null skip below, so a cell/region whose measure values are all unusable
     // still reports its row count instead of disappearing entirely.
     cellAgg.rowCount += 1;
@@ -344,7 +344,7 @@ function buildMeasurePivotMatrix(
 }
 
 /**
- * Natural-sort comparator for pivot row/column category strings (finding 3.4, 3.5):
+ * Natural-sort comparator for pivot row/column category strings:
  * when both operands parse as finite numbers, compare numerically (so `"2"`
  * sorts before `"10"`); otherwise fall back to a plain lexicographic
  * comparison. Deliberately simple (no locale-aware collation, no dependency) —
@@ -404,7 +404,7 @@ function naturalCompare(a: string, b: string): number {
 /**
  * Shared rounding precision for pivot cell values — the CSV export and the
  * on-screen `PivotTable` must agree, or an exported cell can differ from the
- * displayed cell in the third decimal (classic for `avg`) (finding 3.2).
+ * displayed cell in the third decimal (classic for `avg`).
  *
  * A `count` is a row count, never a fractional measure, so it rounds to a whole number
  * (it already is one; the branch documents the intent and guards a measure matrix's
@@ -420,7 +420,7 @@ export function roundPivotValue(v: number, aggFn?: PivotAggregation): number {
 /**
  * THE single resolution path for one pivot cell — used by both `PivotTable` (screen) and
  * `pivotToCsv` (export), so the two can never drift on either the aggregation applied or
- * the rounding (finding 3.2). Returns `null` for "no value", which the screen renders as
+ * the rounding. Returns `null` for "no value", which the screen renders as
  * `—` and the CSV as an empty cell.
  *
  * A `null` `aggFn` means the configured aggregation name failed validation
@@ -488,17 +488,17 @@ export function pivotToCsv(
   showTotals: boolean,
   // REQUIRED — deliberately no default. `StudioPivotWidget` passes
   // `localeText.pivotTotalLabel`, the same locale key `PivotTable.tsx` uses for the
-  // on-screen "Total" caption (finding 3.2), so the CSV export and the rendered table agree
+  // on-screen "Total" caption, so the CSV export and the rendered table agree
   // in every locale. This used to default to the English literal `'Total'`, which meant any
   // caller that forgot the argument silently shipped an English-only CSV beside a fully
-  // localized table — a mixed-language export with nothing to flag it (finding M21).
+  // localized table — a mixed-language export with nothing to flag it.
   totalLabel: string,
 ): string {
   const { rowValues, colValues } = matrix;
   // Label cells (header row + row labels + the totals caption) come from user data,
   // so they go through `escapeCsvCell`, which neutralizes spreadsheet formula
-  // injection (a label like `=HYPERLINK(...)`) on top of standard CSV quoting
-  // (finding 1.8). Numeric cells (`formatCsvCell`) are emitted raw — escaping them would
+  // injection (a label like `=HYPERLINK(...)`) on top of standard CSV quoting.
+  // Numeric cells (`formatCsvCell`) are emitted raw — escaping them would
   // corrupt legitimate negatives like `-5`.
   const header = ['', ...colValues, ...(showTotals ? [totalLabel] : [])];
   const lines: string[] = [header.map((h) => escapeCsvCell(h)).join(',')];

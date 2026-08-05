@@ -32,14 +32,14 @@ import type { StudioFilterState } from '../models';
  *   run `resolveWidgetRows` without an `activePageId` when there is no page-navigation context to
  *   scope by (see `StudioPipeline.ts`'s class doc examples) — a caller in that position wants
  *   every authored filter to apply, not an inconsistent mix where page filters are silently
- *   dropped while cross/interactive filters from every page are silently kept (finding 5).
+ *   dropped while cross/interactive filters from every page are silently kept.
  *
  * @param includeWidgetRank
  *   By default a WIDGET-scoped rank (Top-N) filter is excluded from the returned set, because
  *   the chart widget re-applies its own widget rank as a post-aggregation reduction
  *   (`useChartWidgetData`) and would otherwise double-apply it. Every OTHER widget kind
  *   (grid / KPI / map / pivot / filter) has no such post-aggregation path, so a widget rank
- *   authored on one of them was silently ignored (finding 2.1). Non-chart callers set this to
+ *   authored on one of them was silently ignored. Non-chart callers set this to
  *   `true` so a widget-scoped rank filter is applied at L3 as a dataset-level reduction, exactly
  *   like a page-scoped rank filter already is (both flow into `applyFilters`' "filter then rank").
  */
@@ -76,8 +76,8 @@ export function selectFiltersForWidget(
     switch (sv2.kind) {
       case 'page':
         // `activePageId === undefined` is a wildcard here too, symmetric with the cross-filter/
-        // interactive/dashboard-date-range branches below — see the `activePageId` doc above
-        // (finding 5). Without it, a page-scoped filter with a `pageId` was silently dropped
+        // interactive/dashboard-date-range branches below — see the `activePageId` doc above.
+        // Without it, a page-scoped filter with a `pageId` was silently dropped
         // whenever there was no active-page context, while cross/interactive filters from every
         // page were kept — an undocumented asymmetry.
         if (!sv2.pageId || activePageId === undefined || sv2.pageId === activePageId) {
@@ -136,7 +136,7 @@ export function selectFiltersForWidget(
  * refs (`internals/queryDescriptor.ts`), NOT from the fields the authored page filters
  * reference. A page filter on `order_date` therefore evaluates against rows that carry no
  * `order_date` key at all and rejects every one of them — a dashboard date range turned the
- * CSV export into a headers-only file while the grid on screen showed N rows (finding M1b).
+ * CSV export into a headers-only file while the grid on screen showed N rows.
  *
  * ## The rule
  *

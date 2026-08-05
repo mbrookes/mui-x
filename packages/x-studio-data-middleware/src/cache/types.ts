@@ -139,7 +139,7 @@ export interface CacheEntry {
   /**
    * The cached result rows.
    *
-   * SERIALIZABILITY CONTRACT (finding T3.6): rows MUST be JSON-serializable
+   * SERIALIZABILITY CONTRACT: rows MUST be JSON-serializable
    * (plain objects of JSON scalars/arrays/objects). A remote provider round-trips
    * them through `JSON.stringify`/`JSON.parse`, so non-JSON values do not survive a
    * warm hit the way they do on an in-process provider — a `Date` comes back as an
@@ -182,7 +182,7 @@ export interface CacheProvider {
    * Retrieve a cached result. Returns undefined on miss.
    * Implementations must be safe to call concurrently.
    *
-   * NO-MUTATION CONTRACT (finding T3.6): the caller MUST treat the returned entry
+   * NO-MUTATION CONTRACT: the caller MUST treat the returned entry
    * (and its `rows`) as read-only. An in-process provider may return the stored
    * object (or a shallow view of it), so mutating it would corrupt the cached entry
    * for every other reader — whereas a remote provider hands back a fresh
@@ -288,7 +288,7 @@ export interface TierEntry {
    * Preflight COUNT(*) captured when this tier decision was written. Used as the
    * reported total for a NON-aggregation cache-miss result.
    *
-   * BEST-EFFORT after a mutation (finding 3.2): `TierCacheProvider` (below) exposes
+   * BEST-EFFORT after a mutation: `TierCacheProvider` (below) exposes
    * no tag-based invalidation, so — unlike the DATA cache, which `handleMutation`
    * evicts by table tag — this entry is NOT cleared on an insert/delete. A
    * tier-cache HIT can therefore echo a `rowCount` stale by ≤ the tier TTL after a

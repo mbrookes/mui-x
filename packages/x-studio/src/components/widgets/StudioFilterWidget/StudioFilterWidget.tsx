@@ -159,7 +159,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
   // Pending Exclude-toggle intent for the multi-select control, held locally until a
   // selection exists to apply it to. `null` means "no pending intent — defer to the active
   // filter's operator". Without this, toggling Exclude while nothing is selected was a silent
-  // no-op: the button couldn't reflect the user's intent and the choice was lost (finding T3.7).
+  // no-op: the button couldn't reflect the user's intent and the choice was lost.
   const [pendingExclude, setPendingExclude] = React.useState<boolean | null>(null);
 
   // L16: the pending intent is scoped to the field (and control type) it was expressed on.
@@ -227,7 +227,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     let hi = -Infinity;
     for (const row of rows) {
       const raw = row[fieldId];
-      // For date fields, floor to local midnight (finding 3.4): the committed filter
+      // For date fields, floor to local midnight: the committed filter
       // value is always persisted as a 'YYYY-MM-DD' string (`managedOnApply` below),
       // which re-parses to local midnight. If min/max instead kept the raw row
       // timestamp's time-of-day, the round-tripped `currentValue` the sync effect
@@ -368,7 +368,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     const selected = (activeFilter?.value as string[] | undefined) ?? [];
     // The displayed Exclude state prefers a not-yet-applied pending intent (chosen while
     // nothing was selected) over the active filter's operator, so the toggle reflects what
-    // the user clicked even before a selection exists (finding T3.7).
+    // the user clicked even before a selection exists.
     const activeExclude = activeFilter?.operator === 'not_in';
     const exclude = pendingExclude ?? activeExclude;
     const managedOnApply = (v: string[], op: 'in' | 'not_in' = exclude ? 'not_in' : 'in') => {
@@ -452,7 +452,7 @@ export const StudioFilterWidget = React.memo(function StudioFilterWidget(
     // formatting the raw slider timestamp. Slider positions advance in fixed `MS_PER_DAY` steps,
     // but a local calendar day is 23h/25h across a DST transition, so past a fall-back change
     // `min + k·86_400_000` lands at 23:00 of the previous local day and `dayjs(v).format(...)`
-    // commits one day early (finding 3.14). Counting whole days from `sliderMin` and adding them
+    // commits one day early. Counting whole days from `sliderMin` and adding them
     // as calendar days keeps the key on the intended day regardless of DST offsets.
     const sliderValueToDayKey = (v: number) =>
       dayjs(sliderMin)

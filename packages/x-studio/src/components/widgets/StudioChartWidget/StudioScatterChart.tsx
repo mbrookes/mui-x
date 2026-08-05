@@ -143,7 +143,7 @@ export function StudioScatterChart({
   // Bar/line/pie get this bypass from their `chartTypeDefs.tsx` dispatcher entry (`hasGhostData`);
   // scatter's dispatcher entry has no such bypass and always renders `StudioScatterChart`
   // unconditionally, so this component owns its own empty-state decision entirely and needs the
-  // equivalent gate here (finding 6). `prepareScatterDataGrouped` drops empty categories
+  // equivalent gate here. `prepareScatterDataGrouped` drops empty categories
   // entirely, so an emptied filter yields `scatterSeries: []` (truthy, not null) — checking
   // `allScatterSeries` the same way (rather than falling through to the single-series
   // `allScatterData` branch) keeps this consistent with the colour-by ghost path below.
@@ -283,7 +283,7 @@ export function StudioScatterChart({
     <div style={{ height }}>
       <ScatterChart
         title={ariaTitle}
-        // Colour-by series are otherwise distinguished by hue alone (finding M10).
+        // Colour-by series are otherwise distinguished by hue alone.
         desc={buildChartDescription(
           (colorSeries ?? []).map((entry) => String(entry.label ?? entry.id)),
           andMore,

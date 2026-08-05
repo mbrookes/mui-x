@@ -12,7 +12,7 @@ export interface SortDirectionToggleProps {
 /**
  * Shared ascending/descending sort-direction toggle. Used by both the chart setup
  * panel (`chartSortDirection`) and the heatmap axes section (`heatSortDirection`),
- * which previously carried identical copy-pasted `ToggleButtonGroup`s (finding 2.6).
+ * which previously carried identical copy-pasted `ToggleButtonGroup`s.
  */
 export function SortDirectionToggle({ value, onChange, disabled }: SortDirectionToggleProps) {
   const localeText = useStudioLocaleText();

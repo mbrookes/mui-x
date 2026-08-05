@@ -110,7 +110,7 @@ export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
 
 /**
  * Hard ceiling on the TOTAL serialized size of the in-flight conversation — the
- * `messages` array this loop re-POSTs, in full, on every remaining turn (finding F2).
+ * `messages` array this loop re-POSTs, in full, on every remaining turn.
  *
  * This is the direct analogue of `MAX_SYSTEM_PROMPT_CHARS` in `buildAISystemPrompt.ts`,
  * and it exists for the identical reason: **every individual input is capped, but the
@@ -216,7 +216,7 @@ export interface AgenticLoopOptions {
    * Called EXACTLY ONCE per request, on every exit path, with the total token usage the
    * provider billed for the turns that actually ran.
    *
-   * This is the accounting channel (finding F1). The `usage` / `message-metadata` SSE
+   * This is the accounting channel. The `usage` / `message-metadata` SSE
    * events reach the browser and are therefore only emitted on paths that still have a
    * live stream to write to — and `rateLimit.onLimitReached` fires only when a limit is
    * reached, which most requests never do. Neither can carry usage out of an ABORT, yet
@@ -323,7 +323,7 @@ export interface AgenticLoopOptions {
 // ── Provider wire-value validation ────────────────────────────────────────────
 
 /**
- * True only for a value usable as a token count (finding M7).
+ * True only for a value usable as a token count.
  *
  * `chunk.usage.prompt_tokens`/`completion_tokens` are TYPED `number` but arrive as raw
  * JSON from the provider, which this package's threat model treats as untrusted input on
@@ -343,7 +343,7 @@ function isUsableTokenCount(value: unknown): value is number {
 }
 
 /**
- * True only for a value usable as streamed assistant text (finding M7's sibling sweep).
+ * True only for a value usable as streamed assistant text.
  *
  * `delta.content` is TYPED `string | null` but is raw provider JSON like everything else
  * on this wire. An object there was previously appended to `turnTextBuffer` with `+=`
@@ -369,7 +369,7 @@ function usageEvent(usage: StudioAIUsage): StudioAISSEEvent {
 
 /**
  * `AgenticLoopOptions` plus the request-scoped usage accumulator `runAgenticLoop`
- * owns, so the turn loop reports into an object that outlives it (finding F1).
+ * owns, so the turn loop reports into an object that outlives it.
  */
 interface TurnLoopOptions extends AgenticLoopOptions {
   usage: StudioAIUsage;
@@ -391,7 +391,7 @@ export async function* runAgenticLoop(
   options: AgenticLoopOptions,
 ): AsyncGenerator<StudioAISSEEvent> {
   // Owned HERE, not inside the turn loop, so the `finally` below can read the real
-  // total no matter how the loop ended (finding F1). `runAgenticLoopTurns` mutates it
+  // total no matter how the loop ended. `runAgenticLoopTurns` mutates it
   // in place as each turn's usage chunk arrives.
   const usage: StudioAIUsage = { inputTokens: 0, outputTokens: 0, iterations: 0 };
   try {
@@ -427,7 +427,7 @@ export async function* runAgenticLoop(
 }
 
 /**
- * The turn loop proper. Split from `runAgenticLoop` (finding F1) purely so that
+ * The turn loop proper. Split from `runAgenticLoop` purely so that
  * function can wrap it in a `try`/`finally` and report usage on every exit path.
  */
 async function* runAgenticLoopTurns(
@@ -471,7 +471,7 @@ async function* runAgenticLoopTurns(
   const toolUsage = { committedMutations: 0, toolCalls: 0 };
 
   // Token/iteration usage accumulator across all iterations, owned by `runAgenticLoop`
-  // and threaded in here (finding F1) so its `finally` can report the real total on
+  // and threaded in here so its `finally` can report the real total on
   // every exit path — including the ones that never reach a `return` in this function,
   // such as a consumer abandoning the generator on abort. The budget wrapper below and
   // the `onLimitReached('mutations', …)` call read it to report usage at the point of a
@@ -632,7 +632,7 @@ async function* runAgenticLoopTurns(
     return true;
   });
 
-  // `effectiveSkills` is already `allowedTools`-filtered (finding M6, see above), so
+  // `effectiveSkills` is already `allowedTools`-filtered, so
   // this maps the surviving skills straight into wire-format tool definitions.
   const skillToolDefs = effectiveSkills
     .filter((s) => s.mode === 'server-tool' && s.tool)
@@ -679,8 +679,8 @@ async function* runAgenticLoopTurns(
     pageSnapshot,
     // The page the `pageSnapshot` covers, captured ONCE from the request's initial
     // state. Threaded so `summarise_page` compares against the snapshot's page rather
-    // than the threaded active page, which a same-turn `set_active_page` mutates
-    // (finding 2-2).
+    // than the threaded active page, which a same-turn `set_active_page` mutates.
+    //
     snapshotPageId: initialState.doc.dashboard.activePageId,
     // Finding F4 — `PRIVATE_MODE_EXCLUDED_TOOLS` above withdraws the READ tools, which
     // is the whole lever for a tool that exists to return state. It does nothing for a
@@ -708,7 +708,7 @@ async function* runAgenticLoopTurns(
   let currentMessages = toOpenAIMessages(systemPrompt, messages);
   let currentState = initialState;
 
-  // Running serialized size of `currentMessages` (finding F2). Seeded from the incoming
+  // Running serialized size of `currentMessages`. Seeded from the incoming
   // conversation — which `handleAIChat` already bounds via
   // `MAX_REQUEST_MESSAGES_TOTAL_CHARS`, but `runAgenticLoop` is a public export a
   // consumer may drive directly, so this must not assume that check ran.
@@ -782,11 +782,11 @@ async function* runAgenticLoopTurns(
     fetchAbort.clearTimer();
 
     if (!response.ok) {
-      // Bounded by `LLM_FETCH_TIMEOUT_MS` (finding 2, iteration 24) — the fetch-level
+      // Bounded by `LLM_FETCH_TIMEOUT_MS` — the fetch-level
       // timeout above only bounds the wait for HEADERS to arrive; a gateway that
       // returns a non-2xx status then stalls the body would otherwise hang this read
       // forever. `readBodyWithTimeout` additionally CANCELS the body on a timeout
-      // (finding M5) instead of leaving the socket pinned with an unread body.
+      //  instead of leaving the socket pinned with an unread body.
       // eslint-disable-next-line no-await-in-loop -- single error-path read; cannot be parallelized
       const errText = await readBodyWithTimeout(
         response,
@@ -824,14 +824,14 @@ async function* runAgenticLoopTurns(
     // alongside `tool_calls` for exactly this reason.
     let turnTextBuffer = '';
 
-    // The LAST usage figures this turn reported, NOT a running sum across chunks
-    // (finding T3-4b). The OpenAI wire contract emits usage once (in the final chunk
+    // The LAST usage figures this turn reported, NOT a running sum across chunks.
+    // The OpenAI wire contract emits usage once (in the final chunk
     // under `stream_options: include_usage`), but some gateways repeat a CUMULATIVE
     // usage on every chunk; summing those would multiply the real token count by the
     // chunk count and trip `maxTokensPerRequest` far too early. These locals exist so
     // the read site below can fold the DELTA against them into `usage`, which keeps
     // last-seen-wins semantics for both stream shapes while leaving `usage` correct at
-    // every suspension point (finding F1).
+    // every suspension point.
     let turnInputTokens = 0;
     let turnOutputTokens = 0;
 
@@ -852,7 +852,7 @@ async function* runAgenticLoopTurns(
           return;
         }
 
-        // NOTE (finding M7's sibling sweep): this is a CAST, not a validation — every
+        // NOTE: this is a CAST, not a validation — every
         // field below is raw provider JSON and is checked at its point of use
         // (`isUsableDeltaText`, `isUsableTokenCount`, `Array.isArray` on `tool_calls`,
         // and `openaiWire.ts`'s per-field checks inside `accumulateToolCallDeltas`).
@@ -896,7 +896,7 @@ async function* runAgenticLoopTurns(
           // The last-seen-wins semantics of the previous end-of-turn fold are preserved
           // exactly: `usage` moves by `next - turnInputTokens`, so a gateway repeating a
           // CUMULATIVE usage on every chunk still contributes each turn's true total
-          // once (finding T3-4b), not once per chunk.
+          // once, not once per chunk.
           const nextInput = isUsableTokenCount(chunkUsage.prompt_tokens)
             ? chunkUsage.prompt_tokens
             : turnInputTokens;
@@ -920,7 +920,7 @@ async function* runAgenticLoopTurns(
         const delta = choice.delta ?? {};
         // `finish_reason` is relayed to the browser in the `finish` SSE event, whose
         // protocol type declares it a string — so a non-string one is rejected here
-        // rather than forwarded (finding M7's sibling sweep).
+        // rather than forwarded.
         if (typeof choice.finish_reason === 'string' && choice.finish_reason) {
           finishReason = choice.finish_reason;
         }
@@ -959,7 +959,7 @@ async function* runAgenticLoopTurns(
           }
         }
 
-        // `Array.isArray`, not a truthiness check (finding M7's sibling sweep): a
+        // `Array.isArray`, not a truthiness check: a
         // provider sending `tool_calls: {}` used to reach `deltas.entries()` and throw a
         // bare `TypeError` that the catch below then reported as a transport failure —
         // "the LLM provider was unreachable", of a gateway that was reachable and
@@ -998,10 +998,10 @@ async function* runAgenticLoopTurns(
     fetchAbort.dispose();
 
     // NOTE: this turn's usage is ALREADY folded into `usage` — the read site above does
-    // it per chunk (finding F1), so there is deliberately no end-of-turn fold here.
+    // it per chunk, so there is deliberately no end-of-turn fold here.
 
     const rawToolCallEntries = Object.entries(acc.reqToolCalls);
-    // Mint a synthetic id for any tool call the provider left un-id'd (finding T3-5).
+    // Mint a synthetic id for any tool call the provider left un-id'd.
     // The accumulator seeds `id: ''` when a delta carries no `id`; two such calls in one
     // turn would both address as `toolCallId: ''`, so the second is wrongly rejected by the
     // approval-dispatch duplicate guard with a misleading "duplicate across concurrent
@@ -1070,7 +1070,7 @@ async function* runAgenticLoopTurns(
     // A gateway that sends usage of the WRONG TYPE (or a negative count) now degrades to
     // exactly that same case rather than a worse one: `isUsableTokenCount` rejects the
     // value at the read site, so `usage.*` stay non-negative numbers and this comparison
-    // stays meaningful (finding M7). Before that check, `prompt_tokens: -1e15` drove the
+    // stays meaningful. Before that check, `prompt_tokens: -1e15` drove the
     // sum permanently negative — turning the budget OFF outright — and a string count
     // turned `+=` into concatenation, which both tripped the budget spuriously and put a
     // non-number into the `usage`/`message-metadata` events the browser reads.

@@ -156,8 +156,8 @@ export class RedisTierCacheProvider implements TierCacheProvider {
     // sibling site). The trailing `*` stays the only wildcard; stored key format unchanged.
     const pattern = `${escapeRedisGlob(this.prefix)}${escapeRedisGlob(prefix)}*`;
     // Stream one SCAN page at a time and delete in fixed-size batches — the same
-    // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix`
-    // (finding M1 sibling site). Accumulating every matching key and spreading
+    // fix applied to the data-plane `RedisCacheProvider.invalidatePrefix`.
+    // Accumulating every matching key and spreading
     // it into one variadic `del(...keys)` throws `RangeError: Maximum call stack
     // size exceeded` past V8's argument limit, before Redis is ever contacted,
     // so the eviction silently deletes nothing on exactly the large keyspaces

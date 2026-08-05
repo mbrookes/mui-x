@@ -31,8 +31,8 @@
  * A bound that carries an explicit time-of-day keeps full precision, EXCEPT for
  * `equals`/`not_equals`, which are day-granular for every value form. `createBatchingAdapter`
  * performs exactly these rewrites itself because it speaks the `FilterPredicate` protocol; this
- * adapter cannot, because it does not translate the tree at all — the host owns the semantics
- * (findings T1.3 / T1.3b).
+ * adapter cannot, because it does not translate the tree at all — the host owns the semantics.
+ *
  *
  * Usage:
  *   const source: StudioDataSource = {
@@ -84,7 +84,7 @@ function resolveWireFilterValue(value: unknown): unknown {
  * concept a remote host cannot resolve, so — like `createBatchingAdapter` — the simple adapter
  * resolves them before sending. Unlike the batching adapter it does NOT translate to the
  * middleware's `FilterPredicate` wire shape: it POSTs the native `StudioQueryDescriptor`, so the
- * host is expected to understand that shape directly (finding 2.19).
+ * host is expected to understand that shape directly.
  */
 function resolveFilterNodeRelativeDates(node: StudioFilterNode): StudioFilterNode {
   if (node.type === 'group') {
@@ -172,7 +172,7 @@ export function createSimpleAdapter(
     async getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult> {
       // Resolve relative-date values (e.g. "7 days ago") to concrete dates before sending —
       // the host receives a plain, self-describing descriptor rather than a client-only
-      // relative spec it cannot interpret (finding 2.19). Then run the shared aggregation
+      // relative spec it cannot interpret. Then run the shared aggregation
       // push-down ladder, which strips an aggregation the client could not repair (see
       // `stripUnrepairableAggregations`).
       const resolvedDescriptor = stripUnrepairableAggregations(

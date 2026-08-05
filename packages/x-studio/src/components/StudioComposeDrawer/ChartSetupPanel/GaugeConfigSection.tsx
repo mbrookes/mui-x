@@ -95,9 +95,9 @@ export function GaugeConfigSection({
         value={config.yField ?? ''}
         onChange={(fieldId, sourceId) => {
           // A cross-source value-field pick also ADOPTS that source, and the two halves are
-          // one undo step (finding 2.5) carrying only the changed key — see
+          // one undo step carrying only the changed key — see
           // `commitChartConfigWithSource`. Any widget-scoped filter that no longer resolves
-          // against the new source rides along (finding 1.16): left in place, a stale
+          // against the new source rides along: left in place, a stale
           // filter's field is absent from the new source's rows and the `between`/`gte`
           // branches in `filterUtils.ts` then exclude EVERY row, silently blanking the gauge.
           commitChartConfigWithSource({

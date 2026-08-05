@@ -16,7 +16,7 @@
  *    db-tier results (see the `tier !== 'db' || !hasAggregations` gate below)
  * and returns a BatchQueryResponse with all results.
  *
- * RESOURCE BOUNDS (finding H2) — the per-widget fan-out is governed by three
+ * RESOURCE BOUNDS — the per-widget fan-out is governed by three
  * per-request limits that compose, rather than multiply, the individual caps:
  * a shared row budget (`RowBudget`, so `widgets × MAX_RESULT_ROWS` cannot OOM the
  * process), a bounded-concurrency worker pool (`MAX_CONCURRENT_WIDGET_QUERIES`,
@@ -103,8 +103,8 @@ import {
 const DEFAULT_TIER_CACHE_TTL_MS = 30_000; // 30 seconds — aligned with data cache default
 
 /**
- * Hard ceiling on the number of widgets a single batch request may contain
- * (finding T3 — unbounded widget fan-out). Each widget triggers its own
+ * Hard ceiling on the number of widgets a single batch request may contain.
+ * Each widget triggers its own
  * preflight COUNT(*) plus query — with no cap, a single request could fan out an
  * arbitrary amount of database work. Exceeded requests are rejected outright
  * (see `assertValidBatchQueryRequest`) rather than silently truncated, so a
@@ -127,7 +127,7 @@ export const MAX_WIDGETS_PER_BATCH = MAX_ITEMS_PER_BATCH;
 
 /**
  * Maximum number of widget pipelines (preflight `COUNT(*)` + data query) allowed
- * to be in flight at the same time within ONE batch request (finding H2).
+ * to be in flight at the same time within ONE batch request.
  *
  * `MAX_WIDGETS_PER_BATCH` caps how many widgets a request may CONTAIN, but the
  * fan-out itself used to be a bare `Promise.all`, so all of them started at once
@@ -433,7 +433,7 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
             `Ensure "${field}" is an array (or omit it) on every widget descriptor.`,
         );
       }
-      // Per-array size cap (finding Tier3 — resource exhaustion). The widget-count
+      // Per-array size cap. The widget-count
       // cap above (`MAX_WIDGETS_PER_BATCH`) does not bound the size of any ONE
       // widget's own collection fields — a single well-formed-looking widget can
       // still smuggle in an arbitrarily large `filters`/`joins`/`columns`/`orderBy`/
@@ -602,8 +602,8 @@ export async function handleBatchQuery(
   // resolved policy into the cache key so differently-scoped nodes never share
   // cache entries (Gap B).
   //
-  // `schemaAllowlist` is folded in for the same reason it separates DATA SOURCES
-  // (finding 3): two option sets in one process that expose different tables get
+  // `schemaAllowlist` is folded in for the same reason it separates DATA SOURCES:
+  // two option sets in one process that expose different tables get
   // different digests, hence different cache keys, without the host having to
   // remember to set `cacheScope`.
   const policy = compileSecurityPolicy({
@@ -613,8 +613,8 @@ export async function handleBatchQuery(
     schemaAllowlist,
   });
   const cacheProvider = options.cacheProvider ?? getDefaultCache();
-  // Validated ONCE, here at the option boundary, rather than at each query site
-  // (F2): a bad `queryTimeoutMs` is a host misconfiguration, so it must reject the
+  // Validated ONCE, here at the option boundary, rather than at each query site:
+  // a bad `queryTimeoutMs` is a host misconfiguration, so it must reject the
   // whole request with one clear error instead of surfacing as the same
   // `{ error }` on all 50 widgets.
   const queryTimeoutMs = resolveQueryTimeoutMs(options.queryTimeoutMs);
@@ -631,7 +631,7 @@ export async function handleBatchQuery(
   // per-widget error-isolation invariant the cache/preflight/execute stages and the
   // unsupported-operator/func throws in `executeForTier` already do.
   //
-  // RESOURCE BOUNDS (finding H2) — the fan-out is no longer a bare `Promise.all`:
+  // RESOURCE BOUNDS — the fan-out is no longer a bare `Promise.all`:
   //   - `context.rowBudget` is one shared, mutable row allowance for the WHOLE
   //     request, so `MAX_WIDGETS_PER_BATCH × MAX_RESULT_ROWS` can no longer
   //     multiply into a single-request OOM.
@@ -690,19 +690,19 @@ interface BatchRequestContext {
   cacheScope: HandleBatchQueryOptions['cacheScope'];
   /**
    * Per-query statement timeout in milliseconds, already validated and defaulted
-   * by `resolveQueryTimeoutMs` (F2). Threaded into `runPreflight` and
+   * by `resolveQueryTimeoutMs`. Threaded into `runPreflight` and
    * `executeForTier`, which apply it inside their single execution helpers so no
    * exit path can issue an untimed query.
    */
   queryTimeoutMs: number;
   /**
-   * Shared, mutable row allowance for the whole request (finding H2). Threaded
+   * Shared, mutable row allowance for the whole request. Threaded
    * into every `executeForTier` call, which caps its LIMIT at what is left and
    * decrements it by the rows actually returned.
    */
   rowBudget: RowBudget;
   /**
-   * Single-flight map keyed by the security-scoped cache key (finding H2). Two
+   * Single-flight map keyed by the security-scoped cache key. Two
    * widgets whose descriptors differ only in `id` produce the SAME key — the id
    * is deliberately excluded from `computeQueryHash` — so they share one
    * in-progress pipeline instead of each running its own preflight + query and
@@ -770,14 +770,14 @@ async function processWidget(
     // Fold the compiled policy's digest into the cache key so a policy change (e.g.
     // tightening a `perTable` scope mid-rollout) invalidates stale-scope entries
     // instead of a differently-scoped node serving them (Gap B).
-    // Generated INSIDE the try block (finding 2.3): `generateCacheKey` throws when
+    // Generated INSIDE the try block: `generateCacheKey` throws when
     // no HMAC secret is configured (`CACHE_HMAC_SECRET` / `JWT_SECRET` both unset),
     // and every widget-scoped operation must honor the per-widget error-isolation
     // invariant — a throw here must produce this widget's `{ error }` result, not
     // reject the whole batch.
     const cacheKey = generateCacheKey(claims, descriptor, undefined, policy.digest, cacheScope);
 
-    // ── 0b. Single-flight dedup within this batch (finding H2) ───────────────
+    // ── 0b. Single-flight dedup within this batch ───────────────
     // The widget `id` is deliberately excluded from `computeQueryHash`, so N
     // widgets whose query shape is identical resolve to ONE `cacheKey`. Before
     // this, they were all started concurrently by a bare `Promise.all`, so every
@@ -813,7 +813,7 @@ async function processWidget(
       // fits fails via the catch below rather than adding rows.
       chargeRowBudgetOrThrow(context.rowBudget, outcome.rows.length);
     }
-    // ROW-ARRAY ALIASING (finding L3): the spread copies the outcome's FIELDS,
+    // ROW-ARRAY ALIASING: the spread copies the outcome's FIELDS,
     // so every widget sharing this pipeline returns the SAME `rows` array
     // instance (as does every widget served from one data-cache hit, above).
     // That is deliberate — cloning per widget would defeat the dedup's memory
@@ -827,7 +827,7 @@ async function processWidget(
       rows: [],
       tier: 'db',
       rowCount: 0,
-      // Never return a raw DB-driver error verbatim (finding T3.5): our own
+      // Never return a raw DB-driver error verbatim: our own
       // validation messages pass through, but a driver error (e.g. `no such column`)
       // is a schema oracle, so it is logged server-side and replaced with a generic
       // message here — even when no `columnAllowlist` is configured.
@@ -854,7 +854,7 @@ async function processWidget(
  *     the fail-closed direction here is "don't cache", which costs a re-query;
  *     the alternative costs a stale answer for the whole TTL. It is warned about
  *     and never fails the widget, matching how every other cache-backend failure
- *     on this path degrades (finding 2.6).
+ *     on this path degrades.
  */
 async function tagsInvalidatedSinceRead(
   cacheProvider: CacheProvider,
@@ -882,7 +882,7 @@ async function tagsInvalidatedSinceRead(
  * execution → cache population.
  *
  * Split out of `processWidget` so it can be shared by every widget in the batch
- * that resolves to the same `cacheKey` (finding H2). It deliberately returns a
+ * that resolves to the same `cacheKey`. It deliberately returns a
  * `WidgetQueryOutcome` with no `id` — the id is the one thing duplicates do NOT
  * share, so it is attached by each caller instead.
  */
@@ -916,7 +916,7 @@ async function runWidgetPipeline(
   // ── 1. Data cache check ────────────────────────────────────────────────
   // The cache is a best-effort layer in FRONT of the authoritative DB: a cache
   // read failure (e.g. Redis down) must degrade to a fresh DB fetch, not fail
-  // the widget. Catch here and treat the error as a miss (finding 2.6).
+  // the widget. Catch here and treat the error as a miss.
   let cached: CacheEntry | undefined;
   try {
     cached = await cacheProvider.get(cacheKey);
@@ -928,7 +928,7 @@ async function runWidgetPipeline(
         `Cause: ${describeCause(cacheErr)}`,
     );
   }
-  // SHAPE-CHECK THE HIT (finding L5). A `CacheProvider` is host-pluggable and its
+  // SHAPE-CHECK THE HIT. A `CacheProvider` is host-pluggable and its
   // backing store is not exclusively ours: a Redis deployment with no `keyPrefix`
   // can collide with the host's own keys, a partially-written value can be read
   // back, and a custom provider can simply be buggy. Any of those makes `cached`
@@ -973,7 +973,7 @@ async function runWidgetPipeline(
     const cachedRowCount = cached.rowCount ?? cached.rows.length;
     return {
       rows: cached.rows,
-      // ONE tier rule across both cache planes (finding M2). This site used to
+      // ONE tier rule across both cache planes. This site used to
       // echo `cached.tier` verbatim while `router/tierDecision.ts` deliberately
       // did the opposite — re-deriving from the cached `rowCount` — and neither
       // site knew about the other. `thresholds` is folded into neither the cache
@@ -1024,7 +1024,7 @@ async function runWidgetPipeline(
   const tierDecision = await decideTierWithCache(
     hasAggregations,
     // Namespace the tier plane's key so it can never collide with the data
-    // plane's entry for the same widget on a shared Redis client (finding 2.1).
+    // plane's entry for the same widget on a shared Redis client.
     TIER_CACHE_KEY_PREFIX + cacheKey,
     () =>
       runPreflight(db, claims, descriptor, queryOptions, plan, queryTimeoutMs).then(
@@ -1035,7 +1035,7 @@ async function runWidgetPipeline(
     tierCacheTtlMs,
   );
   const tier: 'client' | 'server' | 'db' = tierDecision.tier;
-  // NOTE (finding 3.2 — best-effort `rowCount`): for a NON-aggregation widget
+  // NOTE: for a NON-aggregation widget
   // served from a tier-cache HIT, `tierDecision.rowCount` is the preflight
   // COUNT(*) captured when the tier entry was written, up to the tier TTL ago
   // (`DEFAULT_TIER_CACHE_TTL_MS`, 30s). A mutation invalidates the DATA cache by
@@ -1048,7 +1048,7 @@ async function runWidgetPipeline(
   let rowCount: number = tierDecision.rowCount;
 
   // ── 4. Execute query for the selected tier ─────────────────────────────
-  // `rowBudget` is the request-wide row allowance (finding H2): it caps this
+  // `rowBudget` is the request-wide row allowance: it caps this
   // query's LIMIT at whatever the batch has left and is charged by the rows
   // actually returned, so 50 unbounded widgets can no longer sum to 50 ×
   // `MAX_RESULT_ROWS` rows in one response. If the budget — rather than the
@@ -1084,7 +1084,7 @@ async function runWidgetPipeline(
   // Aggregation queries are ALWAYS routed to the 'db' tier (step 2 above) and
   // return grouped/aggregated rows keyed by the aggregation shape — left
   // uncached here (unchanged, historical behavior). A NON-aggregation 'db'-tier
-  // result (finding 3.2), in contrast, is a plain RAW row slice — the exact
+  // result, in contrast, is a plain RAW row slice — the exact
   // same shape `executeForTier` returns for 'client'/'server' — routed to 'db'
   // only because its preflight COUNT(*) exceeded `serverMemoryTier`. It is just
   // as reusable as a 'client'/'server' result, so it is cached the same way;
@@ -1134,11 +1134,11 @@ async function runWidgetPipeline(
     }
 
     // The rows are already in hand from the DB — a cache WRITE failure must not
-    // discard them. Catch and degrade to "served, uncached" (finding 2.6).
+    // discard them. Catch and degrade to "served, uncached".
     try {
       await cacheProvider.set(
         cacheKey,
-        // SHALLOW-COPY THE ROW ARRAY (finding L3, write side). `rows` is ALSO the
+        // SHALLOW-COPY THE ROW ARRAY. `rows` is ALSO the
         // array this function returns to the host, and an in-process provider
         // stores what it is given by reference (`LRUCacheProvider` clones only on
         // `get`). Handing over the same array made the host's own result and the

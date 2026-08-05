@@ -65,7 +65,7 @@ export const MAX_ECHOED_IDENTIFIER_LENGTH = 200;
 
 /**
  * Sanitize + length-cap an untrusted identifier before interpolating it into an
- * MCP error message (finding M7).
+ * MCP error message.
  *
  * Error prose returned from `tools/call`, `resources/read`, and `prompts/get` is
  * spliced into the model conversation by most MCP clients, so an identifier
@@ -94,7 +94,7 @@ export const MAX_ECHOED_IDENTIFIER_LENGTH = 200;
  * open a new line and forge a markdown heading, a `key: "value"` pair, or a
  * sibling sentence, nor close its own quoted field with a bare `"`.
  *
- * Coerces through the shared `asString`, not the raw `String` global (finding H1):
+ * Coerces through the shared `asString`, not the raw `String` global:
  * this is the designated chokepoint for UNTRUSTED identifiers, and every one of them
  * descends from `JSON.parse` output — for which `String(x)` is not total
  * (`String({"toString": 1})` throws `TypeError: Cannot convert object to primitive
@@ -191,7 +191,7 @@ export function capRelayedText(text: string): string {
 /**
  * Full error detail, for SERVER-SIDE logs only — never for a model-visible result.
  *
- * Total by construction (finding H1). The old `String(err)` fallback throws
+ * Total by construction. The old `String(err)` fallback throws
  * `TypeError: Cannot convert object to primitive value` for a rejection value of
  * `{"toString": 1}` — a shape a host callback can reject with verbatim from
  * `JSON.parse`d input — and a logger that throws turns a logged failure into an
@@ -232,8 +232,8 @@ export function newErrorReference(): string {
 /**
  * Log the FULL detail of a failure that crossed the host boundary (a
  * `data.queryDataSource` call, a host callback, a driver error) server-side and
- * return a generic, bounded, model-safe message carrying only a correlation id
- * (finding H4).
+ * return a generic, bounded, model-safe message carrying only a correlation id.
+ *
  *
  * `String(err)` was previously relayed verbatim to the model — and, through the
  * chat transport's SSE stream, to the browser — from every data-tool catch block.
@@ -284,7 +284,7 @@ export function redactedHostErrorResult(
 }
 
 /**
- * Read `map[key]` as an ARRAY, only when `key` is an OWN property (finding M1).
+ * Read `map[key]` as an ARRAY, only when `key` is an OWN property.
  *
  * `fieldDistinctValues` is keyed by field id, and a field id is a database column
  * name — so a column literally named `constructor` (or a model-authored
@@ -320,7 +320,7 @@ export function ownArrayEntry<T>(
  * / `studio://data/{id}` resources — can apply the SAME allowlist check
  * `resolveSource` applies, instead of querying an out-of-allowlist table because
  * they resolve the source through their own lookup rather than through
- * `resolveSource` (Tier 3, iteration 24, finding 4).
+ * `resolveSource`.
  *
  * Returns `null` when the table is permitted (an array allowlist that contains it,
  * the explicit permissive sentinel `'*'`, or — for trusted server-held callers — no
@@ -328,7 +328,7 @@ export function ownArrayEntry<T>(
  * same message shape `resolveSource` returns, so a denial reads identically
  * regardless of which surface produced it.
  *
- * `'*'` is the explicit "no table restriction" opt-out (finding F1): the chat
+ * `'*'` is the explicit "no table restriction" opt-out: the chat
  * transport treats an OMITTED (`undefined`) `allowedTables` as fail-closed at its
  * dispatch site, so a host that genuinely wants no restriction must say so with `'*'`
  * rather than by omission. When `allowedTables` is `undefined` this helper still
@@ -345,7 +345,7 @@ export function checkAllowedTable(
   if (allowedTables === '*' || allowedTables === undefined) {
     return null;
   }
-  // FAIL CLOSED on anything that is not an array (finding M1). `allowedTables` is
+  // FAIL CLOSED on anything that is not an array. `allowedTables` is
   // typed `string[] | '*' | undefined`, but this is the file whose own doc argues a
   // declared TypeScript type says nothing about what arrives, and this value is
   // routinely built from configuration (`process.env.ALLOWED_TABLES`, a JSON config
@@ -368,7 +368,7 @@ export function checkAllowedTable(
     );
   }
   if (!allowedTables.includes(tableName)) {
-    // Both identifiers route through `safeIdentifier` (finding M2). `sourceId` is
+    // Both identifiers route through `safeIdentifier`. `sourceId` is
     // caller-supplied on the chat transport and `tableName` comes off
     // `runtime.dataSources`, which descends from the client-supplied request body —
     // and this string is surfaced verbatim as an MCP error message (`resources.ts`
@@ -386,7 +386,7 @@ export function checkAllowedTable(
 
 /**
  * Max number of `data.queryDataSource` calls this package keeps in flight at once
- * within a SINGLE tool call (finding L2).
+ * within a SINGLE tool call.
  *
  * The per-call COUNT caps (`MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS`,
  * `MAX_SUMMARISE_PAGE_WIDGETS`, both 50) bound how many queries a call may issue,
@@ -404,8 +404,8 @@ export const MAX_CONCURRENT_HOST_QUERIES = 6;
 /**
  * Run `task` over `items` with at most `limit` concurrent invocations, preserving
  * input order in the returned array — the bounded-concurrency replacement for the
- * `Promise.all` fan-outs in `describe_data_source` and `summarise_page`
- * (finding L2). Mirrors `@mui/x-studio-data-middleware`'s `mapWithConcurrency`.
+ * `Promise.all` fan-outs in `describe_data_source` and `summarise_page`.
+ * Mirrors `@mui/x-studio-data-middleware`'s `mapWithConcurrency`.
  *
  * A fixed pool of workers pulls the next index off a shared cursor, so one slow
  * query delays only itself rather than blocking a whole chunk the way a chunked
@@ -515,7 +515,7 @@ export function opLabel(strings: TemplateStringsArray, ...values: unknown[]): Op
  * untrusted content and {@link redactedHostErrorMessage} relays it verbatim instead
  * of withholding it behind a correlation id.
  *
- * CALLER CONTRACT (finding M2): the brand is a promise that the message contains
+ * CALLER CONTRACT: the brand is a promise that the message contains
  * only server-authored prose and compile-time constants, and `redactedHostErrorMessage`
  * relays branded messages VERBATIM on exactly that premise. A `label` that
  * interpolates an untrusted identifier (a `tableName` off `runtime.dataSources`, a

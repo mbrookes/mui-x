@@ -9,7 +9,7 @@ export interface GanttItem {
    * rendering bars. Two rows with the same label and start time are a legitimate case (e.g.
    * two tasks named identically starting the same day) — keying on `label`/`startMs` alone
    * collided in that case, and on a cross-filter-driven list change the reconciler could pair
-   * the wrong row's bar/tooltip state to the wrong DOM node (finding 15). `ensureRowIdentity`
+   * the wrong row's bar/tooltip state to the wrong DOM node. `ensureRowIdentity`
    * survives the row-cloning the pipeline does (object spread), so the id stays stable across
    * re-renders of the same logical row even though the row object reference is fresh.
    */

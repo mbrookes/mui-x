@@ -111,7 +111,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
   );
 
   // Full cross-source field catalog, used to detect widget-scoped filters that no longer
-  // resolve after the pivot adopts a source (finding 1.6) — mirrors the sibling setup panels.
+  // resolve after the pivot adopts a source — mirrors the sibling setup panels.
   const fieldCatalog = React.useMemo(
     () => buildFieldCatalog(dataSources, expressionFields),
     [dataSources, expressionFields],
@@ -132,7 +132,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
     }
     if (!widget.sourceId) {
       // Adopt the picked field's source. Fold in the removal of any widget-scoped filter
-      // that no longer resolves against the adopted source (finding 1.6): a filter added to
+      // that no longer resolves against the adopted source: a filter added to
       // this source-less pivot keeps matching by `widgetId`, and once its field is absent
       // from the new source's rows the `filterUtils.ts` branches exclude every row, silently
       // blanking the pivot. Every other source-adopting setup panel folds this into the same

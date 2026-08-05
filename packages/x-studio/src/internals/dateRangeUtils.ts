@@ -2,7 +2,7 @@ import dayjs from 'dayjs';
 import type { StudioDateRangePreset } from '../models';
 
 /**
- * KNOWN GAP (finding 8, documented not fixed): every preset below computes its dynamic bound
+ * KNOWN GAP: every preset below computes its dynamic bound
  * (`today`, "this month", "this quarter", …) from the VIEWER'S LOCAL calendar (`now.getFullYear()`
  * / `getMonth()` / `getDate()`). Rows are compared against the resolved bound differently
  * depending on the target column's declared type (`filterUtils.ts`):
@@ -48,12 +48,12 @@ export function computeDateRangePreset(preset: Exclude<StudioDateRangePreset, 'c
       // Use dayjs subtraction, which clamps the day-of-month to the target month's last day,
       // rather than `Date.prototype.setMonth`, which rolls a "Feb 31" over into March. Run on
       // May 31, the naive `setMonth(-3)` lands on March 3 (non-leap year), starting the window
-      // up to 3 days late and excluding boundary rows (finding T3.2).
+      // up to 3 days late and excluding boundary rows.
       return { from: dayjs(now).subtract(3, 'month').format('YYYY-MM-DD'), to: today };
     }
     case 'last_12_months': {
       // dayjs clamps Feb 29 → Feb 28 when subtracting a year; `setFullYear` would roll it to
-      // March 1 (finding T3.2).
+      // March 1.
       return { from: dayjs(now).subtract(1, 'year').format('YYYY-MM-DD'), to: today };
     }
     case 'ytd':

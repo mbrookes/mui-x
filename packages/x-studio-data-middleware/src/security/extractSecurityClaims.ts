@@ -20,16 +20,16 @@ interface JwtPayload {
   // `unknown` (not `string`) — the payload is parsed JSON from a
   // client-controlled bearer token, so the TS shape is not a runtime
   // guarantee. `normalizeTenantId` below is the runtime boundary that
-  // actually enforces `string` (finding 3.3), mirroring `normalizeRegionIds`.
+  // actually enforces `string`, mirroring `normalizeRegionIds`.
   tenantId: unknown;
-  // `unknown` (not `string[]`) — see `normalizeRoleIds` (finding 3.3).
+  // `unknown` (not `string[]`) — see `normalizeRoleIds`.
   roleIds?: unknown;
   // `unknown` (not `number[]`) — the payload is parsed JSON from a
   // client-controlled bearer token, so the TS shape is not a runtime
   // guarantee. `normalizeRegionIds` below is the runtime boundary that
-  // actually enforces `number[]` (finding 3.1).
+  // actually enforces `number[]`.
   regionIds?: unknown;
-  // `unknown` (not `string`) — see `normalizeDepartment` (finding 3.3).
+  // `unknown` (not `string`) — see `normalizeDepartment`.
   department?: unknown;
   // `unknown` (not `number`) — the expiry check below (Tier3 iter26 finding 4)
   // is the runtime boundary that enforces `number`: `exp: {}` or `exp: "banana"`
@@ -40,7 +40,7 @@ interface JwtPayload {
 }
 
 /**
- * Validate + coerce the JWT's `tenantId` claim to a non-empty `string` (finding 3.3).
+ * Validate + coerce the JWT's `tenantId` claim to a non-empty `string`.
  *
  * `tenantId` is typed `string` on `JwtSecurityClaims`, but the payload is
  * client-supplied JSON — nothing guarantees the token issuer actually emitted a
@@ -91,7 +91,7 @@ function normalizeSub(sub: unknown): string {
 }
 
 /**
- * Validate the JWT's optional `department` claim is a `string` when present (finding 3.3).
+ * Validate the JWT's optional `department` claim is a `string` when present.
  *
  * Mirrors `normalizeTenantId` / `normalizeRegionIds`: `department` is typed
  * `string | undefined` on `JwtSecurityClaims`, but nothing previously enforced
@@ -113,7 +113,7 @@ function normalizeDepartment(department: unknown): string | undefined {
 }
 
 /**
- * Validate + coerce the JWT's optional `roleIds` claim to `string[]` (finding 3.3).
+ * Validate + coerce the JWT's optional `roleIds` claim to `string[]`.
  *
  * Mirrors `normalizeRegionIds`: `roleIds` is typed `string[]` on
  * `JwtSecurityClaims`, but nothing previously enforced that at runtime — a
@@ -145,7 +145,7 @@ function normalizeRoleIds(roleIds: unknown): string[] {
 }
 
 /**
- * Validate + coerce the JWT's `regionIds` claim to `number[]` (finding 3.1).
+ * Validate + coerce the JWT's `regionIds` claim to `number[]`.
  *
  * `regionIds` is typed `number[]` on `JwtSecurityClaims`, but the payload is
  * client-supplied JSON — nothing guarantees the token issuer actually emitted
@@ -171,7 +171,7 @@ function normalizeRegionIds(regionIds: unknown): number[] | undefined {
     );
   }
   return regionIds.map((id, index) => {
-    // Accept ONLY a real number or a NON-EMPTY numeric string (finding 3.2).
+    // Accept ONLY a real number or a NON-EMPTY numeric string.
     // `Number(...)` coerces far too eagerly to lean on `Number.isFinite` alone:
     // `Number(true) === 1`, `Number('') === 0`, `Number('  ') === 0` all pass, so a
     // boolean or an empty/whitespace string would silently become a region id (`1`,

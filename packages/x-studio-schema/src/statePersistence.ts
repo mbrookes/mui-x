@@ -267,7 +267,7 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     if (!isRecord(page)) {
       return `pages["${pageId}"]`;
     }
-    // NOTE (iteration 22 precedent): a non-array `page.widgetRows` is deliberately NOT
+    // NOTE: a non-array `page.widgetRows` is deliberately NOT
     // hard-failed here. `normalizePersistedPages` (the load boundary) already coerces a junk
     // `widgetRows` to `[]` gracefully and per-entry (non-array → `[]`, non-array/orphan rows
     // filtered) when it runs, so sinking the WHOLE dashboard to `{success:false,state:null}`
@@ -305,7 +305,7 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
     // non-record `filter` itself is still rejected above: `deserializeState`'s screen drops it
     // too, but this finding scoped the relaxation to `scope` only.)
   }
-  // Per-entry shape checks for the three optional collections (Finding 1), mirroring the
+  // Per-entry shape checks for the three optional collections, mirroring the
   // `filters` screen above so `migrateState` rejects a junk entry by NAME rather than
   // letting it load and crash the client on first use (and round-trip through every
   // autosave). Each is absent-tolerant (the field is optional in the serialized shape)
@@ -729,7 +729,7 @@ export function deserializeState(
       // uses in `applyMutation.ts`): a non-empty but already-canonical `columns`/`ySeries` —
       // the common case for every configured grid/chart widget — must NOT mint a fresh array
       // (and hence a fresh config and widget) on every load, or cross-load memoization is
-      // defeated (Finding 5). `.map(normalize)` alone always allocates.
+      // defeated. `.map(normalize)` alone always allocates.
       let changed = false;
       let nextColumns = columns;
       if (hasColumns) {
@@ -848,7 +848,7 @@ export function deserializeState(
     },
   });
 
-  // Re-check rank-filter per-page uniqueness at the load boundary (finding 9): the
+  // Re-check rank-filter per-page uniqueness at the load boundary: the
   // reducer's `addFilter` enforces "at most one rank filter per page context" on every
   // LIVE add (`hasConflictingRankFilter`), but that check was never re-run on load, so a
   // hand-edited/foreign doc could load with two conflicting rank filters on the same page

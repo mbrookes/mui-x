@@ -43,7 +43,7 @@ interface PreflightResult {
  *   `buildSecureQuery`. REQUIRED — an explicit tenancy decision is always threaded through.
  * @param plan - Pre-compiled `ValidatedQueryPlan` (request path). Omitted by direct callers, in which case
  *   `buildSecureQuery` resolves one from `descriptor`.
- * @param queryTimeoutMs - Per-query statement timeout in milliseconds (F2), resolved once per request from
+ * @param queryTimeoutMs - Per-query statement timeout in milliseconds, resolved once per request from
  *   `HandleBatchQueryOptions.queryTimeoutMs`. This round-trip needs it MORE than the data query does: the
  *   count deliberately carries no LIMIT, so its cost is unbounded by construction and a slow one pins a
  *   pooled connection for as long as the database takes. Omitted by direct callers, who get
@@ -87,7 +87,7 @@ export async function runPreflight(
   // Build the query without column selection — only security + user filters
   const query = buildSecureQuery(db, claims, descriptor, options, plan).count('* as row_count');
   // Applied here, not by the caller, for the same reason `runBounded` owns the
-  // LIMIT (F2): this is the single site that executes the preflight, so no caller
+  // LIMIT: this is the single site that executes the preflight, so no caller
   // can issue an untimed COUNT(*). See `shared/queryTimeout.ts`.
   applyQueryTimeout(query, queryTimeoutMs);
 

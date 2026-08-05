@@ -19,7 +19,7 @@ const OPERATORS_NO_VALUE = new Set<StudioFilterOperator>(['is_empty', 'is_not_em
 
 /**
  * A numeric `between` bound input that buffers its text locally and only commits to the
- * store on blur / Enter (finding 1.17). The raw `TextField`s used to call `onChange`
+ * store on blur / Enter. The raw `TextField`s used to call `onChange`
  * (`controller.updateFilter`, undoable) on every keystroke, so typing "1500" produced 4
  * separate undoable commits + 4 full pipeline recomputes, and Ctrl+Z un-typed one digit at
  * a time. Mirrors the edit dialog's `BufferedTextField` for the identical `between` shape.

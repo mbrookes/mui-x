@@ -87,7 +87,7 @@ const rowCache = new WeakMap<Row[], Map<string, ResolvedCacheEntry>>();
  * `RelativeDateValue` — so `isRelativeDateValue(f.value)` alone never detects a relative bound
  * nested inside it. That left the cache key computed from the raw (stable) `{from,to}` object
  * unchanged across a midnight crossing even though the resolved window shifted, serving a STALE
- * date window for the remainder of a long-lived session (finding 5).
+ * date window for the remainder of a long-lived session.
  *
  * The key is built from `resolveRelativeDate` itself — the SAME function `compileRowTest`
  * compiles its comparison bound from — so the key and the predicate cannot disagree. Stability
@@ -141,8 +141,8 @@ export function filterFingerprint(f: StudioFilterState): string {
     // changes across a midnight crossing — the entry would serve a stale window forever while
     // preset filters self-heal (their resolved `{from,to}` changes daily). Fold the resolved
     // bound into the fingerprint so a relative-valued filter re-computes when its window moves
-    // (finding 2.21) — including a relative bound nested inside a `between` filter's `{from,to}`
-    // value, not just a top-level relative value (finding 5). Preset (`dateRangePreset`) filters
+    //  — including a relative bound nested inside a `between` filter's `{from,to}`
+    // value, not just a top-level relative value. Preset (`dateRangePreset`) filters
     // are already resolved to concrete bounds in `f.value` before reaching here, so they need no
     // equivalent treatment.
     resolvedRelativeBound(f.value),

@@ -109,7 +109,7 @@ function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> 
   // so this call doesn't depend on `createStudioPipeline` unwrapping `doc`/`runtime`.
   //
   // `crossFilterAllPages`/`globalCrossFilterMode` MUST be forwarded, matching
-  // `generateInsight`'s `toPipelineState` (finding 2.4). `SYNTHETIC_WIDGET_ID`'s contract
+  // `generateInsight`'s `toPipelineState`. `SYNTHETIC_WIDGET_ID`'s contract
   // (above) is "page, date-range, cross-filter and interactive filters — the live view";
   // an omitted dashboard setting makes the pipeline resolve cross-filters as if the user
   // had never touched either toggle, which is NOT the live view. Concretely: with

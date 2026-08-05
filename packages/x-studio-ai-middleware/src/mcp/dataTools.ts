@@ -51,7 +51,7 @@ export function createDataToolHandlers(deps: DataToolDeps): Record<string, ToolH
   return {
     // `logger` is threaded into BOTH factories so a host/DB or render failure is
     // logged in full server-side while the model only sees the generic,
-    // correlation-id-bearing message (finding H4).
+    // correlation-id-bearing message.
     ...createUtilityToolHandlers({ recentChanges, logger }),
     ...createQueryToolHandlers({ stateBox, data, maxQueryRows, logger }),
   };

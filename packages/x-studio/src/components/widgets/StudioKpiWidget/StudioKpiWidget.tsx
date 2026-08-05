@@ -98,8 +98,8 @@ interface ComputePeriodValueParams {
    * `resolveChartRowsForAggregation` below so a filter on the anchor source's own fields (e.g. a
    * page filter `orders.status = 'paid'` while the value field is `orders.total`) is re-applied to
    * the anchor rows during re-anchoring — without it, L3's semi-join is the only enforcement and
-   * the expansion join resurrects every anchor row (paid + unpaid) for each surviving widget row
-   * (finding 1.2).
+   * the expansion join resurrects every anchor row (paid + unpaid) for each surviving widget row.
+   *
    */
   widgetFilters: StudioFilterState[];
 }
@@ -145,7 +145,7 @@ function computePeriodValue(
   } = params;
 
   if (measureExprField) {
-    // A root-level divide/modulo-by-zero yields `null` (finding 3.16) — propagate it, so the
+    // A root-level divide/modulo-by-zero yields `null` — propagate it, so the
     // caller suppresses the badge instead of comparing against a fabricated 0 (M3).
     return evaluateMeasure(measureExprField, periodRows, expressionFields);
   }
@@ -274,7 +274,7 @@ function computeFilterBasedTrend(params: {
   // `setDataSourceRows`), while the current headline value comes from adapter-fetched
   // rows — so the previous side would be 0 and the badge a bogus ∞ ("new") delta, or an
   // arbitrary number from stale preview rows. Show no badge instead of a wrong one on an
-  // adapter-backed source (finding 2.1). The fixed-period trend and the sparkline both
+  // adapter-backed source. The fixed-period trend and the sparkline both
   // window `currentRows` (adapter-aware) instead, so this is the only trend path affected.
   if (dataSource.adapter) {
     return null;
@@ -318,7 +318,7 @@ function computeFilterBasedTrend(params: {
     if (f.field) {
       kpiUsedFieldIds.add(f.field);
     }
-    // Mirror `useWidgetRows`'s `usedFieldIds` construction (finding 2.5): a rank-by-measure
+    // Mirror `useWidgetRows`'s `usedFieldIds` construction: a rank-by-measure
     // filter (e.g. "top 5 regions by revenue") reduces on `rankByField`, which need not
     // otherwise appear in the widget's config or in `f.field` (the group-by/dimension
     // column). Now that `scopedFilters` includes the widget rank filter (see above), its
@@ -355,7 +355,7 @@ function computeFilterBasedTrend(params: {
     operator: 'greater_than_or_equal',
     // `computePreviousPeriodRange` computes these boundaries in LOCAL time, so serialize
     // them via local Y/M/D components. `toISOString().slice(0, 10)` round-trips through
-    // UTC and day-shifts the window for non-UTC viewers (finding 1.12).
+    // UTC and day-shifts the window for non-UTC viewers.
     value: toLocalYmd(prevRange.start),
     operator2: 'less_than_or_equal',
     value2: toLocalYmd(prevRange.end),
@@ -379,7 +379,7 @@ function computeFilterBasedTrend(params: {
   // filter). For a grain-anchored KPI, `computePeriodValue` re-applies `widgetFilters` to the
   // anchor rows as a semi-join — so the unswapped current-window date filter would exclude
   // every previous-period anchor row, collapse `previousValue` to ~0, and pin the badge at a
-  // bogus "new"/∞ delta despite steady data (finding F4).
+  // bogus "new"/∞ delta despite steady data.
   const prevPeriodValueParams = { ...periodValueParams, widgetFilters: prevFilters };
   const previousValue = cachedCompute(
     prevRows,
@@ -451,8 +451,8 @@ function useKpiGrainAnchoredRows(
    * The widget's fully resolved/scoped filter set, matching the scope `currentRows` was
    * produced at (page + widget only, or all active scopes — see the caller). Threaded into
    * `resolveChartRowsForAggregation` so an anchor-source-scoped filter L3 enforced as a
-   * semi-join isn't silently re-widened back to every anchor row during re-anchoring
-   * (finding 1.2).
+   * semi-join isn't silently re-widened back to every anchor row during re-anchoring.
+   *
    */
   widgetFilters: StudioFilterState[],
 ): { grainAnchoredRows: Record<string, unknown>[]; isGrainAnchored: boolean } {
@@ -512,7 +512,7 @@ function useKpiGrainAnchoredRows(
  * re-sources on cross-source picks) has a value field that is NOT a column on the widget's own
  * `dataSource.fields` at all. Looking it up only against `dataSource.fields` + `expressionFields`
  * therefore returned `undefined`, silently dropping the field's format/currency/precision from
- * both the headline and the sparkline tooltip (finding 3.1). `analyzeChartSupport`'s precomputed
+ * both the headline and the sparkline tooltip. `analyzeChartSupport`'s precomputed
  * `fieldOwners` gives us the owning source so we can read the def off it — mirroring the map
  * widget's cross-source value-field def resolution.
  *
@@ -577,7 +577,7 @@ function useKpiValue(params: {
   /**
    * The value field's resolved def (own source → expression field → owning related source),
    * from `resolveKpiValueFieldDef`. Threaded in rather than re-derived so a grain-anchored
-   * value field keeps its format/currency/precision here AND in the sparkline (finding 3.1).
+   * value field keeps its format/currency/precision here AND in the sparkline.
    */
   valueFieldDef: StudioDataField | StudioExpressionField | undefined;
 }): {
@@ -609,7 +609,7 @@ function useKpiValue(params: {
     // enriched onto rows), so editing a formula changes `expressionFields` but busts
     // neither the rows reference nor a key that only carried the measure id — the
     // headline and trend would keep serving the pre-edit number while the fresh-rows
-    // trend picked up the new formula, producing an inconsistent delta (finding 1.10).
+    // trend picked up the new formula, producing an inconsistent delta.
     const measureKey = measureExprField
       ? `measure:${measureExprField.id}:${stableStringify(measureExprField.expression)}`
       : `agg:${aggregation}`;
@@ -618,7 +618,7 @@ function useKpiValue(params: {
     // allows it when an `adapter` is provided), and the adapter path never writes fetched
     // rows back to `dataSource.rows`; `currentRows` (from `useWidgetRows`) is populated in
     // that case. Gating on `dataSource.rows` alone kept the headline permanently "—" (and
-    // disabled the sparkline + trend) for a valid adapter-only config (finding T2.3).
+    // disabled the sparkline + trend) for a valid adapter-only config.
     if (
       (!dataSource?.rows && !dataSource?.adapter) ||
       (!config.kpiValueField && !isFieldlessCount)
@@ -647,7 +647,7 @@ function useKpiValue(params: {
         : computeAggregate(valueRows, valueField, aggregation),
     );
 
-    // A measure's root-level divide/modulo-by-zero yields `null` (finding 3.16) rather
+    // A measure's root-level divide/modulo-by-zero yields `null` rather
     // than a fabricated 0 — treat it the same as "no data" instead of silently coercing.
     if (value === null) {
       return {
@@ -662,7 +662,7 @@ function useKpiValue(params: {
     }
 
     // `valueFieldDef` already resolves the own-source / expression-field / owning-related-source
-    // fallback (finding 3.1) so a grain-anchored value field keeps its formatting here.
+    // fallback so a grain-anchored value field keeps its formatting here.
     const fieldDef = valueFieldDef;
     // avg of a boolean field is a 0–1 ratio; scale to 0–100 and display as percent
     const isBooleanAvg = fieldDef?.type === 'boolean' && aggregation === 'avg';
@@ -739,7 +739,7 @@ function useKpiSparkline(params: {
     // (`kpiUtils.ts`). `scopedFilters` is the caller-resolved, deferred-snapshot set (M6) —
     // `findDateFilter` inside the resolver performs no `pageId`/`disabled`/source check of its
     // own, so passing anything unscoped would let another page's (or a disabled) date filter
-    // drive the time axis (findings 2.5 / 2.17).
+    // drive the time axis.
     //
     // A CROSS-SOURCE date filter is no longer discarded here (M5). It used to fall through to
     // an often-unset `kpiSparklineField`, so a page filter on a related source's date column
@@ -788,7 +788,7 @@ function useKpiSparkline(params: {
         // `kpiSparklineField`, or a date filter on the widget's own source), it lives on the
         // widget's OWN (child) grain, NOT on the anchor rows. Reading it off grainAnchoredRows
         // would find the column absent on every row and silently render an empty sparkline
-        // (finding F5) — so fall back to the unanchored rows. Values may be inflated
+        //  — so fall back to the unanchored rows. Values may be inflated
         // (double-counted at the child grain), but the sparkline renders. The recommended fix
         // for users is to choose a time field from the same source as the value field.
         sparklineRows = timeFieldIsNative ? rows : grainAnchoredRows;
@@ -809,13 +809,13 @@ function useKpiSparkline(params: {
           undefined,
           // `scopedFilters` (computed above) matches the scope `rows` (currentRows) was
           // produced at, so an anchor-source-scoped filter L3 enforced as a semi-join isn't
-          // silently re-widened during this re-anchoring join (finding 1.2).
+          // silently re-widened during this re-anchoring join.
           scopedFilters,
         );
       }
 
       // Fold the measure's formula fingerprint into the key for the same reason the
-      // headline/trend keys do (finding 1.10): a measure is excluded from row-identity
+      // headline/trend keys do: a measure is excluded from row-identity
       // invalidation, so editing its formula leaves `sparklineRows` reference-equal —
       // without the fingerprint the sparkline keeps serving the pre-edit series.
       const measureFingerprint = measureExprField
@@ -835,7 +835,7 @@ function useKpiSparkline(params: {
             // A measure expression field aggregates itself via `evaluateMeasure` — its
             // values do not exist per-row, so `computeAggregate` reading
             // `row[measureId]` would silently produce a flat zero series for every
-            // bucket (finding 2.6). Route measures through the same evaluateMeasure
+            // bucket. Route measures through the same evaluateMeasure
             // seam the headline/trend already use.
             measureExprField,
             expressionFields,
@@ -921,7 +921,7 @@ function useKpiTrend(params: {
     // KPI's trend render the intersection of two filter states during a deferred window, and
     // `computeFilterBasedTrend` compare a new-filter previous value against an old-filter
     // `currentValue`. It still carries everything the local derivation enforced, including the
-    // widget-scoped Top-N rank filter (finding 3) — see `kpiScopedFilters` at the call site.
+    // widget-scoped Top-N rank filter — see `kpiScopedFilters` at the call site.
     const scopedFiltersForBadge = scopedFilters;
     const needsDateFilter =
       !hasFixedPeriodTrend &&
@@ -943,7 +943,7 @@ function useKpiTrend(params: {
       expressionFields,
       // `scopedFiltersForBadge` (computed above) matches the scope `currentRows` was produced
       // at, so re-anchoring inside `computePeriodValue` re-applies the same anchor-scoped
-      // filters the headline value uses (finding 1.2).
+      // filters the headline value uses.
       widgetFilters: scopedFiltersForBadge,
     };
 
@@ -957,8 +957,8 @@ function useKpiTrend(params: {
         // to claim); windowing it AGAIN with the fixed 30/90/365-day range double-restricts
         // the data — the previous window frequently falls entirely outside the (narrower)
         // active filter's range, collapsing to 0 rows and pinning the badge at a bogus
-        // ∞/"New" delta any time a date filter and a fixed-period trend are both configured
-        // (T2-2). Re-derive the widget's own rows from the raw, upstream-of-L3
+        // ∞/"New" delta any time a date filter and a fixed-period trend are both configured.
+        // Re-derive the widget's own rows from the raw, upstream-of-L3
         // `dataSource.rows` baseline instead, re-applying every OTHER currently active
         // filter (so dimensional filters like category/rank keep narrowing the trend
         // exactly like the headline does) but excluding any date/datetime-typed filter —
@@ -1032,7 +1032,7 @@ function useKpiTrend(params: {
           // it against that source's rows first, mirroring how the sparkline path resolves a
           // cross-source time field. Reading it straight off `allTimeRows` yields `undefined`
           // for every row, so `filterRowsByDateRange` matches nothing and the trend silently
-          // degenerates to null (finding 2.8). `resolveChartRowsForAggregation` re-anchors
+          // degenerates to null. `resolveChartRowsForAggregation` re-anchors
           // to the related source's grain and brings the value field along, so the returned
           // rows already carry the value natively — they must therefore be reduced WITHOUT
           // a second grain-anchor pass (isGrainAnchored: false), otherwise
@@ -1060,7 +1060,7 @@ function useKpiTrend(params: {
               // `nonDateScopedFilters` matches the (date-filter-free) scope `allTimeRows` was
               // produced at, so an anchor-source-scoped filter L3 enforced as a semi-join isn't
               // silently re-widened during this re-anchoring join, and the active date filter
-              // isn't silently reintroduced through this side channel either (finding 1.2, T2-2).
+              // isn't silently reintroduced through this side channel either.
               nonDateScopedFilters,
             );
             kpiTrend = computeFixedPeriodTrend(
@@ -1133,7 +1133,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // filter was never classified anchor-scoped (so it wasn't re-applied at L4 → resurrection) or,
   // once threaded, zeroed the KPI out because the anchor rows were never enriched with that
   // column; and the trend's previous-period `resolveRows` mis-routed related-source expression
-  // filters as native, dropping every previous-period row (bogus ∞/NaN deltas) (findings 1.3, 2.1).
+  // filters as native, dropping every previous-period row (bogus ∞/NaN deltas).
   const relevantSourceIds = React.useMemo(() => {
     const ids = new Set<string>();
     if (widget.sourceId) {
@@ -1171,14 +1171,14 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // widget's own config, matching the resolution every other widget kind uses
   // (`useWidgetRows`: `globalCrossFilterMode ?? config.crossFilterMode ?? default`) — ARCHITECTURE.md
   // documents no KPI-specific exception to that precedence, so omitting it here was a
-  // silent divergence rather than deliberate grand-total semantics (finding 3.8):
+  // silent divergence rather than deliberate grand-total semantics:
   // toggling the dashboard-wide mode should still override a KPI's own 'none' setting
   // exactly as it overrides a chart's/grid's, even though a KPI's OWN default (absent
   // any override) is 'none' rather than 'cross-highlight'.
   const globalCrossFilterMode = useStudioSelector(selectGlobalCrossFilterMode);
   // NOTE: the dashboard-level "cross-filter across all pages" toggle is deliberately NOT
   // subscribed to here any more. It used to be, so each of this file's five local
-  // `selectFiltersForWidget` calls could thread it (finding 2.2) — but every one of those
+  // `selectFiltersForWidget` calls could thread it — but every one of those
   // derivations now consumes `kpiScopedFilters` below, which `useWidgetRows` already built with
   // the toggle applied. Re-reading it here would be a second, independently-timed copy of a
   // scoping input, which is exactly the class of drift M6 removes.
@@ -1216,7 +1216,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
     // from the SAME deferred filter snapshot `currentRows` came from — rather than re-derived here
     // from the live `filters` array. During a deferred window the live-array derivation paired
     // stale L3 rows with a newer filter list, so the headline's L4 re-anchoring semi-join rendered
-    // the intersection of two filter states (a transient flash toward empty) (finding 2.1).
+    // the intersection of two filter states (a transient flash toward empty).
     resolvedFiltersAll,
     resolvedFiltersNoChartCross,
     // The widget's own WIDGET-scoped rank (Top-N) filters, from the same deferred snapshot.
@@ -1245,12 +1245,12 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   //     `selectFilters` array. A live re-derivation paired stale L3 rows with a newer filter
   //     list, so during a deferred window the L4 semi-join rendered the intersection of two
   //     filter states and `computeFilterBasedTrend` compared a new-filter previous value
-  //     against an old-filter current one (finding 2.1 / M6).
+  //     against an old-filter current one.
   //  2. It carries the widget's own Top-N rank filter, which `selectFiltersForWidget` excludes
   //     by default (it assumes the chart post-aggregation re-rank path a KPI does not have).
   //     `useWidgetRows` builds its exposed sets without `includeWidgetRank`, so the rank filter
   //     is appended here from the separately-exposed `widgetScopedRankFilters` — same deferred
-  //     snapshot, so property 1 is preserved (finding 3).
+  //     snapshot, so property 1 is preserved.
   //
   // `include` mirrors the row scope `currentRows` uses: 'no-chart-cross' →
   // filteredRowsNoChartCross, 'all' → effectiveRows. This is level 3 of the `'none'`-mode
@@ -1276,7 +1276,7 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   // The value field's resolved def (own source → expression field → owning related source).
   // Computed once here and shared by both the headline (useKpiValue) and the sparkline tooltip
   // so a grain-anchored value field on a related "many" source keeps its format/currency/
-  // precision in both places (finding 3.1).
+  // precision in both places.
   const valueFieldDef = React.useMemo(
     () =>
       resolveKpiValueFieldDef(
@@ -1340,8 +1340,8 @@ export const StudioKpiWidget = React.memo(function StudioKpiWidget(props: Studio
   });
 
   // Reuse the shared value-field def so the sparkline tooltip's format/currency/precision
-  // matches the headline — including for a measure/calculated field (finding 2.6) AND for a
-  // grain-anchored value field owned by a related source (finding 3.1).
+  // matches the headline — including for a measure/calculated field AND for a
+  // grain-anchored value field owned by a related source.
   const fieldDef = valueFieldDef;
 
   const filterSubtitle = React.useMemo(() => {

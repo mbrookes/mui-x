@@ -72,7 +72,7 @@ export function periodKeyToDateRange(key: string): { from: string; to: string } 
  * Everything else — non-ISO strings like `'1/15/2024'`, zone-less ISO datetimes, `Date`
  * objects, and numeric timestamps — is parsed in (or relative to) local time, so its
  * calendar date must be read from the LOCAL Y/M/D components rather than through UTC
- * (`toISOString`), which would day-shift for UTC+ viewers (finding 2.27).
+ * (`toISOString`), which would day-shift for UTC+ viewers.
  */
 function isZonedDateInput(raw: unknown): boolean {
   if (typeof raw !== 'string') {

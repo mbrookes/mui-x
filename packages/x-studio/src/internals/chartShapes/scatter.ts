@@ -21,7 +21,7 @@ export interface ScatterDataPoint {
  * exists to show, and a `'N/A'` cell passed a raw `NaN` straight into `@mui/x-charts`
  * (M13). Dropping matches every other chart family, which discards empty x values via
  * `isEmptyXValue` — a disagreement `chartShapes/heatmap.ts` already called out by name
- * (T3.2b) and fixed on its side.
+ *  and fixed on its side.
  *
  * `sizeValue` deliberately still falls back to 0 rather than dropping the point: a
  * missing bubble size is a missing *decoration*, and the x/y coordinate it carries is
@@ -90,7 +90,7 @@ export function prepareScatterDataGrouped(
    * Locale text bundle used to resolve the translated empty-category bucket label
    * (`chartEmptyCategoryLabel`) for a null/blank `colorField` value — mirrors how the
    * x-axis empty bucket is resolved elsewhere (`toXValue`/`isEmptyXValue`) instead of
-   * hardcoding the English `'(blank)'` literal (finding 4).
+   * hardcoding the English `'(blank)'` literal.
    */
   localeText?: Partial<StudioLocaleText>,
 ): ScatterSeriesData[] {

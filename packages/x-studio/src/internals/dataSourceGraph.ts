@@ -227,7 +227,7 @@ export function findJoinPath(
     }
   }
 
-  // filterSource IS the JUNCTION source of an M:N relationship touching widgetSource (finding 3).
+  // filterSource IS the JUNCTION source of an M:N relationship touching widgetSource.
   // A junction table is never a relationship's own `sourceId`/`targetId` (only its
   // `junctionSourceId`), so neither loop above ever matches it, and a filter whose
   // `filterSourceId` names the junction directly used to fall through to `findJoinPath` returning
@@ -383,7 +383,7 @@ export function resolveRows(
         // join(customers.name)`) makes that foreign source's rows a real dependency of this
         // resolved result even with NO cross-filter present. Without recording it,
         // `resolvedRowsCache` keeps serving stale joined values — and filters ON that expression
-        // column keep matching stale values — after the foreign source's rows refresh (finding 1.2).
+        // column keep matching stale values — after the foreign source's rows refresh.
         options?.collectJoinedSourceIds,
       );
 
@@ -498,7 +498,7 @@ export function resolveRows(
       undefined,
       // The foreign source's own expression columns may JOIN yet another source; record
       // those targets so a later refresh of that transitive source also invalidates the L3
-      // entry (finding 1.2).
+      // entry.
       options?.collectJoinedSourceIds,
     );
     // ONE conjunctive pass: a foreign row must satisfy EVERY predicate targeting this source to
@@ -576,7 +576,7 @@ export function enrichRowsWithRelatedFields(
    * Out-param: every foreign source id whose rows this enrichment actually reads (a related
    * source for a one-hop display column, or the remote endpoint + junction source for a
    * two-hop many-to-many column) is added to it. Lets a caller building its own dependency
-   * cache (the L4 `rcfaCache`) invalidate when those foreign rows change (finding 1.5).
+   * cache (the L4 `rcfaCache`) invalidate when those foreign rows change.
    */
   collectReadSourceIds?: Set<string>,
 ): Row[] {
@@ -651,7 +651,7 @@ export function enrichRowsWithRelatedFields(
         // datetime dimension pulled in from a one-hop related source stays a raw `Date`/non-
         // canonical string here, and the filter engine's local-calendar-day policy and the chart-
         // grouping engine's UTC-component policy can bucket the identical value into different
-        // days for a non-UTC viewer (finding 4).
+        // days for a non-UTC viewer.
         relatedRows: getCachedNormalizedDataSource(relatedSource).rows ?? [],
       });
       resolved = true;
@@ -708,7 +708,7 @@ export function enrichRowsWithRelatedFields(
         junctionWidgetField,
         junctionTargetField,
         targetJoinField,
-        // Same L1 date normalization as the direct one-hop case above (finding 4).
+        // Same L1 date normalization as the direct one-hop case above.
         targetRows: getCachedNormalizedDataSource(targetSource).rows ?? [],
       });
       break;
@@ -741,7 +741,7 @@ export function enrichRowsWithRelatedFields(
     } else {
       // Build: widgetJoinValue → first matching target field value via junction. Same L1 date
       // normalization as the target/related rows above — a junction-owned date/datetime column
-      // read as a display field must canonicalize identically (finding 4).
+      // read as a display field must canonicalize identically.
       const junctionDataSource = dataSources[need.junctionSourceId];
       const junctionRows = junctionDataSource
         ? (getCachedNormalizedDataSource(junctionDataSource).rows ?? [])

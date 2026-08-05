@@ -83,7 +83,7 @@ export function failClosedBuilder<T extends object>(target: T, label: string): T
  * Knex's `.timeout()`.
  *
  * The doubles used to declare `timeout() { return qb; }` — accepting ANY
- * argument, including none. That made the statement-timeout wiring (F2)
+ * argument, including none. That made the statement-timeout wiring
  * unobservable: dropping the `timeoutMs` argument, or passing `undefined`,
  * looked exactly like passing 30_000.
  */
@@ -149,7 +149,7 @@ export function wherePredicate(
     case 'like':
       // `applyPredicate`'s `like` branch emits the 3-arg form rather than
       // `.whereLike` — Knex's MySQL compiler appends `COLLATE utf8_bin` to
-      // `whereLike` only (F1). Without this branch the mock silently dropped
+      // `whereLike` only. Without this branch the mock silently dropped
       // every `like` filter and returned the unfiltered table.
       return (row) => likeMatches(row[key], value as string);
     default:
@@ -239,7 +239,7 @@ interface MockQueryBuilder {
   orderBy(column: string, dir?: string): MockQueryBuilder;
   limit(n: number): MockQueryBuilder;
   /**
-   * Knex's per-query statement timeout (F2). Applied by `runBounded` /
+   * Knex's per-query statement timeout. Applied by `runBounded` /
    * `runPreflight` / the mutation dispatch helper to EVERY round-trip, so a mock
    * that lacks it fails with "timeout is not a function" — which is deliberate:
    * a builder this mock does not model must not silently pass.
@@ -280,7 +280,7 @@ export function rowKeyOf(column: string): string {
  * Model SQL's `LIKE` pattern semantics (`%` → any run, `_` → any single char).
  *
  * Shared by the 3-arg `.where(column, 'like', pattern)` form the pipeline now
- * emits (F1) and the legacy `.whereLike(column, pattern)` builder this mock still
+ * emits and the legacy `.whereLike(column, pattern)` builder this mock still
  * exposes, so the two can never disagree about what a pattern matches.
  */
 export function likeMatches(rowValue: unknown, pattern: string): boolean {
@@ -438,7 +438,7 @@ export function createMockDb(
       },
       havingRaw(expr: string, bindings: unknown[]) {
         // The handler now re-emits the aggregate EXPRESSION rather than the SELECT
-        // output alias for cross-dialect portability (finding 2.5): the raw shape is
+        // output alias for cross-dialect portability: the raw shape is
         // `FUNC(??) op ?` with bindings `[physicalColumn, value]`. The mock keeps its
         // aggregation results keyed by ALIAS, so resolve the referenced aggregate
         // back to its alias by matching (func, column) against the recorded
@@ -552,7 +552,7 @@ export function createMockDb(
       },
       // Recorded-and-ignored: this mock resolves synchronously, so there is
       // nothing to time out. Its presence is what lets the real code path apply
-      // the statement timeout (F2) without the mock throwing — but the ARGUMENTS
+      // the statement timeout without the mock throwing — but the ARGUMENTS
       // are checked, because a `timeout()` that ignores them cannot tell a real
       // 30s bound apart from `timeout(undefined)`.
       timeout(ms: number, opts?: { cancel?: boolean }) {
@@ -664,7 +664,7 @@ export function createMockDb(
                   // Wildcard projection: a bare `*` or a table-qualified `table.*`
                   // selects EVERY column of the row (mirroring SQL). `executeForTier`
                   // emits `table.*` for the `columnAllowlist[table] === ['*']` opt-out
-                  // (finding 1.1) — for a single-table query that returns the whole
+                  //  — for a single-table query that returns the whole
                   // row, exactly like the previous bare-SELECT-* behavior.
                   Object.assign(projected, row);
                 } else {

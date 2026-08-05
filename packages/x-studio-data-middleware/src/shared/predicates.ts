@@ -38,7 +38,7 @@ import { qualifyAgainst } from './columnValidation';
 /**
  * Resolve ONE security dimension's column name from a per-table override.
  *
- * Three-way semantics (finding 2.1) — an override value distinguishes THREE
+ * Three-way semantics — an override value distinguishes THREE
  * intents, which a plain `?? fallback` cannot:
  *   - a `string`    → this table renames the dimension's column; use it.
  *   - `null`        → DROP this dimension for this table (no predicate emitted) —
@@ -73,8 +73,8 @@ export const SAFE_OPERATORS = new Set<FilterPredicate['operator']>([
 
 /**
  * The comparison operators that reach Knex's `.where(column, op, value)` with a
- * single scalar value. Their `value` shape is runtime-guarded in `applyPredicate`
- * (finding 3.1), mirroring the existing `in` (array) and `between` (2-tuple) guards.
+ * single scalar value. Their `value` shape is runtime-guarded in `applyPredicate`,
+ * mirroring the existing `in` (array) and `between` (2-tuple) guards.
  */
 const SCALAR_COMPARISON_OPERATORS = new Set<FilterPredicate['operator']>([
   'eq',
@@ -148,7 +148,7 @@ function describeElementShape(value: unknown): string {
 /**
  * Look up a table's per-table security-column override, own-property-gated.
  *
- * SECURITY (finding 2.2) — `table` is client JSON (`descriptor.table` /
+ * SECURITY — `table` is client JSON (`descriptor.table` /
  * `joins[].table`). A bare `config.perTable[table]` reads the prototype chain, so a
  * table named like an `Object.prototype` member (`constructor`, `toString`,
  * `hasOwnProperty`, `__proto__`, …) would resolve `override` to a truthy INHERITED
@@ -203,7 +203,7 @@ function resolveSecurityColumns(
  * See {@link resolveSecurityColumns} for the tenant/region/department resolution
  * itself.
  *
- * WHOLE-TABLE OPT-OUT (finding 2.3) — `perTable[table] = null` returns an empty
+ * WHOLE-TABLE OPT-OUT — `perTable[table] = null` returns an empty
  * `SecurityColumns` (no predicates), so a host-declared shared/lookup table behaves
  * identically whether it is the PRIMARY table or a JOINED one. See the resolver body
  * and `resolveJoinSecurityColumns`.
@@ -214,7 +214,7 @@ export function resolvePrimarySecurityColumns(
   resolvedTenantColumn: string | undefined,
 ): SecurityColumns {
   const override: SecurityColumnOverride | null | undefined = lookupPerTableOverride(config, table);
-  // Whole-table opt-out (finding 2.3): `perTable[table] = null` is the host's
+  // Whole-table opt-out: `perTable[table] = null` is the host's
   // explicit "shared/lookup table with no security columns" sentinel. The joined
   // resolver already honors it; the primary resolver MUST too, or a shared table
   // (e.g. `country_codes`) queried AS the primary table — or mutated — emits a
@@ -248,7 +248,7 @@ export function resolvePrimarySecurityColumns(
  * (the tenant column derived from the caller's `TenancyConfig`, matching the
  * primary table).
  *
- * PER-DIMENSION OPT-OUT (finding 2.1) — a joined table that carries `tenant_id`
+ * PER-DIMENSION OPT-OUT — a joined table that carries `tenant_id`
  * but has NO region/department column (e.g. an audit-log or line-item table) sets
  * an individual dimension to `null` — `perTable[table] = { region: null,
  * department: null }` — to KEEP tenant scoping while dropping the region/department
@@ -343,7 +343,7 @@ export function applySecurityPredicates(
  * Apply the row-level security predicates for one table INSIDE a Knex JOIN's ON
  * clause (rather than the WHERE clause).
  *
- * OUTER-JOIN CORRECTNESS (finding 2.3) — a joined table's security predicate in
+ * OUTER-JOIN CORRECTNESS — a joined table's security predicate in
  * the WHERE clause silently degrades a LEFT/RIGHT JOIN to an INNER JOIN: for a
  * `LEFT JOIN customers`, an `orders` row with no matching customer produces a
  * NULL-extended row whose `customers.tenant_id` is NULL, so a
@@ -398,7 +398,7 @@ export function applySecurityPredicatesToJoinOn(
  * The fix keeps `table`'s security predicate STRICT when `table` is genuinely
  * present — a wrong-tenant row must still be excluded, so this deliberately
  * does NOT just move the predicate into `table`'s own ON clause the way a LEFT
- * join's nullable side does (finding 2.3 above): a right join's ON clause never
+ * join's nullable side does: a right join's ON clause never
  * filters its OWN guaranteed side, so that would let a mismatched-tenant `B`
  * row survive and reopen the cross-tenant fan-out those ON-clause predicates
  * exist to close. Instead this ADDS an `OR <nullIndicatorColumn> IS NULL`
@@ -502,7 +502,7 @@ function willEmitSecurityPredicates(
 // The callers (`emitEq`/`emitIn`) supply only the two Knex primitives — `.where`/
 // `.andOnVal` and `.whereIn`/`.andOnIn` respectively — that differ between clauses.
 //
-// TABLE QUALIFICATION goes through the shared `qualifyAgainst` (F3), like every
+// TABLE QUALIFICATION goes through the shared `qualifyAgainst`, like every
 // other column reference in this package that reaches raw SQL. All three
 // dimensions used to build their reference with a bare
 // `${table}.${securityColumns.X}` template — a second, divergent copy of the
@@ -598,7 +598,7 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
 
   const { column, operator, value } = predicate;
 
-  // Runtime-guard the scalar shape (finding 3.1) for the comparison operators that
+  // Runtime-guard the scalar shape for the comparison operators that
   // reach `.where(column, op, value)`. `FilterPredicate.value` is client JSON, so
   // its TS type is not a runtime guarantee: an array reaches Knex as an unexpected
   // multi-binding, and an object/undefined as a confusing DB error. These operators
@@ -636,7 +636,7 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       }
       break;
     case 'in':
-      // Runtime-guard the array shape (finding 3.1). `FilterPredicate.value` is
+      // Runtime-guard the array shape. `FilterPredicate.value` is
       // client JSON, so its TS type is not a runtime guarantee: a bare string
       // (`"abc"`) has a truthy non-zero `.length` and would reach `whereIn` as a
       // non-array, and a number/object has no meaningful `.length` at all. Fail
@@ -701,7 +701,7 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.where(column, '>=', value);
       break;
     case 'like':
-      // Runtime-guard the string shape (finding 3.1). A `like` expects a text
+      // Runtime-guard the string shape. A `like` expects a text
       // pattern; a non-string (`['a','b']`, an object, a number) reaches Knex
       // as a confusing DB error. Fail closed with a clear message, mirroring the
       // `in`/`between` guards. The pattern still stays parameterized.
@@ -714,7 +714,7 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
             `Provide a string pattern (e.g. { operator: "like", value: "%abc%" }).`,
         );
       }
-      // THE 3-ARG `.where(col, 'like', ?)` FORM, NOT `.whereLike(col, ?)` (F1).
+      // THE 3-ARG `.where(col, 'like', ?)` FORM, NOT `.whereLike(col, ?)`.
       // The two look interchangeable and compile identically on pg and
       // better-sqlite3, but Knex's MySQL query compiler hard-codes a trailing
       // `COLLATE utf8_bin` on `whereLike`
@@ -737,7 +737,7 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
       query.where(column, 'like', value);
       break;
     case 'between': {
-      // Runtime-guard the array shape (finding 3.1). A `between` needs exactly two
+      // Runtime-guard the array shape. A `between` needs exactly two
       // bounds `[lo, hi]`; a non-array (or a short array) destructures to
       // `undefined` bounds and emits malformed SQL. Fail closed with a clear
       // message. Bounds still stay parameterized.
@@ -774,7 +774,7 @@ function applyPredicate(query: any, predicate: FilterPredicate, mode: 'read' | '
     }
     // Every reachable `operator` is a member of `SAFE_OPERATORS` (checked above,
     // throwing otherwise) and has an explicit `case` here, so this arm is
-    // unreachable in practice (finding 3.2). Kept only to satisfy the `eslint`
+    // unreachable in practice. Kept only to satisfy the `eslint`
     // `default-case` rule, which requires an explicit default.
     default:
       break;

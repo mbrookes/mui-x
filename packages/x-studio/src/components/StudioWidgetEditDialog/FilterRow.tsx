@@ -355,7 +355,7 @@ export function FilterRow(props: {
         // Dedicated from/to editor: a `between` value is a `{ from, to }` object, so the
         // generic single-value TextField would stringify it to `[object Object]` and the
         // first keystroke would clobber it into a plain string (1.10). This dialog is the
-        // lower-fidelity surface (finding 2.3), so a from/to pair of plain inputs — number
+        // lower-fidelity surface, so a from/to pair of plain inputs — number
         // inputs for numeric fields — is the appropriately-scoped fix; a full date-range
         // picker unification is out of scope here.
         <Stack direction="row" spacing={1} sx={{ flex: 1, minWidth: 80 }}>

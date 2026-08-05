@@ -49,7 +49,7 @@ export interface BlendedSeriesRows {
  * "single scoping authority", and the real per-source expression-field list) rather
  * than hand-rolled matching, so a foreign series can't disagree with the primary
  * series about which filters apply, whether a dashboard date-range preset is
- * resolved, or whether a calculated field renders (finding 2.2):
+ * resolved, or whether a calculated field renders:
  * - Only page-scoped and dashboard-date-range filters constrain a foreign series
  *   (widget-specific, cross-filter, interactive and rank filters are tied to the
  *   primary widget/source) — achieved by scoping each foreign source's filters with
@@ -80,7 +80,7 @@ export function useBlendedSeriesRows(
     [config.chartType, blendSeries, widget.sourceId],
   );
 
-  // NOTE (finding 3.3): this reads the LIVE `selectFilters` array, whereas the primary series'
+  // NOTE: this reads the LIVE `selectFilters` array, whereas the primary series'
   // rows come from `useWidgetRows`' DEFERRED (`useDeferredValue`) filter snapshot. During a
   // deferred window a mixed chart can therefore render its primary and foreign series in two
   // filter states for a frame. Reconciling this would require threading `useWidgetRows`' deferred
@@ -163,8 +163,8 @@ export function useBlendedSeriesRows(
       // `include: 'no-cross'` yields exactly "page + dashboard-date-range for this
       // source/page", matching this module's documented contract. This also fixes the
       // cross-page leak (`scope.pageId` is honored) and resolves any dashboard
-      // date-range preset to concrete bounds instead of leaving it null/incomplete
-      // (finding 2.2, facets a & b).
+      // date-range preset to concrete bounds instead of leaving it null/incomplete.
+      //
       //
       const sourceExpressionFields = foreignExpressionFields.filter((ef) => ef.sourceId === sid);
       // A foreign series is aggregated independently in its own source (no cross-source
@@ -177,7 +177,7 @@ export function useBlendedSeriesRows(
       // check in `dataSourceGraph.ts`'s L3 cross-filter routing). A page filter authored
       // against a field that only exists on the widget's primary source (or some other
       // source entirely) must stay fully unconstrained here rather than being evaluated
-      // against `undefined` and spuriously filtering out every row (finding 2.3).
+      // against `undefined` and spuriously filtering out every row.
       //
       // A field's mere existence on this source is not sufficient on its own: a filter
       // with an explicit `filterSourceId` names the exact source it was authored against
@@ -187,7 +187,7 @@ export function useBlendedSeriesRows(
       // (`status`, `date`, `total`, ...), so without this check a filter authored against
       // source A would be matched purely by field-name collision and hard-filtered
       // against source B's same-named column here — silently disagreeing with the primary
-      // series' relationship-aware scoping (finding 2.4). The expression branch already
+      // series' relationship-aware scoping. The expression branch already
       // implies ownership via `ef.sourceId === sid`, so only the physical-field branch
       // needs the guard.
       const applicable = selectFiltersForWidget(filters, {
@@ -247,8 +247,8 @@ export function useBlendedSeriesRows(
       map.set(
         spec.sid,
         // Real per-source expression fields (not `[]`) so a calculated field used as a
-        // foreign blended series is L2-enriched instead of rendering as all zeros
-        // (finding 2.2, facet c).
+        // foreign blended series is L2-enriched instead of rendering as all zeros.
+        //
         resolveRowsCached(
           normalized.rows ?? [],
           spec.sid,
@@ -295,7 +295,7 @@ export function useBlendedSeriesRows(
         // Thread the real expression fields (and relationships) through so a foreign
         // expression-field series is both widened into the server SELECT
         // (`expandToNativeFields`) and available for the post-fetch enrichment pass
-        // below (finding 2.2, facet c).
+        // below.
         // `crossFilterAllPages` (7th arg) must be passed, not defaulted. It defaults to
         // `false`, and omitting it means a cross-page cross-filter is not counted as an
         // incoming filter — so the server returns an AGGREGATED response for a column that
@@ -345,7 +345,7 @@ export function useBlendedSeriesRows(
 
   // react-doctor-disable-next-line react-doctor/no-cascading-set-state -- async fetch results are merged per-source as they resolve
   React.useEffect(() => {
-    // Prune stale async entries whose source is no longer adapter-backed (finding 2.2). When a
+    // Prune stale async entries whose source is no longer adapter-backed. When a
     // foreign source drops its adapter (`setDataSourceAdapter(sid, undefined)` or a `dataAdapters`
     // swap dropping the key), it disappears from `foreignDescriptors` — but its last fetched rows
     // would otherwise linger in `asyncForeignRows` forever and, since the merge applies async AFTER
@@ -374,7 +374,7 @@ export function useBlendedSeriesRows(
     // Adapters return physical columns only — the server can't compute a calculated
     // field. Enrich each source's returned rows with its own expression fields here
     // (mirroring `useWidgetRows`' `enrichedAdapterRows`) so a foreign expression-field
-    // series doesn't render as all zeros (finding 2.2, facet c).
+    // series doesn't render as all zeros.
     // L1 BEFORE L2, exactly as the sync branch above does (`getCachedNormalizedDataSource`
     // at the `normalized` binding): adapter rows arrive in whatever shape the host's driver
     // produced, and the filter engine's local-calendar-day policy disagrees with chart
@@ -439,7 +439,7 @@ export function useBlendedSeriesRows(
           // *successful* fetch for this `sid` produced. If a refetch triggered by a new
           // descriptor then failed, the blended series would silently keep rendering
           // pre-filter/pre-regroup rows forever, with the primary series reflecting the
-          // new filters (finding 2.4). Clear the stale entry so the series renders empty
+          // new filters. Clear the stale entry so the series renders empty
           // (via `foreignRowsBySource.get(sid) ?? []`) rather than arbitrarily-stale data.
           if (live.current) {
             setAsyncForeignRows((prev) => {

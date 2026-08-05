@@ -117,7 +117,7 @@ const SAFE_MAP_AGGREGATIONS = new Set<string>(['sum', 'count', 'avg', 'min', 'ma
 // The caller pre-coerces each cell via the shared `coerceAggregateValue` policy
 // (null/undefined/NaN/non-numeric skipped, booleans → 0/1), so this only reduces the
 // clean numeric set — routed through the shared reducer so map, KPI, pivot and chart
-// aggregation share one policy (findings 1.4 / 2.1).
+// aggregation share one policy.
 function aggregateValues(values: number[], fn: AggFn): number | null {
   return aggregateNumbers(values, fn);
 }
@@ -187,7 +187,7 @@ export function StudioMapWidget({
   // Subscribe to expression fields for the widget's own source AND every one-hop related
   // source, so a related-source *calculated* value field (offered by `MapSetupPanel` from
   // every visible source) can be resolved to a field def — mirrors the own+related scoping
-  // `useWidgetRows` / the grid already use (finding 1.1).
+  // `useWidgetRows` / the grid already use.
   const relevantSourceIds = React.useMemo(
     () =>
       widget.sourceId ? getReachableSourceIds(widget.sourceId, relationships) : new Set<string>(),
@@ -206,7 +206,7 @@ export function StudioMapWidget({
   );
   const valueSourceId = config.mapValueSourceId;
 
-  // Fan-in dedup key (finding 1.1): when the value field lives on a many-to-one *related*
+  // Fan-in dedup key: when the value field lives on a many-to-one *related*
   // source, `useWidgetRows`' cross-source enrichment copies that one-side value onto EVERY
   // many-side widget row that joins to it. Reducing `row[valueField]` once per widget row
   // would then multiply the related value by the join's fan-out degree — silently inflating
@@ -229,7 +229,7 @@ export function StudioMapWidget({
       // Cross-source value field: prefer the related source's physical field, then fall back to
       // its own (non-measure) expression fields — so a related-source *calculated* value field
       // keeps its format/currency/precision in the tooltip + legend, mirroring the same-source
-      // fallback below and the grid's `resolveCrossSourceFieldDefs` expression fallback (finding 1.1).
+      // fallback below and the grid's `resolveCrossSourceFieldDefs` expression fallback.
       // `valueSourceId` is doc-authored (`config.mapValueSourceId`/`config.mapCountrySourceId`),
       // so guard the record index against inherited keys: a key like "toString"/"constructor"
       // would otherwise resolve a function off `Object.prototype` instead of "not found"
@@ -359,13 +359,13 @@ export function StudioMapWidget({
     }
     const groups = new Map<string, number[]>();
     // 'count' means COUNT(*) semantics — every row for a region counts, regardless
-    // of whether its measure value is null/non-numeric (finding 2.7), so this is
+    // of whether its measure value is null/non-numeric, so this is
     // incremented unconditionally, independent of the null-skipped `groups` bucket
     // used by sum/avg/min/max below. Without it, a region whose values are all
     // null/non-numeric disappeared from the map entirely under 'count'.
     const rowCounts = new Map<string, number>();
     const rawKeys = new Map<string, unknown[]>();
-    // Fan-in dedup (finding 1.1): for a cross-source (many-to-one) value field, track the
+    // Fan-in dedup: for a cross-source (many-to-one) value field, track the
     // set of related-record FK keys already counted per region so a related row fanned out
     // across several widget rows is aggregated exactly once per region — the map analogue of
     // the grid's `symmetricAggregate`. `null` (same-source value field) means no dedup.
@@ -409,7 +409,7 @@ export function StudioMapWidget({
       rowCounts.set(id, (rowCounts.get(id) ?? 0) + 1);
 
       const rawValue = valueField != null ? lookup(row, valueField) : 1;
-      // Shared null-skip + boolean-coercion policy (finding 1.4): null/undefined/NaN and
+      // Shared null-skip + boolean-coercion policy: null/undefined/NaN and
       // non-numeric values are skipped (not coerced to 0), booleans become 0/1 — matching
       // the KPI widget's `computeAggregate` so the same measure agrees across widget kinds.
       const numValue = coerceAggregateValue(rawValue);
@@ -450,7 +450,7 @@ export function StudioMapWidget({
       return [0, 1];
     }
     // Reduce through the shared `aggregateNumbers` loop rather than spreading into
-    // `Math.min(...values)` / `Math.max(...values)` (finding M5). `regionData` is keyed by
+    // `Math.min(...values)` / `Math.max(...values)`. `regionData` is keyed by
     // `normalize(row[countryField])` over ALL rows BEFORE any feature join, so it is bounded by
     // the number of DISTINCT normalized region keys in the data — not by the feature count of
     // the geography. A host-registered geography (`StudioMapGeographyDefinition.normalizer`)

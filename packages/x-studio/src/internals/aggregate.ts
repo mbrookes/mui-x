@@ -35,7 +35,7 @@ import { evaluateMeasure } from '../utils/expressionEvaluator';
  * Aggregation functions supported over a value set.
  *
  * The `count` family carries three DIFFERENT questions, and every path in the package
- * must answer each of them the same way (finding M8):
+ * must answer each of them the same way:
  * - `count` — `COUNT(*)`: how many ROWS landed here, regardless of whether this
  *   particular measure had a usable value in them. This is the semantic the KPI
  *   (`computeAggregate`), the grid footer/group-by (`gridGrouping.aggregateValues`),
@@ -89,7 +89,7 @@ export type AggregateFn =
  *   with the `Number.isNaN(Number(v))` pre-detect the chart aggregators use to
  *   decide whether a field is numeric. Without this, a numeric-string measure
  *   passed the pre-detect as "numeric" but was then rejected by this coercion,
- *   skipping every value and rendering flat-zero charts (finding 1.6). Empty /
+ *   skipping every value and rendering flat-zero charts. Empty /
  *   whitespace-only strings are NOT numeric (`Number('')` is `0`), so they skip;
  * - everything else (null, undefined, NaN, non-numeric strings, objects) → `null`
  *   (skipped).
@@ -191,7 +191,7 @@ export function countDistinct(values: Iterable<unknown>): number {
 
 /**
  * Aggregate one RAW cell value per row — the single place that decides what each
- * aggregation NAME means over a row set (finding M8).
+ * aggregation NAME means over a row set.
  *
  * Every whole-row-set reducer in the package routes through this, so `count` can no
  * longer mean `COUNT(*)` on one path (KPI / grid footer / chart bars) and "count of
@@ -314,7 +314,7 @@ export type RankDirection = 'top' | 'bottom';
  * filter (`filterUtils.ts`), which used to seed each group at a concrete `0` instead. That
  * made an all-null group win a "Top 1 by profit" against two genuinely negative groups on
  * every row-level widget (grid/KPI/map/pivot/heatmap/funnel), while the bar chart's
- * post-aggregation ranker — already null-aware — picked the real winner (finding M9).
+ * post-aggregation ranker — already null-aware — picked the real winner.
  */
 export function reduceRankScore(
   values: Iterable<number | null | undefined>,

@@ -87,7 +87,7 @@ const STRING_AGGREGATIONS: StudioGridSummaryAggregation[] = [
  * keeping them around would leave the widget referencing fields that don't
  * exist. Grid-level display settings that are independent of which fields are
  * selected (e.g. `gridSortDirection`, `gridHeight`) are NOT in this list and
- * must survive a source change (finding 3.6).
+ * must survive a source change.
  */
 const FIELD_BOUND_GRID_CONFIG_KEYS = [
   'columns',
@@ -278,7 +278,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   // `allSelectableFields` (`buildSourceFieldEntries(..., { expression: 'non-measure' })`)
   // because a measure aggregates the whole dataset and has no per-row value, so it can never
   // be a table column. They are listed — disabled — in the "Add column" menu so a measure
-  // created from the calculated-column dialog is visibly accounted for (finding 3).
+  // created from the calculated-column dialog is visibly accounted for.
   const measureFieldsForSource = React.useMemo(() => {
     if (!widget?.sourceId) {
       return [];
@@ -362,7 +362,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
   }, [primaryFields, source, widget?.sourceId]);
 
   // Full cross-source field catalog, used to detect widget-scoped filters that no longer
-  // resolve after a source switch (finding 1.5).
+  // resolve after a source switch.
   const fieldCatalog = React.useMemo(
     () => buildFieldCatalog(dataSources, expressionFields),
     [dataSources, expressionFields],
@@ -370,7 +370,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
 
   // Widget-scoped filters (created via `WidgetFiltersPanel`) reference their own field
   // ids, which no longer resolve once the grid points at a different source — a stale
-  // filter would then silently exclude every row (finding 1.5), the same rationale
+  // filter would then silently exclude every row, the same rationale
   // `clearFieldBoundGridConfig` applies to field-bound config keys. Fold the removal of
   // those filters into the SAME `updateWidget` commit as the source switch so the whole
   // change is a single undo step.
@@ -385,7 +385,7 @@ export function GridSetupPanel(props: { widgetId: string }) {
     // render, so clicking the currently-selected option still fires `onChange` with a
     // different object reference. Without this guard that "no-op" click wiped every
     // field-bound column/sort/group-by/aggregation/conditional-format setting in one
-    // undoable commit (finding 1.13) — mirrors the guard `KpiSetupPanel` already has.
+    // undoable commit — mirrors the guard `KpiSetupPanel` already has.
     if (nextSourceId === widget?.sourceId) {
       return;
     }

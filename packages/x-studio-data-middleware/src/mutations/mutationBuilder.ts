@@ -98,7 +98,7 @@ function resolvePrimaryCols(
  *    subsumes `assertSingleDotReference` for this reference class, which is why
  *    the shared shape check below adds nothing on that axis.
  * 2. **The shared identifier-shape checks** (`assertColumnReferenceShape`) —
- *    length cap and the implicit-`" as "`-alias rejection (finding L1). These
+ *    length cap and the implicit-`" as "`-alias rejection. These
  *    used to run ONLY inside `checkColumnAgainstAllowlist`, i.e. only when
  *    `options.writableColumns` happened to be configured, making them the one
  *    conditionally-run identifier check in the package: every sibling entry point
@@ -137,7 +137,7 @@ function assertValueKeysWellFormed(values: Record<string, unknown>, table: strin
  *
  * Deliberately the same primitive allowlist `shared/predicates.ts`'s
  * `isScalarComparisonValue` applies to READ filter values — the write path had
- * no value-shape guard at all, which is the asymmetry this closes (finding M2).
+ * no value-shape guard at all, which is the asymmetry this closes.
  * `null` is accepted (writing SQL NULL is a legitimate mutation); `Date` is
  * accepted because a date-typed column value legitimately flows through as a
  * `Date` and every driver binds it natively.
@@ -164,7 +164,7 @@ function describeMutationValueShape(value: unknown): string {
 }
 
 /**
- * Reject any non-scalar value in a mutation's `values` (finding M2).
+ * Reject any non-scalar value in a mutation's `values`.
  *
  * Before this check, `values` keys were validated three ways (writable-column
  * allowlist, row-level-security scope, qualified-key rejection) but the VALUES
@@ -208,7 +208,7 @@ function validateMutationValues(values: Record<string, unknown>, table: string):
  *   present in `values` must fall inside the caller's scope — otherwise a
  *   region-5 user could stamp a row into region 6.
  *
- * INFORMATION DISCLOSURE (finding L3): every throw below reaches the client
+ * INFORMATION DISCLOSURE: every throw below reaches the client
  * verbatim (`handleMutation` → `sanitizeBoundaryError` passes `MUI X`-prefixed
  * messages through unchanged), so none of them names the row-level-security
  * COLUMN. Naming it turned a rejected write into a schema oracle: probing
@@ -472,10 +472,10 @@ export function validateMutation(
   // Value-key SHAPE (qualified key, length, implicit `" as "` alias) is checked
   // before any scope check — a qualified key is malformed input and would
   // otherwise dodge the bare-name scope matching. UNCONDITIONAL, unlike the
-  // writable-columns MEMBERSHIP check at the end of this function (finding L1).
+  // writable-columns MEMBERSHIP check at the end of this function.
   assertValueKeysWellFormed(values, descriptor.table);
   validateSecurityColumnValues(values, claims, cols, descriptor.table);
-  // Value SHAPE is validated alongside value KEYS (finding M2) — the read path
+  // Value SHAPE is validated alongside value KEYS — the read path
   // fail-closes on a non-scalar filter value, and the write path now does too.
   // Ordered AFTER the row-level-security check on purpose: a non-scalar in a
   // SECURITY column has its own, more specific rejection there ("must be a
@@ -483,7 +483,7 @@ export function validateMutation(
   // value-shape message.
   validateMutationValues(values, descriptor.table);
 
-  // INSERT-only fail-closed region/department scope (finding 2.2): a
+  // INSERT-only fail-closed region/department scope: a
   // region/department-restricted caller must produce an in-scope row rather than
   // omit the column and mint an out-of-scope (region-NULL) row. The stamps are
   // applied by `buildInsertMutation`; here we only want the fail-closed throw, so
@@ -527,7 +527,7 @@ export function buildInsertMutation(
   const values: Record<string, unknown> = { ...descriptor.values };
   const cols = resolvePrimaryCols(descriptor.table, policy);
 
-  // Defense-in-depth (finding 3.2): re-run the present-value row-level-security
+  // Defense-in-depth: re-run the present-value row-level-security
   // scope check at the builder boundary, symmetric with `buildUpdateMutation`, so a
   // direct caller that skipped `validateMutation` cannot smuggle an out-of-scope
   // PRESENT value (e.g. `{ region_id: 999 }` from a region-5 caller, or a
@@ -536,7 +536,7 @@ export function buildInsertMutation(
   // path — `validateMutation` already ran the identical check with in-scope values.
   validateSecurityColumnValues(values, claims, cols, descriptor.table);
 
-  // Defense-in-depth (finding M2): re-run the value-SHAPE check at the builder
+  // Defense-in-depth: re-run the value-SHAPE check at the builder
   // boundary, exactly like the qualified-key and row-level-security re-checks
   // around it, so a direct caller that skipped `validateMutation` cannot reach
   // `db(table).insert(...)` with a non-scalar value. Runs on the CLIENT's own
@@ -550,7 +550,7 @@ export function buildInsertMutation(
     values[cols.tenant] = claims.tenantId;
   }
 
-  // Fail-closed region/department scope on INSERT (finding 2.2): auto-stamp the
+  // Fail-closed region/department scope on INSERT: auto-stamp the
   // caller's scope where the server can derive it (a single authorized region, or
   // the caller's single department), and throw when a region-restricted caller
   // omitted a region the server cannot pick. Runs even for direct callers that skip
@@ -629,7 +629,7 @@ export function buildUpdateMutation(
     delete values[cols.tenant];
   }
 
-  // Defense-in-depth (finding 3.2): re-run the present-value row-level-security
+  // Defense-in-depth: re-run the present-value row-level-security
   // scope check at the builder boundary, symmetric with `buildInsertMutation`, so a
   // direct caller that skipped `validateMutation` cannot smuggle an out-of-scope
   // PRESENT value (e.g. `{ region_id: 999 }` from a region-5 caller) into the update
@@ -639,7 +639,7 @@ export function buildUpdateMutation(
   // region/department present-value checks still run. Idempotent on the normal path.
   validateSecurityColumnValues(values, claims, cols, descriptor.table);
 
-  // Defense-in-depth (finding M2): re-run the value-SHAPE check at the builder
+  // Defense-in-depth: re-run the value-SHAPE check at the builder
   // boundary, symmetric with `buildInsertMutation`, so a direct caller that
   // skipped `validateMutation` cannot reach `query.update(...)` with a non-scalar
   // value. Runs on the post-strip values (the tenant column is never written from

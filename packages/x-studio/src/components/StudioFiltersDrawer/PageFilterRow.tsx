@@ -46,7 +46,7 @@ interface PageFilterRowProps {
   allPageFilters: StudioFilterState[];
   /**
    * Widget→page lookup for the rank-conflict check below, built ONCE per drawer render from
-   * the same `pages` snapshot this row reads (finding R4 F8). Optional: an absent index falls
+   * the same `pages` snapshot this row reads. Optional: an absent index falls
    * back to `hasConflictingRankFilter`'s own layout walk, which answers identically.
    */
   rankFilterPageIndex?: RankFilterWidgetPageIndex;
@@ -160,7 +160,7 @@ export function PageFilterRow(props: PageFilterRowProps) {
   // 2.12: `activeOperator` above is a DISPLAY-ONLY fallback — when the stored operator is
   // invalid for the current field type, the row renders `operators[0]` while the engine
   // keeps applying the stale stored operator. Repair the doc to match what the UI shows.
-  // Non-undoable, matching `KpiSetupPanel`'s `kpiAggregation` self-repair (finding 2.4):
+  // Non-undoable, matching `KpiSetupPanel`'s `kpiAggregation` self-repair:
   // the write fires from rendering, not a user gesture, and self-terminates once valid.
   // 1.15: the SECOND condition's `operator2` (`activeOperator2` above) needs the same
   // display-fallback + self-repair as the primary `operator`, otherwise a stored invalid

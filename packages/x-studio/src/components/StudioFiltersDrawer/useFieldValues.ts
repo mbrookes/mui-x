@@ -78,7 +78,7 @@ function applyParentFilters(
 }
 
 /**
- * Maximum number of distinct values collected for a field (finding 2.15). Selection-mode
+ * Maximum number of distinct values collected for a field. Selection-mode
  * filters render one unvirtualized checkbox row per value, and the `equals`/`not_equals`
  * autocomplete lists them all, so an unbounded high-cardinality field (e.g. an id/email
  * column) would render tens of thousands of DOM nodes and lock the drawer. Above this cap

@@ -82,7 +82,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
 
   // Scoping inputs mirroring the KPI widget's own effective-date-filter resolution
   // (`useKpiSparkline` in `StudioKpiWidget.tsx`), so this setup-panel preview never
-  // disagrees with what actually renders (finding 3). The compose drawer only ever
+  // disagrees with what actually renders. The compose drawer only ever
   // edits a widget that is selected on the currently active page, so `selectActivePageId`
   // is the same `pageId` `StudioKpiWidget` is mounted with.
   const activePageId = useStudioSelector(selectActivePageId);
@@ -150,7 +150,7 @@ export function KpiSparklineOptions(props: { widgetId: string; config: StudioWid
   // `scopedFilters` is the resolver's documented contract: pre-scoped through
   // `selectFiltersForWidget`, matching what the widget passes. A raw `filters` scan has no
   // `pageId`, `disabled` or cross-filter-mode enforcement, so it could match a date filter
-  // scoped to a different page or widget than the one actually in effect (finding 3).
+  // scoped to a different page or widget than the one actually in effect.
   // `includeWidgetRank` mirrors the widget's own resolution of the same flag.
   const dateFieldResolution = React.useMemo(() => {
     const scopedFilters = selectFiltersForWidget(filters, {

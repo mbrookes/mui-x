@@ -181,7 +181,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
     // Drawn from the same module-level monotonic counter `StudioChatPanel` uses for its
     // `initialPrompt` auto-submit `seq` — a plain `Date.now()` here previously could
     // collide (same millisecond) with that other auto-submit path's seq, causing the
-    // auto-submit queue's dedup to silently drop one of the two entries (finding 13).
+    // auto-submit queue's dedup to silently drop one of the two entries.
     setPendingInsight({ text: prompt, id: nextAutoSubmitSeq() });
   }, []);
 

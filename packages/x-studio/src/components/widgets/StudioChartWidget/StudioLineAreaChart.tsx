@@ -174,7 +174,7 @@ export function StudioLineAreaChart({
   // dates are sorted inside `getTemporalAxisData`). The aggregations arrive in whatever
   // order `chartSortBy` / `chartSortDirection` / a rank filter produced, so reorder every
   // series' values with the same chronological permutation — otherwise each value renders
-  // against the wrong date (finding 1.7). No-ops (same reference) for non-temporal or
+  // against the wrong date. No-ops (same reference) for non-temporal or
   // already-chronological labels.
   const chartData = chartDataRaw ? sortAggregatedTemporally(chartDataRaw) : chartDataRaw;
   const allChartData = allChartDataRaw
@@ -223,7 +223,7 @@ export function StudioLineAreaChart({
   // field still has categories in the baseline — gating entry on `seriesFieldData` alone used to
   // fall through to the multi-Y/single-series path below, collapsing the chart's per-series
   // structure into one unsplit aggregate-total line instead of rendering every baseline series
-  // fully filtered-out/dimmed (finding 6).
+  // fully filtered-out/dimmed.
   const effectiveSFData =
     shouldShowGhost && allSeriesFieldData && preserveSplitByBaseline
       ? allSeriesFieldData
@@ -248,7 +248,7 @@ export function StudioLineAreaChart({
         ? allSeriesFieldData
         : null;
     // The rendered data source of record. Falls back beyond `sfLineAllData ?? seriesFieldData`
-    // to `allSeriesFieldData` for the stacked case (finding 6): `seriesFieldData` can be null
+    // to `allSeriesFieldData` for the stacked case: `seriesFieldData` can be null
     // here (this widget's rows entirely filtered out) even though the entry guard above passed,
     // because that guard accepts `allSeriesFieldData` as a stand-in via `effectiveSFData`. The
     // non-null assertion is safe: the entry guard guarantees at least one of `seriesFieldData` /
@@ -260,7 +260,7 @@ export function StudioLineAreaChart({
     // Pre-normalize to 0-100% per x-position (avoids floating-point issues with stackOffset:'expand').
     // area-100 implies isStacked, so `sfLineAllData` is always null here — use
     // `effectiveSFLineData` rather than `seriesFieldData` directly since the latter can be null
-    // when this widget's rows are entirely filtered out (finding 6).
+    // when this widget's rows are entirely filtered out.
     const totals100 = is100
       ? computeStackTotals(
           effectiveSFLineData.seriesNames.map((name) => effectiveSFLineData.seriesData[name]),
@@ -286,8 +286,8 @@ export function StudioLineAreaChart({
       // Align filtered data to the all-data x-positions when ghost series are present. When
       // ghosting AND every row for this widget has been filtered out, `seriesFieldData` is
       // null — render an all-null foreground series (nothing draws, thanks to `connectNulls`/
-      // no marks) rather than dereferencing it, mirroring the single-series ghost path below
-      // (finding 6).
+      // no marks) rather than dereferencing it, mirroring the single-series ghost path below.
+      //
       let rawData: (number | null)[];
       if (!sfLineAllData) {
         rawData = effectiveSFLineData.seriesData[name];
@@ -335,7 +335,7 @@ export function StudioLineAreaChart({
     return (
       // The keydown is DELEGATED: it originates on x-charts' own focusable
       // keyboard-navigation proxy inside the chart and bubbles up here, so this wrapper is
-      // deliberately not itself a tab stop (finding M10).
+      // deliberately not itself a tab stop.
       <div
         style={{ height }}
         {...chartKeyboardActivationProps(chartFocusRef, effectiveSFLineData.labels, onItemClick)}
@@ -343,7 +343,7 @@ export function StudioLineAreaChart({
         <LineChart
           {...CHART_KEYBOARD_NAV_PROPS}
           title={ariaTitle}
-          // Split-by series are otherwise distinguished by hue alone (finding M10).
+          // Split-by series are otherwise distinguished by hue alone.
           desc={buildChartDescription(
             effectiveSFLineData.seriesNames.map(String),
             localeText.filterSummaryAndMore,
@@ -568,7 +568,7 @@ export function StudioLineAreaChart({
   // that, a cross-filter that drops an entire x bucket shifts every later filtered value one slot
   // left of its real label and the "filtered / total" tooltip pairs mismatch. The split-by and
   // multi-Y paths already align this way via `alignFilteredToAllLabels`; the single-series ghost
-  // path did not (finding 2.29). Forecast and ghost are mutually exclusive (forecast is disabled
+  // path did not. Forecast and ghost are mutually exclusive (forecast is disabled
   // when `ghostLineValues` is set), so the branches below never overlap.
   // Single-series: stacking has no visual effect; area-100 shows a flat 100% fill.
   let effectiveLabels: (string | number)[];
@@ -636,7 +636,7 @@ export function StudioLineAreaChart({
                   // already carry the alpha — a full-opacity color here would make the ghost
                   // indistinguishable from the active series. `withAlpha` uses `color-mix()`
                   // instead of concatenating a hex alpha byte, so it stays correct even when
-                  // `lineColor` is an `rgb()`/`hsl()` value or a CSS variable (finding 3.7).
+                  // `lineColor` is an `rgb()`/`hsl()` value or a CSS variable.
                   color: withAlpha(lineColor, ghostAlphaPercent),
                   valueFormatter: seriesValueFormatter,
                 } as const,

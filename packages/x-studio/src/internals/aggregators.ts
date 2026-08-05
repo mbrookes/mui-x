@@ -70,7 +70,7 @@ export interface MultiYSeriesData {
  *
  * Scoring (`reduceRankScore`) and ordering (`compareRankScores`) themselves live in
  * `internals/aggregate.ts`, shared with the ROW-LEVEL rank filter in `filterUtils.ts` so the
- * two paths can no longer disagree about what a no-data candidate is worth (finding M9).
+ * two paths can no longer disagree about what a no-data candidate is worth.
  * A `null` score means "no data", not "zero": such a candidate must never win a slot in a
  * Top-N or a Bottom-N, so it loses in EITHER direction.
  *
@@ -101,7 +101,7 @@ function selectRankedIndices(
  * `applyRankToSeriesFieldData`, its two siblings. Reordering here made a single-series bar
  * render in value order while adding a second Y series flipped it back to the canonical
  * `chartSortBy`/`orderedValues` ordering, and made the bar order jump between the ghost and
- * non-ghost aggregations (finding 2.5). Ranking selects WHICH categories survive; the caller's
+ * non-ghost aggregations. Ranking selects WHICH categories survive; the caller's
  * `orderLabels`/`chartSortBy` choice remains the single authority on their order.
  */
 export function applyRankToAggregated(
@@ -115,7 +115,7 @@ export function applyRankToAggregated(
    * `rankByField` branch, which always SUMS the rank-by measure per group regardless of the
    * widget's own display aggregation). Without it, a chart's post-aggregation Top-N ranked by
    * the displayed (possibly avg/min/max) value and silently ignored `rankByField`, disagreeing
-   * with grid/KPI/map/pivot widgets on an identical rank filter (finding 3.x). Ignored when
+   * with grid/KPI/map/pivot widgets on an identical rank filter. Ignored when
    * `rankFilter.rankByField` is unset, or when omitted — ranking then falls back to `data.values`.
    */
   rankByFieldData?: AggregatedData,
@@ -197,7 +197,7 @@ export function applyRankToMultiSeries(
   // `MultiYSeriesData.series[].sourceId`), so this conflates them — the first source's values
   // drive the rank score for both. `rankMultiSeriesBy` is a bare fieldId with no source
   // component, so a full fix needs a `(fieldId, sourceId)` rank-target model extension; until
-  // then the first-match behavior is intentional and documented (finding 3.4).
+  // then the first-match behavior is intentional and documented.
   const rankSeries = reduction ? undefined : data.series.find((s) => s.fieldId === rankBy);
 
   const rawScoreOf = (i: number): number | null => {
@@ -255,7 +255,7 @@ export function applyRankToSeriesFieldData(
   // through `toXValue`), but `Object.entries(seriesData)` keys are always strings. Coerce
   // both sides to a string before the membership test so a numeric `2024` matches its
   // string `"2024"` `seriesData` key — otherwise the series' data column is dropped and the
-  // renderers crash reading `undefined` (finding 1.13).
+  // renderers crash reading `undefined`.
   const keepNames = new Set(
     seriesNames.filter((_, i) => keepIndices.has(i)).map((name) => String(name)),
   );
@@ -373,7 +373,7 @@ const finalizeCell = finalizeAccumulator;
  * pass the SAME type to both `aggregateByField` calls via its `forcedAggregation`
  * parameter. Detecting independently per-subset let the ghost tooltip compare a
  * `'count'` (filtered subset that happened to be empty/all-non-numeric) against a
- * `'sum'` (baseline with real numeric values) (finding 3).
+ * `'sum'` (baseline with real numeric values).
  */
 export function detectAggregationType(
   rows: Row[],
@@ -407,7 +407,7 @@ export function detectAggregationType(
  * has the fuller picture — and hand the SAME map to both calls. Detecting independently per
  * subset let a cross-filtered subset whose y values are all sentinel strings downgrade to
  * `'count'` while the baseline stayed `'sum'`, drawing row-count bars against a sum-valued
- * ghost (finding M10).
+ * ghost.
  */
 export function detectAggregationTypeByField(
   rows: Row[],
@@ -437,7 +437,7 @@ export function aggregateByField(
   /**
    * Locale text bundle used to resolve the translated empty-category bucket label
    * (`chartEmptyCategoryLabel`) — threaded through to `toXValue` so a non-English locale
-   * doesn't fall back to the English `'(empty)'` literal (T3.2). Note `isEmptyXValue`
+   * doesn't fall back to the English `'(empty)'` literal. Note `isEmptyXValue`
    * deliberately takes no locale: it inspects RAW row values, where matching the bucket
    * label could only ever be a false positive (M8).
    *
@@ -455,7 +455,7 @@ export function aggregateByField(
    * re-running `detectAggregationType` against `rows`. Pass this — computed once
    * from the baseline row set — from a caller that also aggregates a FILTERED
    * subset of the same rows/field, so a ghost (baseline-vs-filtered) comparison
-   * never mismatches sum vs. count between the two (finding 3).
+   * never mismatches sum vs. count between the two.
    */
   forcedAggregation?: 'sum' | 'count' | 'avg' | 'min' | 'max',
   /**
@@ -512,7 +512,7 @@ export function aggregateByField(
     } else if (effectiveAggregation !== 'count') {
       // Route through the shared coercion policy: null/undefined/non-numeric values
       // are skipped (not coerced to 0), so they no longer inflate avg denominators or
-      // drag min toward 0 (finding 1.4). Booleans coerce to 0/1.
+      // drag min toward 0. Booleans coerce to 0/1.
       const coerced = coerceAggregateValue(row[yField]);
       if (coerced !== null) {
         accumulateCell(accumulators, xVal, coerced);
@@ -572,10 +572,10 @@ export function aggregateByTwoFields(
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
   yAggregation: 'sum' | 'count' | 'avg' | 'min' | 'max' = 'sum',
-  /** See {@link aggregateByField}'s `localeText` param (T3.2). */
+  /** See {@link aggregateByField}'s `localeText` param. */
   localeText?: Partial<StudioLocaleText>,
   /**
-   * See {@link aggregateByField}'s `forcedAggregation` param (finding 3 / M10). The split-by
+   * See {@link aggregateByField}'s `forcedAggregation` param. The split-by
    * family needs this for exactly the same reason the single-series one does: `seriesFieldData`
    * (filtered) and `allSeriesFieldData` (baseline ghost) are two calls over different row sets,
    * and detecting independently let a cross-filtered subset whose y values are all sentinel
@@ -594,9 +594,9 @@ export function aggregateByTwoFields(
   const dataMap = new Map<string | number, Map<string | number, CellAcc>>();
 
   // Detected ONCE, through the SAME shared `detectAggregationType` the other two aggregators
-  // use — this used to be a hand-copied inline duplicate with no `forcedAggregation` override
-  // (finding M10). It falls back to `'count'` when the yField is entirely non-numeric on this
-  // row set, so a string measure renders row counts rather than a blank chart (finding 2.4).
+  // use — this used to be a hand-copied inline duplicate with no `forcedAggregation` override.
+  // It falls back to `'count'` when the yField is entirely non-numeric on this
+  // row set, so a string measure renders row counts rather than a blank chart.
   const effectiveAggregation =
     forcedAggregation ?? detectAggregationType(rows, yField, yAggregation);
 
@@ -647,7 +647,7 @@ export function aggregateByTwoFields(
       accumulateCell(seriesMap, seriesVal, 1);
     } else {
       // Route through the shared coercion policy so null/undefined/non-numeric values
-      // are skipped rather than coerced to 0 (finding 1.4).
+      // are skipped rather than coerced to 0.
       const coerced = coerceAggregateValue(row[yField]);
       if (coerced !== null) {
         accumulateCell(seriesMap, seriesVal, coerced);
@@ -714,16 +714,16 @@ export function aggregateMultipleSeries(
   /**
    * Per-series aggregation. Accepts either a single fn applied to every field
    * (back-compat with callers that aggregate uniformly), or a `fieldId → fn` map
-   * so each series honours its own `StudioChartSeries.yAggregation` (finding 1.4).
+   * so each series honours its own `StudioChartSeries.yAggregation`.
    * Fields absent from the map default to `'sum'`.
    */
   yAggregation: ChartAggFn | Record<string, ChartAggFn> = 'sum',
-  /** See {@link aggregateByField}'s `localeText` param (T3.2). */
+  /** See {@link aggregateByField}'s `localeText` param. */
   localeText?: Partial<StudioLocaleText>,
   /**
    * Per-field effective aggregations, used verbatim instead of re-running
    * {@link detectAggregationTypeByField} against `rows` — the multi-Y equivalent of
-   * {@link aggregateByField}'s `forcedAggregation` (finding 3 / M10). Compute it ONCE from the
+   * {@link aggregateByField}'s `forcedAggregation`. Compute it ONCE from the
    * baseline row set (see {@link detectAggregationTypeByField}) and pass the same map to both
    * the filtered (`multiYData`) and baseline (`allMultiYData`) calls, so a cross-filtered subset
    * whose values are all sentinel strings can't downgrade to `'count'` while the baseline stays
@@ -735,7 +735,7 @@ export function aggregateMultipleSeries(
 ): MultiYSeriesData {
   // Resolve each field's aggregation ONCE, through the SAME shared `detectAggregationType` the
   // other two aggregators use — this used to be a hand-copied inline duplicate with no
-  // `forcedAggregation` override (finding M10). A field that is entirely non-numeric on this row
+  // `forcedAggregation` override. A field that is entirely non-numeric on this row
   // set falls back to `'count'` so callers that omit `yAggregation` don't get a blank chart.
   const aggByField = new Map<string, ChartAggFn>(
     yFields.map((fieldId) => [
@@ -862,7 +862,7 @@ export interface BlendedSeriesInput {
    * The series' resolved source id (callers should default this to the widget's
    * primary source when the series config omits one, mirroring the `rows` fallback).
    * Threaded through to the output so two series sharing a `fieldId` across
-   * different sources can be told apart downstream (finding 2.12) — matching on
+   * different sources can be told apart downstream — matching on
    * `fieldId` alone conflates them. Optional only for callers that don't need
    * source-aware disambiguation (e.g. direct aggregator tests).
    */
@@ -914,7 +914,7 @@ export function aggregateBlendedSeries(
   sortBy?: 'category' | 'value' | 'natural',
   sortDirection?: 'asc' | 'desc',
   categoryOrder?: string[],
-  /** See {@link aggregateByField}'s `localeText` param (T3.2). */
+  /** See {@link aggregateByField}'s `localeText` param. */
   localeText?: Partial<StudioLocaleText>,
 ): MultiYSeriesData {
   // Aggregate each series within its own rows (independent grain per source).

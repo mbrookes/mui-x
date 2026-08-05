@@ -19,7 +19,7 @@ import type { StudioMcpLogger, StudioStateBox } from './types';
 
 /**
  * Max number of source ids spelled out in the `Unknown sourceId` error the
- * `query_data_source_examples` prompt throws on a miss (finding M7). The whole
+ * `query_data_source_examples` prompt throws on a miss. The whole
  * configured catalogue used to be echoed on EVERY miss; the remainder is now
  * reported as a count instead.
  */
@@ -54,7 +54,7 @@ export interface PromptHandlerDeps {
   stateBox: StudioStateBox;
   /**
    * Authorization gate for the `query_data_source_examples` prompt's `prompts/get`
-   * content generation (finding T2-2). This prompt is not a listing surface — it
+   * content generation. This prompt is not a listing surface — it
    * serves a per-source schema slice (source id/label, the first categorical and
    * first numeric field's id/label, and `defaultAggregationFn`, for every
    * non-hidden queryable source), a strict subset of the `get_dashboard_state` /
@@ -72,13 +72,13 @@ export interface PromptHandlerDeps {
    * `prompts/list` and `completion/complete` stay ungated by design (listing /
    * autocomplete surfaces, parity with `resources/list`) — only this prompt's
    * content generation is gated.
-   * @param {AbortSignal} [signal] The request's abort signal, threaded into the policy consult (finding H1).
+   * @param {AbortSignal} [signal] The request's abort signal, threaded into the policy consult.
    * @returns {Promise<string | null>} A deny-reason string if the read is not authorized, or `null` if it may proceed.
    */
   authorizeStateAccess?: (signal?: AbortSignal) => Promise<string | null>;
   /**
    * Sink for the FULL detail of a failure that crossed the host boundary inside the
-   * `authorizeStateAccess` gate (finding H2). The gate reaches host `toolPolicy` /
+   * `authorizeStateAccess` gate. The gate reaches host `toolPolicy` /
    * `approvalHandler` code, whose throw carries credentials, SQL and internal
    * hostnames exactly like a driver error — `prompts/get` had no try/catch at any
    * level, so the MCP SDK returned that text to the client verbatim. `runGuardedGate`
@@ -120,17 +120,17 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
     const { name, arguments: promptArgs } = request.params;
 
     if (name === 'query_data_source_examples') {
-      // Same `get_dashboard_state` gate `studio://schema/{id}` runs (finding T2-2):
+      // Same `get_dashboard_state` gate `studio://schema/{id}` runs:
       // this prompt serves a per-source schema slice of the SAME payload family
       // (source id/label, two field ids/labels, `defaultAggregationFn`), so it must
       // not bypass `allowedTools` / `toolPolicy` just because it is a prompt instead
       // of a resource or tool call.
       //
-      // Routed through the SAME `runGuardedGate` the six `resources/read` gates use
-      // (finding H2): the gate reaches host code, `prompts/get` has no try/catch at
+      // Routed through the SAME `runGuardedGate` the six `resources/read` gates use:
+      // the gate reaches host code, `prompts/get` has no try/catch at
       // any level, and the MCP SDK relays a thrown handler's message verbatim. The
       // shared helper is why this site cannot drift from its siblings. `extra.signal`
-      // bounds the consult against an abandoned request (finding H1).
+      // bounds the consult against an abandoned request.
       const denied = await runGuardedGate(
         authorizeStateAccess && (() => authorizeStateAccess(extra.signal)),
         'the authorization check for the query_data_source_examples prompt',
@@ -156,7 +156,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
         // conversation, so — unlike a single opaque id round-tripped through `uri` — it
         // warrants routing through the same sanitize choke point the example
         // blocks below already use, for symmetry with how `resources/list` treats the same
-        // values (finding T2-5).
+        // values.
         //
         // Finding M7: sanitizing alone left both halves UNBOUNDED — `requestedId` is
         // client-supplied prompt-argument text, and the catalogue echo grows with the
@@ -325,7 +325,7 @@ export function registerPromptHandlers(server: Server, deps: PromptHandlerDeps):
       };
     }
 
-    // Sanitized + capped before echoing (finding M7, sibling instance): the prompt
+    // Sanitized + capped before echoing: the prompt
     // `name` is client-supplied and unbounded, and this message lands in the same
     // model-visible position as the `Unknown sourceId` one above.
     throw new Error(`Unknown prompt: "${safeIdentifier(name)}".`);

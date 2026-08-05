@@ -1,5 +1,5 @@
 /**
- * Per-query statement timeouts (F2).
+ * Per-query statement timeouts.
  *
  * WHY THIS EXISTS. Every database round-trip this package issues went out
  * untimed, and `MAX_CONCURRENT_WIDGET_QUERIES` (6, `handler.ts`) bounds ONE

@@ -1,5 +1,5 @@
 /**
- * Builds the two DIFFERENT views every LLM-provider failure needs (finding H4):
+ * Builds the two DIFFERENT views every LLM-provider failure needs:
  * a full-detail one for the server's own logs, and a deliberately sparse one for
  * the untrusted client.
  *
@@ -16,7 +16,7 @@
  * The client gets the status, a SANITIZED and BOUNDED status text, and a correlation
  * id; the operator finds the body in their logs by that id.
  *
- * **`statusText` is far-side text too** (finding F5). This comment used to say the
+ * **`statusText` is far-side text too**. This comment used to say the
  * client "gets status + statusText", contradicting ARCHITECTURE.md's "two untrusted
  * frontiers" rule that far-side text is never relayed onward — and the code matched the
  * comment rather than the rule: the gateway-authored reason phrase reached the browser's

@@ -169,15 +169,15 @@ export interface StudioPipeline {
    *   via x/y/series (heatmap `heatYField`, funnel `funnelReachedField`, sankey `sankeyTargetField`,
    *   `gantt*`). Threaded straight through to `resolveChartRowsForAggregation` so a one-hop
    *   cross-source extra dimension is enriched onto the returned rows instead of resolving to
-   *   `undefined` (finding 1.9). Defaults to `[]`, matching the underlying function's own
+   *   `undefined`. Defaults to `[]`, matching the underlying function's own
    *   default — omitting it preserves prior behaviour.
    * @param widgetFilters The widget's fully resolved/scoped filter set (exactly what was passed to
    *   `resolveWidgetRows` to produce `filteredRows` — e.g. via `selectFiltersForWidget`). Only the
    *   subset targeting the anchor source is re-applied to the anchor rows before the expansion
    *   join, so a filter L3 enforced as a semi-join isn't silently re-widened back to every anchor
-   *   row per surviving widget row (finding 1.4). Defaults to `[]`, matching the underlying
+   *   row per surviving widget row. Defaults to `[]`, matching the underlying
    *   function's own default — omitting it preserves prior (pre-fix) behaviour, so existing
-   *   callers of this public façade are unaffected until they opt in (finding 2.2).
+   *   callers of this public façade are unaffected until they opt in.
    */
   resolveChartRows(
     filteredRows: Row[],

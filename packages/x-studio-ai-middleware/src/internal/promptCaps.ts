@@ -2,7 +2,7 @@
  * Shared size-cap helpers for every client-supplied string that reaches an LLM
  * prompt built by this package.
  *
- * Rationale (finding H1): the request handlers each grew their own ad-hoc
+ * Rationale: the request handlers each grew their own ad-hoc
  * `cap*` helper (`handleAIChat.ts`'s `capRequestString`,
  * `executeToolOnState.ts`'s `capString`, `handleGenerateInsight.ts`'s
  * `capCreateWidgetString`), and every gap found so far has been a site that
@@ -15,7 +15,7 @@
 
 /**
  * Coerce an untrusted, model- or client-supplied value to a string WITHOUT ever
- * invoking `ToPrimitive` on an object (findings H4, then H1).
+ * invoking `ToPrimitive` on an object.
  *
  * `String(x)` looks total but is not. For a JSON object whose `toString` is a
  * NON-callable own property — `{"toString": 1}`, which `JSON.parse` accepts
@@ -42,7 +42,7 @@
  * - Out of `buildApprovalDisplayInput` on the chat approval path, which ran
  *   OUTSIDE `dispatchToolCall`'s try — so a `remove_widget({"widgetId":{"toString":1}})`
  *   the executor would have rejected cleanly instead propagated past the SSE try
- *   block and CLOSED THE STREAM with one generic error frame (finding H1).
+ *   block and CLOSED THE STREAM with one generic error frame.
  *
  * This lives here, next to the other shared cap primitives, because every one of
  * them — and every prompt sanitizer built on them (`sanitizeForPrompt`,
@@ -87,7 +87,7 @@ export function asString(value: unknown): string {
  * Coerces through {@link asString} because every caller is guarding a field that is
  * only NOMINALLY typed: request bodies are unvalidated JSON, so a field declared
  * `string` can arrive as a number, an object, or `undefined` — and the raw
- * `String(value ?? '')` this used to do THROWS for `{"toString": 1}` (finding H1).
+ * `String(value ?? '')` this used to do THROWS for `{"toString": 1}`.
  */
 export function capText(value: unknown, maxChars: number): string {
   const str = asString(value);

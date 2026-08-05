@@ -36,7 +36,7 @@ import { sortedStringify } from './canonicalize';
  * HMAC cost at most once per unique permission set per process lifetime.
  * The memo map is bounded to MAX_MEMO_SIZE entries to prevent unbounded growth,
  * and evicts least-RECENTLY-USED rather than least-recently-INSERTED — see
- * `touchMemoEntry` (finding L4).
+ * `touchMemoEntry`.
  */
 const securityHashMemo = new Map<string, string>();
 
@@ -76,7 +76,7 @@ export const SECURITY_HASH_MEMO_MAX_SIZE = 1_000;
 
 /**
  * Move `memoKey` to the END of the memo's insertion order, making it the LAST
- * candidate for eviction (finding L4).
+ * candidate for eviction.
  *
  * Eviction picks `securityHashMemo.keys().next().value` — the oldest-INSERTED
  * key. A `Map` only updates a key's position on insertion, never on a `get`, so
@@ -103,11 +103,11 @@ function computeSecurityHash(
     tenantId: claims.tenantId,
     regionIds: claims.regionIds ? [...claims.regionIds].sort((a, b) => a - b) : undefined,
     department: claims.department,
-    // `policyDigest` also carries the request's `schemaAllowlist` (finding 3), so
+    // `policyDigest` also carries the request's `schemaAllowlist`, so
     // two option sets pointed at different logical databases separate on their table
     // sets alone — no host configuration required for the common case.
     policyDigest,
-    // Fold in the host-provided cache scope (finding 2.4) for the case the table
+    // Fold in the host-provided cache scope for the case the table
     // sets do NOT distinguish: two databases with identical schemas in ONE process
     // would otherwise collide on the same (claims, policy, query) key and serve
     // DB-A's rows for DB-B. Included via a conditional spread so an omitted scope
@@ -120,7 +120,7 @@ function computeSecurityHash(
   const cached = securityHashMemo.get(memoKey);
   if (cached !== undefined) {
     // Re-append on a HIT so this key becomes the most-recently-USED, not merely
-    // the most-recently-inserted (finding L4) — otherwise eviction is FIFO and
+    // the most-recently-inserted — otherwise eviction is FIFO and
     // repeatedly discards the hottest profile.
     touchMemoEntry(memoKey, cached);
     return cached;
@@ -157,7 +157,7 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
   // Canonicalize the case-insensitive SQL tokens that `buildPlan` lowercases onto the
   // PLAN — `join[].type` and `orderBy[].direction` — so a case-varying-but-equivalent
   // descriptor (`LEFT`/`left`, `ASC`/`asc`) hashes to the SAME key instead of
-  // fragmenting the cache (finding T3.4). Both are normalized on hash-input COPIES so
+  // fragmenting the cache. Both are normalized on hash-input COPIES so
   // the host-owned descriptor is never mutated (the validators are pure). A non-string
   // token is left as-is — the per-widget validators reject it before it is queried.
   if (Array.isArray(descriptor.joins)) {
@@ -182,8 +182,8 @@ function computeQueryHash(descriptor: BatchWidgetDescriptor): string {
  * @param policyDigest - Digest of the compiled security policy in force
  *   (`CompiledSecurityPolicy.digest`). Folds the row-level-security POLICY — not
  *   just the caller's claims — into the key so differently-scoped nodes never
- *   share cache entries. It also folds in the request's `schemaAllowlist`
- *   (finding 3), which is what gives two option sets in one process that expose
+ *   share cache entries. It also folds in the request's `schemaAllowlist`, which is
+ *   what gives two option sets in one process that expose
  *   DIFFERENT tables automatically distinct keys even when neither sets a
  *   `cacheScope`. Defaults to the single-tenant policy digest so direct callers
  *   (e.g. unit tests) that don't pass one stay deterministic and match a
@@ -232,7 +232,7 @@ export function generateCacheKey(
   const securityHash = computeSecurityHash(claims, hmacSecret, policyDigest, cacheScope);
   const queryHash = computeQueryHash(descriptor);
   // Encode the tenant segment so a `tenantId` containing ':' cannot corrupt the
-  // segment boundaries that prefix-based invalidation relies on (finding 3.2).
+  // segment boundaries that prefix-based invalidation relies on.
   // `LRUCacheProvider.extractPrefix` recovers the tenant-scoped invalidation
   // prefix by scanning to the 3rd colon; a raw `org:1234` would shift every
   // boundary (deriving `studio:v1:org:` instead of `studio:v1:org:1234:`) and

@@ -47,7 +47,7 @@ export interface QueryToolDeps {
   /**
    * Diagnostic logger. Threaded in so a host/DB failure can be logged in FULL
    * server-side while the model only ever sees the generic, correlation-id-bearing
-   * message `redactedHostErrorResult` produces (finding H4).
+   * message `redactedHostErrorResult` produces.
    */
   logger?: StudioMcpLogger;
 }
@@ -132,7 +132,7 @@ function validateQueryArrayArg<T>(
 
 /**
  * Validate + cap the elements of a model-supplied STRING array argument
- * (`query_data_source`'s `columns`) (finding F4, Tier 2). `validateQueryArrayArg`
+ * (`query_data_source`'s `columns`). `validateQueryArrayArg`
  * above only checks array-ness and overall length — nothing stopped an
  * individual element from being an object/number (forwarded to
  * `data.queryDataSource` as a nonsensical "column name") or a multi-megabyte
@@ -145,7 +145,7 @@ function validateQueryArrayArg<T>(
  * `add_page_filter`/`add_widget_filter` apply to a persisted filter's `field`.
  *
  * Exported so `mcp/summarisePage.ts` can run the SAME validation over the
- * `xField`/`yField` it forwards as DB column names (finding M4) — that was the
+ * `xField`/`yField` it forwards as DB column names — that was the
  * one column-name path in the package that skipped it.
  */
 export function validateAndCapStringArrayElements(
@@ -188,7 +188,7 @@ function closedSetOf<T extends string>(members: Record<T, true>): ReadonlySet<st
 /**
  * The closed value domains of `query_data_source`'s SQL-STRUCTURAL fields — the
  * fields whose value does not become a bound parameter but selects a piece of query
- * STRUCTURE: a comparison operator, an aggregate function, a sort direction (finding H5).
+ * STRUCTURE: a comparison operator, an aggregate function, a sort direction.
  *
  * These were type-checked (`typeof === 'string'`) and length-checked (≤200) by
  * {@link validateAndCapRecordArrayElements} and nothing else, so
@@ -248,7 +248,7 @@ export const QUERY_ORDER_BY_DIRECTIONS = closedSetOf({
 } satisfies Record<StudioDataOrderBy['direction'], true>);
 
 /**
- * The pattern an `aggregations[].alias` / `having[].alias` must match (finding H5).
+ * The pattern an `aggregations[].alias` / `having[].alias` must match.
  *
  * An alias is not a closed set, but it is not a bound parameter either: a host emits
  * it as a SQL identifier (`SUM(??) AS alias`), which is the same
@@ -263,8 +263,8 @@ const SAFE_AGGREGATION_ALIAS = /^[A-Za-z0-9_-]+$/;
 
 /**
  * The exact keys each `query_data_source` record array may carry through to
- * `data.queryDataSource`, and the closed value domain of each SQL-structural one
- * (findings H5 + L2).
+ * `data.queryDataSource`, and the closed value domain of each SQL-structural one.
+ *
  *
  * `keys` is an ALLOW-LIST, not a description: {@link validateAndCapRecordArrayElements}
  * projects a fresh record containing only these keys. Previously it projected EVERY key
@@ -317,7 +317,7 @@ interface QueryRecordContract {
 
 /**
  * Validate + cap the RECORD-shaped elements of `query_data_source`'s
- * `aggregations` / `having` / `orderBy` / `filters` arrays (finding F4, Tier 2).
+ * `aggregations` / `having` / `orderBy` / `filters` arrays.
  * `validateQueryArrayArg` above only checks array-ness and overall length —
  * nothing stopped a `null`/non-object entry, or a string-valued field
  * (`column`/`func`/`alias`/`operator`/`direction`/`field`) from being an
@@ -377,7 +377,7 @@ function validateAndCapRecordArrayElements<T extends object>(
         };
       }
     }
-    // Project ONLY the contract's own keys (finding L2), capping each string value to
+    // Project ONLY the contract's own keys, capping each string value to
     // {@link MAX_FILTER_STRING_LENGTH}. The previous version projected every key of the
     // model's record, so an unlisted `raw`/`joins` reached `data.queryDataSource`
     // intact — the keys most likely to change query STRUCTURE on a host that reads
@@ -394,7 +394,7 @@ function validateAndCapRecordArrayElements<T extends object>(
           ? value.slice(0, MAX_FILTER_STRING_LENGTH)
           : value;
     }
-    // VALUE-DOMAIN checks (finding H5), run on the PROJECTED+CAPPED value so what is
+    // VALUE-DOMAIN checks, run on the PROJECTED+CAPPED value so what is
     // validated is exactly what is forwarded.
     for (const [field, allowed] of Object.entries(contract.enums ?? {})) {
       const value = cappedRecord[field];
@@ -434,7 +434,7 @@ const FIELD_STAT_FUNCS = ['min', 'max', 'avg', 'sum', 'count'] as const;
 
 /**
  * Build the `aggregations` array for a per-field stats query, enforcing
- * {@link SAFE_AGGREGATION_ALIAS} on every alias it EMITS (finding M1).
+ * {@link SAFE_AGGREGATION_ALIAS} on every alias it EMITS.
  *
  * `compute_field_stats` synthesizes each alias from a model-supplied field id
  * (`` `${field}__min` ``), and an alias is emitted by the host as a SQL IDENTIFIER
@@ -484,7 +484,7 @@ function buildFieldStatAggregations(
 
 /**
  * Cap on the number of numeric fields `describe_data_source` fans out into
- * per-field aggregation queries (Tier 3, iteration 24, finding 5), mirroring
+ * per-field aggregation queries, mirroring
  * `MAX_COMPUTE_FIELD_STATS_FIELDS` above — both bound "how many per-field
  * aggregation queries can one tool call issue in a single `Promise.all`".
  *
@@ -501,7 +501,7 @@ function buildFieldStatAggregations(
 const MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS = MAX_COMPUTE_FIELD_STATS_FIELDS;
 
 /**
- * Hard upper bound on `query_data_source`'s `offset` (finding L2). Its sibling
+ * Hard upper bound on `query_data_source`'s `offset`. Its sibling
  * `limit` is capped by the host's `maxQueryRows`; `offset` was floored at 0 and left
  * unbounded above, so `{ limit: 1, offset: 500_000_000 }` cost one row of output and
  * a full scan-and-discard of everything before it. One million rows is far past any
@@ -522,7 +522,7 @@ type ResolveSourceResult =
       tableName: string;
       /**
        * The RESOLVED (validated + length-capped) source id — the id the returned
-       * `tableName` actually belongs to (finding L3). Callers must forward THIS,
+       * `tableName` actually belongs to. Callers must forward THIS,
        * not the raw `sourceId` argument: `resolveSource` looks the source up by
        * the capped id, so a host that routes or authorizes on
        * `params.sourceId` would otherwise be handed an id that does not
@@ -560,7 +560,7 @@ type ResolveSourceResult =
  * any query is built. See `StudioAIDataConfig.allowedTables`'s doc comment for the
  * full trust-boundary rationale.
  *
- * NOTE (finding F1): the chat transport additionally enforces a FAIL-CLOSED default
+ * NOTE: the chat transport additionally enforces a FAIL-CLOSED default
  * upstream, at its `query_data_source` dispatch site (`agenticLoop/toolDispatch.ts`) —
  * it refuses to resolve any source when `allowedTables` is `undefined`, so this
  * function is only ever reached from the chat transport with an array allowlist or the
@@ -600,7 +600,7 @@ export function resolveSource(
     sourceId.length > MAX_FILTER_STRING_LENGTH
       ? sourceId.slice(0, MAX_FILTER_STRING_LENGTH)
       : sourceId;
-  // `Object.hasOwn`-guarded lookup (finding T2-1): a prototype-member sourceId
+  // `Object.hasOwn`-guarded lookup: a prototype-member sourceId
   // (`"constructor"`, `"__proto__"`) would otherwise resolve a truthy inherited value
   // via the prototype chain. Today the `!source.tableName` check below saves this by
   // accident (no prototype member has a `tableName`); the guard makes it explicit and
@@ -611,7 +611,7 @@ export function resolveSource(
     return {
       ok: false,
       error: errorResult(
-        // SANITIZED as well as capped (finding M2). The cap above bounds the LENGTH of
+        // SANITIZED as well as capped. The cap above bounds the LENGTH of
         // the echoed id; it does nothing about its CONTENT, and this message is spliced
         // into the model conversation by most MCP clients — so a `sourceId` carrying
         // newlines could forge a sibling line of prose here. `mcp/resources.ts` emits
@@ -656,7 +656,7 @@ export function resolveSource(
 export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, ToolHandler> {
   const { stateBox, data, logger } = deps;
   // Validate the HOST-supplied bound before it becomes the clamp's own ceiling
-  // (finding L2) — see `sanitizeMaxQueryRows`.
+  //  — see `sanitizeMaxQueryRows`.
   const maxQueryRows = sanitizeMaxQueryRows(deps.maxQueryRows);
 
   return {
@@ -682,7 +682,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
 
       // Reject (not silently truncate/forward) a malformed or oversized `columns` /
       // `filters` / `aggregations` / `having` / `orderBy` array before any of them
-      // reach `data.queryDataSource` (T2-3) — see `validateQueryArrayArg`'s doc
+      // reach `data.queryDataSource` — see `validateQueryArrayArg`'s doc
       // comment.
       const columnsResult = validateQueryArrayArg<string>('query_data_source', 'columns', columns);
       if (!columnsResult.ok) {
@@ -721,7 +721,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return orderByResult.error;
       }
 
-      // Finding F4 (Tier 2): `validateQueryArrayArg` above only validates
+      // Finding F4: `validateQueryArrayArg` above only validates
       // array-ness and overall length — it never inspected individual ELEMENTS,
       // so an object/multi-megabyte string in `columns`, or a non-string
       // `column`/`func`/`alias`/`operator`/`direction`/`field` (or an unbounded
@@ -789,7 +789,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       }
 
       // Cap each filter's `value`/`value2` the same way `add_page_filter` /
-      // `add_widget_filter` cap a PERSISTED filter's value (T2-3): these `filters`
+      // `add_widget_filter` cap a PERSISTED filter's value: these `filters`
       // are forwarded to the host's `queryDataSource` rather than persisted onto
       // dashboard state, but a megabyte-sized string/array `value` is the identical
       // unbounded-work/token-bomb class `capFilterValue` already guards against —
@@ -808,15 +808,15 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       // from a non-numeric `"all"`), zero, or a fractional value must not
       // reach `data.queryDataSource` unchanged — depending on the host's Knex
       // wiring that produces a raw driver error (`LIMIT NaN`) instead of the
-      // actionable, model-recoverable errors this layer otherwise guarantees
-      // (T2-6). Falsy (0/NaN) truncated values fall back to `maxQueryRows`,
+      // actionable, model-recoverable errors this layer otherwise guarantees.
+      // Falsy (0/NaN) truncated values fall back to `maxQueryRows`,
       // matching the "Default 1000" behavior already documented in the tool's
       // JSON schema.
       const truncatedLimit = Math.trunc(Number(limit));
       const clampedLimit = Math.min(Math.max(1, truncatedLimit || maxQueryRows), maxQueryRows);
 
       // Clamp `offset` to a non-negative integer, coercing a negative/NaN/
-      // non-numeric value to 0 rather than forwarding it untouched (T2-6).
+      // non-numeric value to 0 rather than forwarding it untouched.
       const truncatedOffset = Math.trunc(Number(offset));
       const clampedOffset =
         Number.isFinite(truncatedOffset) && truncatedOffset > 0 ? truncatedOffset : 0;
@@ -842,7 +842,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       }
 
       try {
-        // Inside the `try` (finding M1): `resolveSource` reads host/client-supplied
+        // Inside the `try`: `resolveSource` reads host/client-supplied
         // state and calls out to `validateTableName`/`checkAllowedTable`, so an
         // unexpected THROW there (a malformed `allowedTables`, a state box whose
         // `current` getter fails) must become this tool call's redacted error rather
@@ -852,7 +852,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           return resolved.error;
         }
         // Forward the RESOLVED (capped) id, never the raw argument — see the
-        // `sourceId` field on `ResolveSourceResult` (finding L3).
+        // `sourceId` field on `ResolveSourceResult`.
         const { tableName, sourceId: resolvedSourceId } = resolved;
         // Bounded with the same `withTimeout` pattern `mcp/summarisePage.ts` applies to its
         // own `data.queryDataSource` calls (Tier 3, iteration 22) — without it, a hung host
@@ -878,7 +878,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           // descends from the request body) and this label lands inside a BRANDED
           // `StudioTimeoutError`, which `redactedHostErrorMessage` relays VERBATIM on
           // the premise that a branded message holds only server-authored prose —
-          // so it must be sanitized to keep that premise true (finding M2).
+          // so it must be sanitized to keep that premise true.
           opLabel`query for ${tableName}`,
         );
 
@@ -900,7 +900,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         return errorResult('sourceId is required');
       }
       try {
-        // Inside the `try` for the same reason `query_data_source`'s is (finding M1).
+        // Inside the `try` for the same reason `query_data_source`'s is.
         const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
         if (!resolved.ok) {
           return resolved.error;
@@ -925,7 +925,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // against one that never settles at all).
         //
         // The per-field fan-out runs through `mapWithConcurrency` rather than
-        // `Promise.all` (finding L2): `MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS` bounds
+        // `Promise.all`: `MAX_DESCRIBE_DATA_SOURCE_NUMERIC_FIELDS` bounds
         // how many stats queries this call may ISSUE (50), but nothing bounded how many
         // were in flight at once, so one tool call could open 51 host connections
         // simultaneously and drain a pool the host sized for its whole application.
@@ -936,7 +936,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             data.queryDataSource({ sourceId: resolvedSourceId, tableName, limit: 10 }),
             15_000,
             // Sanitized: an untrusted `tableName` inside a BRANDED timeout message
-            // (finding M2) — see `query_data_source`'s label above.
+            //  — see `query_data_source`'s label above.
             opLabel`sample query for ${tableName}`,
           ),
           mapWithConcurrency(numericFields, MAX_CONCURRENT_HOST_QUERIES, (f) =>
@@ -958,7 +958,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           ),
         ]);
 
-        // Null-prototype accumulator (finding L1): field ids are DB column names, so
+        // Null-prototype accumulator: field ids are DB column names, so
         // a column named `__proto__` would otherwise make `fieldStats[f.id] = …` a
         // silently-dropped prototype write — and, worse, make a DIFFERENT field named
         // `min`/`max`/`sum` inherit those bogus stats through the prototype chain.
@@ -986,7 +986,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             description: source.aiDescription,
             rowCount: sampleResult.rowCount,
             fields: visibleFields.map((f) => {
-              // `Object.hasOwn` + `Array.isArray`-guarded lookup (finding M1) — a field
+              // `Object.hasOwn` + `Array.isArray`-guarded lookup — a field
               // id that is an `Object.prototype` member (a DB column literally named
               // `constructor`) previously resolved `Object` off the prototype chain,
               // passed the truthiness gate, and threw `TypeError: … .slice is not a
@@ -1035,7 +1035,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || !rawFieldId) {
         return errorResult('sourceId and fieldId are required');
       }
-      // Finding F4 (Tier 2): `fieldId` was only truthiness-checked, so a
+      // Finding F4: `fieldId` was only truthiness-checked, so a
       // non-string truthy value (e.g. an object or number) reached
       // `data.queryDataSource` verbatim as a nonsensical "column name". Require a
       // non-empty string and cap it at {@link MAX_FILTER_STRING_LENGTH} — the same
@@ -1051,7 +1051,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           ? rawFieldId.slice(0, MAX_FILTER_STRING_LENGTH)
           : rawFieldId;
       try {
-        // Inside the `try` for the same reason `query_data_source`'s is (finding M1).
+        // Inside the `try` for the same reason `query_data_source`'s is.
         const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
         if (!resolved.ok) {
           return resolved.error;
@@ -1063,7 +1063,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         // fractional value reached the host's `queryDataSource` unclamped
         // (`LIMIT NaN` → a raw driver error, `LIMIT 0` → a silently empty
         // success). Mirror the identical clamp `query_data_source` applies to its
-        // own `limit` (T2-6): truncate, floor at 1, and fall back to the default
+        // own `limit`: truncate, floor at 1, and fall back to the default
         // (50) on a falsy/`NaN` truncated value.
         const truncatedFieldLimit = Math.trunc(Number(fieldLimit));
         const clampedFieldLimit = Math.min(Math.max(1, truncatedFieldLimit || 50), 200);
@@ -1081,7 +1081,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
           15_000,
           // Both interpolations are untrusted (`tableName` off `runtime.dataSources`,
           // `fieldId` straight from the model) inside a BRANDED timeout message that is
-          // relayed verbatim — sanitized to keep the brand's premise true (finding M2).
+          // relayed verbatim — sanitized to keep the brand's premise true.
           opLabel`field-values query for ${tableName}.${fieldId}`,
         );
         type GfvContentItem =
@@ -1114,7 +1114,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
         if (chartData.length >= 2) {
           try {
             // Read the label off the ALREADY-RESOLVED source rather than re-looking it
-            // up by the raw `sourceId` (finding L3): the raw argument may differ from
+            // up by the raw `sourceId`: the raw argument may differ from
             // the capped id the source was actually resolved under, and the re-lookup
             // was an unguarded prototype-chain read besides.
             const fieldLabel = source.fields?.find((f) => f.id === fieldId)?.label ?? fieldId;
@@ -1151,7 +1151,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       if (!sourceId || rawFields === undefined) {
         return errorResult('sourceId and fields (non-empty array) are required');
       }
-      // Finding 4 (Tier 3): validate `fields` IS an array (not e.g. a bare string,
+      // Finding 4: validate `fields` IS an array (not e.g. a bare string,
       // which also has `.length` and so previously slipped past the emptiness/size
       // checks below) before touching it further — the same array-shape + size-cap
       // validation `query_data_source`'s five array args already get from
@@ -1188,7 +1188,7 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
       }
       const statFields = statFieldsResult.value;
       try {
-        // Inside the `try` for the same reason `query_data_source`'s is (finding M1).
+        // Inside the `try` for the same reason `query_data_source`'s is.
         const resolved = resolveSource(stateBox, sourceId, data.allowedTables);
         if (!resolved.ok) {
           return resolved.error;
@@ -1216,12 +1216,12 @@ export function createQueryToolHandlers(deps: QueryToolDeps): Record<string, Too
             limit: 1,
           }),
           15_000,
-          // Sanitized untrusted `tableName` in a BRANDED message (finding M2) — see
+          // Sanitized untrusted `tableName` in a BRANDED message — see
           // `query_data_source`'s label above.
           opLabel`field-stats query for ${tableName}`,
         );
         const row = result.rows[0] ?? {};
-        // Null-prototype accumulator (finding L1) — see `describe_data_source`'s
+        // Null-prototype accumulator — see `describe_data_source`'s
         // `fieldStats` above: `statsOut[f]` is keyed by a model-supplied field id, so
         // a `__proto__` entry would otherwise be silently dropped rather than reported.
         const statsOut: Record<

@@ -48,7 +48,7 @@ export const selectAi = (state: StudioState) => state.doc.ai;
  * emitted by the given filter widget on the given page.
  *
  * `pageId` is enforced (matching `f.scope.pageId`), exactly like the slider sibling
- * `makeSelectWidgetSliderFilter` (T1.1): an interactive filter's scope is pinned to the page it
+ * `makeSelectWidgetSliderFilter`: an interactive filter's scope is pinned to the page it
  * was authored on, so a page-blind lookup could advertise a control as "selected" while its
  * selection applies to a different page (e.g. after the emitting widget is moved across pages, or
  * for a widget mounted on an inactive page) — filtering nothing there. Requiring the page id makes
@@ -67,7 +67,7 @@ export function makeSelectActiveInteractiveFilter(widgetId: string, pageId: stri
       // `!f.disabled` mirrors every data path (`selectFiltersForWidget`, `isActiveCrossFilter`):
       // once `toggleFilter` disables the interactive filter — or a persisted widget carries
       // `disabled: true` — it no longer filters rows, so this selector must not advertise it as
-      // active either (finding 3.1).
+      // active either.
       (f) =>
         !f.disabled &&
         f.scope.kind === 'interactive' &&
@@ -448,7 +448,7 @@ export function makeSelectActiveCrossFilter(widgetId: string, pageId: string) {
  * cross-filter from another page (the actual row-filtering path honors the flag),
  * while this selector reported no incoming cross-filter at all, so interaction-gating
  * consumers (the "clear cross-filter" affordance, stale-hover suppression) disagreed
- * with what was actually happening to the data (finding 2.4).
+ * with what was actually happening to the data.
  *
  * Uses reference-equality caching so a chart only re-renders when the
  * set of incoming cross-filters actually changes (same pattern as
@@ -565,7 +565,7 @@ export function makeSelectWidgetSource(
  * Returns the active rank filter for a widget (scope=widget, filterMode=rank,
  * value > 0), or null if the widget doesn't exist or has no active rank filter.
  *
- * Deliberately NOT gated by widget kind (finding 3.9): widget-scoped rank
+ * Deliberately NOT gated by widget kind: widget-scoped rank
  * ("Top N") filters are authorable and enforced for every widget kind
  * (`includeWidgetRank`), not just charts. The "can rank" capability is therefore
  * derived from the filter set — the presence of a widget-scoped rank filter owned
@@ -586,7 +586,7 @@ export function makeSelectWidgetRankFilter(
         (f) =>
           // `!f.disabled` mirrors `useChartWidgetData`'s rank lookup and `selectFiltersForWidget`:
           // a disabled Top-N filter no longer reduces rows, so the "Top N" chip must not surface
-          // it either (finding 3.1).
+          // it either.
           !f.disabled &&
           f.scope.kind === 'widget' &&
           f.scope.widgetId === widgetId &&
@@ -595,7 +595,7 @@ export function makeSelectWidgetRankFilter(
           // engine (`isFilterComplete`, `applyRankToAggregated`) accepts a numeric string, so a
           // host- or wire-authored rank filter whose value is `"5"` is enforced by every data
           // path. Requiring a native number here would suppress the "Top N" chip for it, diverging
-          // from what actually filters the rows (finding T3.8). The `Number.isFinite` guard rejects
+          // from what actually filters the rows. The `Number.isFinite` guard rejects
           // NaN so a non-numeric value ("N/A") still yields no chip.
           Number.isFinite(Number(f.value)) &&
           Number(f.value) > 0,
@@ -624,7 +624,7 @@ export function makeSelectWidgetSliderFilter(
         (f) =>
           // `!f.disabled` mirrors every data path (`selectFiltersForWidget`, `isActiveCrossFilter`):
           // a disabled slider filter no longer applies, so the slider pill must not surface it
-          // either (finding 3.1).
+          // either.
           !f.disabled &&
           f.scope.kind === 'interactive' &&
           f.scope.sourceWidgetId === widgetId &&
@@ -638,7 +638,7 @@ export function makeSelectWidgetSliderFilter(
  * Returns the active cross-filter emitted by this widget on the given page, or
  * null if the widget doesn't exist or has none active.
  *
- * Deliberately NOT gated by widget kind (finding 3.9): any widget that emits a
+ * Deliberately NOT gated by widget kind: any widget that emits a
  * cross-filter (chart, grid, map, …) owns exactly one `cross-filter`-scoped entry
  * keyed by its id, so the "can emit" capability is derived from the filter set
  * rather than a hardcoded chart/grid kind list — a map's emitted cross-filter now

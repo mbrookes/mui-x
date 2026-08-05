@@ -1,5 +1,5 @@
 /**
- * Bounds a tool's OUTPUT before it re-enters the conversation (finding H2).
+ * Bounds a tool's OUTPUT before it re-enters the conversation.
  *
  * Every INPUT to a tool in this package is bounded (args buffer, filter values,
  * bulk-update op counts, query row limits), but the output was not — and a tool

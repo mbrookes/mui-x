@@ -267,7 +267,7 @@ export class RedisCacheProvider implements CacheProvider {
     const tagsSupported = await this.tagOpsSupported();
     // Stream one SCAN page at a time and delete incrementally, rather than
     // accumulating every matching key into one array and spreading it into a
-    // single `del(...keys)` (finding M1). A tenant's keyspace is unbounded, so
+    // single `del(...keys)`. A tenant's keyspace is unbounded, so
     // the accumulating form was both a memory spike proportional to the
     // keyspace and — past V8's spread-argument limit — a `RangeError` thrown
     // before Redis was ever contacted, i.e. an invalidation that silently
@@ -317,7 +317,7 @@ export class RedisCacheProvider implements CacheProvider {
       return;
     }
     // Delete every tagged data key, its now-meaningless reverse-index entry, and
-    // the forward-index set itself — in FIXED-SIZE BATCHES (finding M1), never
+    // the forward-index set itself — in FIXED-SIZE BATCHES, never
     // one variadic `del(...keys)` spread. The forward index accumulates one
     // member per (tenant × security profile × query shape) within its TTL, so a
     // single-call spread hit V8's argument limit and threw `RangeError` before
@@ -397,7 +397,7 @@ export class RedisCacheProvider implements CacheProvider {
    * Normalized SADD — returns false (and does nothing) if unsupported.
    *
    * Members are added in fixed-size batches for the same reason `delKeys`
-   * batches (finding M1, sibling site): the ioredis arm spreads them into a
+   * batches: the ioredis arm spreads them into a
    * variadic call, which has an engine argument ceiling. `tags` is host-supplied
    * and small in practice, but "small in practice" is what made the `del`
    * spread a latent failure rather than an obvious one.
@@ -452,7 +452,7 @@ export class RedisCacheProvider implements CacheProvider {
 
   /**
    * Extend the forward tag index's (`__tag__:<tag>`) expiry, but never shorten
-   * it (finding 1.9). The index is shared across every entry tagged with
+   * it. The index is shared across every entry tagged with
    * `tag`; if entry A is written with a long TTL and entry B (same tag) is
    * later written with a short TTL, unconditionally resetting the index's
    * expiry to B's TTL would let the index expire out from under A while A is

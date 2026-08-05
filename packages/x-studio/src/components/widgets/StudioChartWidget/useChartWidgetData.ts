@@ -56,7 +56,7 @@ export function useChartWidgetData(
   // Threaded into every aggregation call below so the empty-category bucket label
   // (`chartEmptyCategoryLabel`) resolves to the consumer's locale instead of always
   // falling back to the English default — matching how `StudioPieChart`'s own
-  // ring/sliceField aggregation already threads `localeText` through (finding T3.2).
+  // ring/sliceField aggregation already threads `localeText` through.
   const localeText = useStudioLocaleText();
 
   // ── Cross-source blending (mixed charts) ──────────────────────────────────
@@ -88,7 +88,7 @@ export function useChartWidgetData(
   // check) resolves a related-source calculated field via `findDirectFieldOwner` →
   // `hasRowLevelField`, which only finds an expression field in this list — an
   // own-source-only list makes a related-source expression field invisible here, so this
-  // guard falsely disagrees with the setup panel's full-list check (finding 2.1).
+  // guard falsely disagrees with the setup panel's full-list check.
   // For a many-to-many relationship the junction (bridge) source is included too, so a
   // junction-owned expression field used as a chart dimension is resolvable by the guard
   // and by L4 grain resolution instead of being invisible (mirrors `getReachableSourceIds`;
@@ -142,9 +142,9 @@ export function useChartWidgetData(
     // the live `selectFilters` array. During a `useDeferredValue` window the urgent render would
     // otherwise pair stale L3 rows with a freshly-resolved filter list, so `resolveRowsAtGrain`'s
     // L4 semi-join rendered the intersection of two filter states (a transient flash to empty).
-    // `resolvedFiltersAll` ('all') matches `filteredRows` (finding 2.1).
+    // `resolvedFiltersAll` ('all') matches `filteredRows`.
     // `resolvedFiltersNoChartCross` ('page' + 'widget' + 'interactive') matches
-    // `filteredRowsNoChartCross` — the chart ghost/tooltip "all rows" baseline (finding 1.4), AND
+    // `filteredRowsNoChartCross` — the chart ghost/tooltip "all rows" baseline, AND
     // is the correct pairing for `effectiveRows` in `'none'` mode (see `effectiveResolvedFilters`
     // below — finding 1, tier 1). NOTE: `resolvedFiltersNoCross` ('page' + 'widget' only, pairs
     // with `filteredRowsNoCross`) is deliberately NOT destructured here — `effectiveRows` is never
@@ -154,13 +154,13 @@ export function useChartWidgetData(
     // The widget's own WIDGET-scoped rank (Top-N) filters, derived from the same deferred filter
     // snapshot the rows came from — rather than re-derived here from the live `selectFilters`
     // array. During a `useDeferredValue` window a live-derived rank edit would otherwise re-rank
-    // the still-deferred (stale) rows for a frame (finding 3.3).
+    // the still-deferred (stale) rows for a frame.
     widgetScopedRankFilters,
   } = useWidgetRows(widget, dataSource, pageId);
 
   // The single active widget-scoped rank filter (post-aggregation Top-N reduction). Mirrors the
   // former `selectFilters.find(...)` lookup, but sourced from the deferred snapshot above so the
-  // rank and the rows it reduces always come from the same filter state (finding 3.3). `!disabled`
+  // rank and the rows it reduces always come from the same filter state. `!disabled`
   // and `filterMode === 'rank'` are already applied inside `widgetScopedRankFilters`.
   const widgetRankFilter = widgetScopedRankFilters[0] ?? null;
 
@@ -173,7 +173,7 @@ export function useChartWidgetData(
   // `filteredRowsNoCross` (page + widget only). The filter set passed to L4 re-anchoring
   // (`useChartRows` below) must match whichever rows it's re-anchoring, or `resolveRowsAtGrain`
   // re-applies the wrong `anchorScopedFilters` and resurrects rows an active interactive filter
-  // excluded (finding 1, tier 1). So this must be `resolvedFiltersNoChartCross`, matching
+  // excluded. So this must be `resolvedFiltersNoChartCross`, matching
   // `effectiveRows`'s actual `'none'`-mode value — not `resolvedFiltersNoCross`, which pairs with
   // `filteredRowsNoCross` (a different, narrower row set effectiveRows is not in 'none' mode).
   const effectiveResolvedFilters =
@@ -185,7 +185,7 @@ export function useChartWidgetData(
   // alignment (which projects filtered values onto the baseline's kept labels). Ranking the
   // filtered aggregation independently diverges the two top-N sets, so a baseline-kept category
   // with a real filtered value renders "(filtered out)" while a filtered-only category is
-  // invisible (finding 2.2). When no ghost is active there is no baseline, so the filtered
+  // invisible. When no ghost is active there is no baseline, so the filtered
   // aggregation ranks itself as before.
   const filteredRankFilter = shouldShowGhost ? null : widgetRankFilter;
 
@@ -212,7 +212,7 @@ export function useChartWidgetData(
   // Per-series aggregation map (fieldId → fn), derived from the documented
   // `StudioChartSeries.yAggregation`. The non-blended multi-series client path must
   // honour this per field so an in-memory source produces the same numbers as an
-  // adapter-backed source's server push-down (finding 1.4). Fields without an
+  // adapter-backed source's server push-down. Fields without an
   // explicit fn fall back to 'sum' inside `aggregateMultipleSeries`.
   const yAggregationByField = React.useMemo(() => {
     const map: Record<string, 'sum' | 'count' | 'avg' | 'min' | 'max'> = {};
@@ -240,12 +240,12 @@ export function useChartWidgetData(
   // that series' own `yAggregation` with precedence over the widget-level `config.yAggregation`
   // default, mirroring the server/adapter push-down precedence in `chartTypeRegistry`
   // ("the more specific per-series fn wins over the yField-derived one") so an in-memory source
-  // produces the same numbers as a pushed-down aggregation (finding 1.12).
+  // produces the same numbers as a pushed-down aggregation.
   //
   // Read the `yAggregation` from the SAME `ySeries` entry that supplied `activeYFields[0]`, not
   // from `ySeries[0]` unconditionally: `activeYFields` skips fieldId-less / foreign-blended
   // entries, so a half-configured leading entry (e.g. `[{yAggregation:'sum'}, {fieldId:'revenue',
-  // yAggregation:'avg'}]`) would otherwise aggregate `revenue` with `sum` (finding 2.6). `find`
+  // yAggregation:'avg'}]`) would otherwise aggregate `revenue` with `sum`. `find`
   // returns `undefined` when `activeYFields[0]` came from `config.yField` (no matching series),
   // falling through to the `config.yAggregation` default.
   const singleSeriesYAggregation =
@@ -254,8 +254,8 @@ export function useChartWidgetData(
 
   // Dimension-like fields that the non-xy chart families (heatmap / funnel / sankey / gantt)
   // actually read but that are not expressed as x / y / series. Passed to `analyzeChartSupport`
-  // so its guard validates them against the source graph instead of silently ignoring them
-  // (finding 2.5).
+  // so its guard validates them against the source graph instead of silently ignoring them.
+  //
   const chartTypeExtraFields = React.useMemo((): (string | undefined)[] => {
     switch (config.chartType) {
       case 'heatmap':
@@ -318,7 +318,7 @@ export function useChartWidgetData(
   // Resolve chart rows at the right grain for direct related fields used by x/series/y, plus the
   // non-xy families' extra dimension fields (heatY/funnelReached/sankeyTarget/gantt*) so a
   // one-hop cross-source extra dimension is enriched onto the rows the renderers read from
-  // (`enrichedRows`) instead of resolving to `undefined` (finding 1.9).
+  // (`enrichedRows`) instead of resolving to `undefined`.
   const enrichedRows = useChartRows(
     effectiveRows,
     widget,
@@ -333,7 +333,7 @@ export function useChartWidgetData(
   // chart-click cross-filters), NOT `filteredRowsNoCross` (page + widget only): interactive
   // filter-widget selections are always hard filters per BI norm, so resurrecting them here made
   // ghost bars and tooltip totals include rows the interactive hard filter removed — larger than
-  // anything ever displayed and disagreeing with the grid (finding 1.4). `resolvedFiltersNoChartCross`
+  // anything ever displayed and disagreeing with the grid. `resolvedFiltersNoChartCross`
   // is the matching L4 filter set from the same deferred snapshot.
   const allEnrichedRows = useChartRows(
     filteredRowsNoChartCross,
@@ -358,7 +358,7 @@ export function useChartWidgetData(
   // state the setup panel can pass through while a user is adding a series) previously
   // made this guard pass on `config.yAggregation === 'count'` while `singleSeriesYAggregation`
   // was actually 'sum' — producing all-zero bars (summing an empty field id) instead of
-  // counts (finding 3.6).
+  // counts.
   const isFieldlessCount = activeYFields.length === 0 && singleSeriesYAggregation === 'count';
   const categoryYField = activeYFields[0] ?? '';
 
@@ -368,7 +368,7 @@ export function useChartWidgetData(
   // independently from its OWN row set, so a filtered subset that happened to be
   // empty or entirely non-numeric silently downgraded to 'count' while the baseline
   // (with real numeric values) stayed 'sum' (or vice-versa) — the ghost tooltip then
-  // compared incompatible quantities (finding 3). Detect it ONCE here, from the
+  // compared incompatible quantities. Detect it ONCE here, from the
   // baseline (`allEnrichedRows`, which has the fuller picture), and force both calls
   // below to use this same value.
   const singleSeriesEffectiveAggregation = React.useMemo(() => {
@@ -383,7 +383,7 @@ export function useChartWidgetData(
   // each, because `aggregateByTwoFields` carried its own hand-copied inline detection with no
   // override. A cross-filter selecting rows whose y values are all sentinel strings ("N/A")
   // downgraded the filtered call to 'count' while the baseline stayed 'sum', so the foreground
-  // bars were row counts drawn against a sum-valued ghost (finding M10). Detect once, from the
+  // bars were row counts drawn against a sum-valued ghost. Detect once, from the
   // baseline, exactly as the single-series path above does.
   const seriesFieldEffectiveAggregation = React.useMemo(() => {
     const yField = activeYFields[0];
@@ -394,7 +394,7 @@ export function useChartWidgetData(
   }, [shouldShowGhost, allEnrichedRows, activeYFields, singleSeriesYAggregation]);
 
   // Same fix for the multi-Y family (`multiYData` vs `allMultiYData`), whose per-field
-  // detection map must likewise be computed once from the baseline (finding M10).
+  // detection map must likewise be computed once from the baseline.
   const multiYEffectiveAggregation = React.useMemo(() => {
     if (!shouldShowGhost || activeYFields.length < 2) {
       return undefined;
@@ -440,7 +440,7 @@ export function useChartWidgetData(
         !sid || sid === widget.sourceId ? enrichedRows : (foreignRowsBySource.get(sid) ?? []);
       // Default the resolved sourceId to the widget's primary source (mirroring the
       // `rows` fallback above) so the output always carries a concrete sourceId for
-      // the (fieldId, sourceId) pair-matching consumers rely on (finding 2.12).
+      // the (fieldId, sourceId) pair-matching consumers rely on.
       const resolvedSourceId = sid ?? widget.sourceId ?? '';
       return [
         {
@@ -463,7 +463,7 @@ export function useChartWidgetData(
     }
     // Apply the widget rank filter post-aggregation, mirroring the non-blended `multiYData`
     // path — a blended mixed chart under a Top-N widget rank filter previously ignored it
-    // entirely (finding 2.7).
+    // entirely.
     return applyRankToMultiSeries(
       aggregateBlendedSeries(
         inputs,
@@ -502,7 +502,7 @@ export function useChartWidgetData(
     }
     // `filteredRankFilter` (null under a ghost) — see its declaration: the baseline
     // `allSeriesFieldData` carries the rank; the filtered set stays un-ranked so its full series
-    // set is available for ghost alignment (finding 2.2).
+    // set is available for ghost alignment.
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
@@ -571,8 +571,8 @@ export function useChartWidgetData(
             // Pass the configured aggregation so this color-stability baseline ranks the same
             // top-N series set the rendered `seriesFieldData`/`allSeriesFieldData` do — omitting
             // it defaulted to 'sum', which under a rank filter + non-sum aggregation (avg/min/max/
-            // count) could rank a different top-N than the actual data, defeating stable colors
-            // (finding 2.23).
+            // count) could rank a different top-N than the actual data, defeating stable colors.
+            //
             singleSeriesYAggregation,
             localeText,
             seriesFieldEffectiveAggregation,
@@ -617,7 +617,7 @@ export function useChartWidgetData(
   // matching the row-level rank reduction grid/KPI/map/pivot widgets apply (`filterUtils.ts`,
   // which always SUMS `rankByField` per group) — instead of the displayed (possibly avg/min/max)
   // aggregated value, which previously made a chart disagree with every other widget kind on an
-  // identical rank filter (finding 3.x). `undefined` (and ignored) when the rank filter doesn't
+  // identical rank filter. `undefined` (and ignored) when the rank filter doesn't
   // specify a `rankByField`.
   const rankByFieldData = React.useMemo(() => {
     const xField = config.xField;
@@ -668,7 +668,7 @@ export function useChartWidgetData(
     }
     // `filteredRankFilter` (null under a ghost): the baseline `allChartData` carries the rank and
     // defines the rendered top-N; the filtered set stays un-ranked so the downstream ghost
-    // alignment can project its full label→value map onto the baseline's kept labels (finding 2.2).
+    // alignment can project its full label→value map onto the baseline's kept labels.
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
@@ -719,8 +719,8 @@ export function useChartWidgetData(
     if (!xField || activeYFields.length < 2 || enrichedRows.length === 0) {
       return null;
     }
-    // `filteredRankFilter` (null under a ghost) — baseline `allMultiYData` carries the rank
-    // (finding 2.2).
+    // `filteredRankFilter` (null under a ghost) — baseline `allMultiYData` carries the rank.
+    //
     const rkKey = JSON.stringify(filteredRankFilter);
     return cachedCompute(
       enrichedRows,
@@ -870,7 +870,7 @@ export function useChartWidgetData(
     }
     // Blended mixed charts have no single-grain baseline to aggregate here (each series lives in
     // its own source); a non-blended `aggregateMultipleSeries` over `allEnrichedRows` would be a
-    // wrong ghost that nothing consumes. Bail out exactly as `multiYData` does (finding 2.7).
+    // wrong ghost that nothing consumes. Bail out exactly as `multiYData` does.
     if (isBlended) {
       return null;
     }
@@ -923,7 +923,7 @@ export function useChartWidgetData(
   // family has, so a chart authored via `ySeries` then switched to scatter still resolves its
   // measure. Without it `scatterData`/`scatterSeries` stay null (they required `config.yField`)
   // while the support guard — which reads `activeYFields`, already honoring the fallback — reports
-  // supported, producing an empty render (finding 2.7).
+  // supported, producing an empty render.
   const scatterYField = config.yField ?? config.ySeries?.[0]?.fieldId;
 
   // Data for scatter charts
@@ -944,7 +944,7 @@ export function useChartWidgetData(
   // Stable category order for scatter color-by field (from unfiltered rows).
   // Empty/null values bucket under the configurable `chartEmptyCategoryLabel` (via
   // `emptyBucketLabel`) rather than a hardcoded English `'(blank)'` literal, matching
-  // every other chart type's empty-category handling (finding 4).
+  // every other chart type's empty-category handling.
   const scatterColorCategories = React.useMemo(() => {
     const colorField = config.scatterColorField;
     if (!colorField) {
@@ -1060,8 +1060,8 @@ export function useChartWidgetData(
     filteredRows,
     // The mode-appropriate primary baseline (`'none'` → filteredRowsNoChartCross, else
     // filteredRows) and the pre-chart-cross baseline, exposed so the "No data" guard tests the
-    // same row set the chart actually renders from rather than the include:'all' `filteredRows`
-    // (finding 1.3).
+    // same row set the chart actually renders from rather than the include:'all' `filteredRows`.
+    //
     effectiveRows,
     filteredRowsNoChartCross,
     activeYFields,

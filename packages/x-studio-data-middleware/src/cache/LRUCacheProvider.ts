@@ -147,7 +147,7 @@ export class LRUCacheProvider implements CacheProvider {
       maxEntrySize: maxEntryBytes,
       // Floor an explicit `ttlMs: 0` to 1s — `lru-cache` otherwise treats
       // `ttl: 0` as "never expires" (see `./ttl.ts`), the opposite of what
-      // `ttlMs: 0` means on the Redis-backed providers (finding 2.1).
+      // `ttlMs: 0` means on the Redis-backed providers.
       ttl: floorTtlMs(ttlMs),
       allowStale: false,
       // Do NOT refresh TTL on read: `ttlMs` is a staleness bound, not an idle
@@ -243,7 +243,7 @@ export class LRUCacheProvider implements CacheProvider {
     if (entry === undefined) {
       return undefined;
     }
-    // Return an independent deep copy (finding T3.6). `lru-cache` stores the entry
+    // Return an independent deep copy. `lru-cache` stores the entry
     // by reference, so without this a caller that mutates the returned rows would
     // corrupt the shared cached entry for every other reader, and a warm hit would
     // behave differently from a cold DB fetch (which always yields fresh rows). A
@@ -253,7 +253,7 @@ export class LRUCacheProvider implements CacheProvider {
   }
 
   async set(key: string, value: CacheEntry, opts?: CacheSetOpts): Promise<void> {
-    // Floor an explicit `ttlMs: 0` to 1s (finding 2.1) — see `./ttl.ts`. Any
+    // Floor an explicit `ttlMs: 0` to 1s — see `./ttl.ts`. Any
     // other value, including `undefined` (use the constructor default), is
     // passed through unchanged.
     const ttlMs = floorTtlMs(opts?.ttlMs);
@@ -340,7 +340,7 @@ export class LRUCacheProvider implements CacheProvider {
    * prefix is "studio:v1:<tenantId>:" — the tenant isolation boundary.
    * For any other key format, falls back to using the full key as its own prefix.
    *
-   * Boundary exactness (finding 3.2): the 3rd-colon scan below is exact ONLY
+   * Boundary exactness: the 3rd-colon scan below is exact ONLY
    * because `generateCacheKey` URL-encodes the tenant segment, so a `tenantId`
    * containing ':' (e.g. `org:1234` → `org%3A1234`) can no longer inject an extra
    * colon that would shift the boundary and collapse distinct tenants into one

@@ -244,7 +244,7 @@ export const POSITIONAL_INDEX_BASE = 2_000_000;
  * top. Rejecting a non-integer `index` here makes the delta fall through to the
  * id-based / positional path, which mints a safe synthetic index instead.
  *
- * The RANGE check (finding L7) is what makes {@link SYNTHETIC_INDEX_BASE} and
+ * The RANGE check is what makes {@link SYNTHETIC_INDEX_BASE} and
  * {@link POSITIONAL_INDEX_BASE} deliver the non-collision their own doc comments
  * promise. They were only disjoint from a WELL-BEHAVED provider's `0..n` indices: a
  * gateway sending `index: 2000000` landed in the positional fallback's range and merged
@@ -281,7 +281,7 @@ function isNonEmptyString(value: unknown): value is string {
 
 /**
  * Hard ceiling (chars, ~bytes for the JSON text a provider streams) on a single tool
- * call's accumulated `argsBuffer` (finding 6, iteration 24). Nothing else in the
+ * call's accumulated `argsBuffer`. Nothing else in the
  * agentic loop bounds this: unlike the per-request token/turn/mutation budgets in
  * `agenticLoop.ts`, a tool call's arguments stream until the provider itself signals
  * the call is complete, so a misbehaving/malicious gateway that keeps emitting
@@ -320,7 +320,7 @@ export const MAX_TOOL_CALL_NAME_CHARS = 512;
 
 /**
  * Hard ceiling on the number of DISTINCT tool-call slots (`reqToolCalls` entries)
- * a single turn's accumulator may hold (finding T2-1, iteration 25). Nothing else
+ * a single turn's accumulator may hold. Nothing else
  * bounds this: `accumulateToolCallDeltas` mints a new `reqToolCalls[idx]` entry for
  * every distinct `index` (or synthetic id-based / positional index) a delta
  * carries, so a misbehaving/malicious gateway that streams deltas for indices
@@ -388,7 +388,7 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
     // below, which mints a safe synthetic index.
     if (isUsableToolCallIndex(tcIndex)) {
       idx = tcIndex;
-      // Register the id → slot mapping HERE too (finding F1), not only on the id-only
+      // Register the id → slot mapping HERE too, not only on the id-only
       // branch below. The index branch takes priority, so a delta carrying BOTH an
       // `index` and an `id` — the shape every mainstream gateway opens a tool call
       // with — used to leave `idToIdx` empty for that id. A later delta carrying only
@@ -527,8 +527,8 @@ export function accumulateToolCallDeltas(deltas: ToolCallDelta[], acc: ToolCallA
 }
 
 /**
- * Drop any accumulator entry whose `id` repeats one already seen, keeping the FIRST
- * (finding F1). Order-preserving; the input is `Object.entries(acc.reqToolCalls)`.
+ * Drop any accumulator entry whose `id` repeats one already seen, keeping the FIRST.
+ * Order-preserving; the input is `Object.entries(acc.reqToolCalls)`.
  *
  * The accumulator itself is what should prevent one tool call from occupying two
  * slots — {@link accumulateToolCallDeltas} now registers `idToIdx` on the index

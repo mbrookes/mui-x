@@ -59,7 +59,7 @@ export interface SecurityColumns {
  *     column name for the dimension);
  *   - `null` — DROP this one dimension for this table while keeping the others.
  *
- * The per-dimension `null` (finding 2.1) is what lets a joined table stay
+ * The per-dimension `null` is what lets a joined table stay
  * tenant-scoped while dropping region/department — e.g. `{ region: null }` keeps
  * the inherited tenant predicate but emits no `region_id IN (...)` clause, for a
  * table (audit log, line-item) that carries `tenant_id` but has no region column.
@@ -101,7 +101,7 @@ export type TenancyConfig =
  * global tenant column is declared in exactly one place — `tenancy.tenantColumn`
  * — never here. Per-table overrides — and the explicit opt-out that marks a
  * shared/lookup table as unscoped whether it is queried as the PRIMARY table or a
- * JOINED one (finding 2.3) — go in `perTable`.
+ * JOINED one — go in `perTable`.
  *
  * SECURITY — joined tables are scoped by DEFAULT (fail-closed). A joined table
  * with no `perTable` entry inherits the primary table's resolved
@@ -112,7 +112,7 @@ export type TenancyConfig =
  * OPT-OUT — a genuinely shared/lookup table with no tenant column (e.g. a
  * country-codes table) opts out with `perTable[table] = null`. It then resolves to
  * NO security columns whether it is the PRIMARY table of a query/mutation or a
- * JOINED table (finding 2.3) — a table runs unscoped ONLY when explicitly declared
+ * JOINED table — a table runs unscoped ONLY when explicitly declared
  * shared, never merely because the host forgot to register it.
  *
  * @example
@@ -157,7 +157,7 @@ export interface SecurityColumnsConfig {
    *   `{ region: null }` stays tenant-scoped but emits no region predicate).
    * - `null` for the whole entry marks a shared/lookup table that has no tenant
    *   column and runs unscoped — as the PRIMARY table of a query/mutation OR as a
-   *   JOINED table (finding 2.3) — opting it OUT of the default inheritance entirely.
+   *   JOINED table — opting it OUT of the default inheritance entirely.
    */
   perTable?: Record<string, SecurityColumnOverride | null>;
 }

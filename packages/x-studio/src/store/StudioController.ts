@@ -27,7 +27,7 @@ import {
   resolveChartType,
   isStudioChartType,
   // The screens `updateFilter` / `updateActivePage` reuse so the writers that DON'T route
-  // through the reducer are held to the same standard as the ones that do (R6 F2).
+  // through the reducer are held to the same standard as the ones that do.
   isStudioFilterOperator,
   isValidFilterScope,
   hasResolvableFilterAnchors,
@@ -35,7 +35,7 @@ import {
   // filter-drop paths. The four clear methods below drop filters through `commitDocPatch`
   // and so never reach the reducer; without this they left dangling `dependsOn` ids in the
   // LIVE doc that only `serializeDoc` pruned, so the in-memory cascade and the saved one
-  // disagreed until the next reload (R6 F3).
+  // disagreed until the next reload.
   pruneDependsOnAgainstSelf,
 } from '@mui/x-studio-schema';
 
@@ -179,7 +179,7 @@ export class StudioController {
   private redoStack: StudioDoc[] = [];
   /** Compact, labeled log of recent user-driven mutations (oldest first). */
   private mutationLog: StudioAIRecentMutation[] = [];
-  // Parallel to `undoStack`/`redoStack` (finding 6): index `i` records the
+  // Parallel to `undoStack`/`redoStack`: index `i` records the
   // `mutationLog` entry (or `null` when the commit was unlabeled) that the SAME
   // commit appended when it pushed `undoStack[i]`/`redoStack[i]`. `undo`/`redo`
   // use this to reconcile `mutationLog` in lockstep with the doc swap — removing
@@ -274,7 +274,7 @@ export class StudioController {
       this.undoMutationLog = [];
       this.redoMutationLog = [];
     } else if (nextState.doc !== current.doc) {
-      // Built once (finding 6) so the SAME object reference can be pushed onto both
+      // Built once so the SAME object reference can be pushed onto both
       // `mutationLog` and, when undoable, `undoMutationLog` — `undo`/`redo` locate this
       // exact entry by reference to reconcile the log with the doc swap.
       const logEntry: StudioAIRecentMutation | null = label
@@ -327,7 +327,7 @@ export class StudioController {
     }
 
     // Dangling-selection normalization, applied HERE (the single choke point every
-    // doc-changing commit funnels through) rather than at each entry point (R6 F1).
+    // doc-changing commit funnels through) rather than at each entry point.
     // `setState` — reachable from the chat panel's Retry (`chatTurnMutations`' `revert`
     // restores `turn.docBefore` wholesale) — used to swap the doc without it, so a widget
     // an AI turn had created and the user had then SELECTED stayed in
@@ -462,8 +462,8 @@ export class StudioController {
         }
         // Re-derive `scope.pageId` against the emitting widget's ACTUAL page in the
         // swapped-in (`incomingDoc`) doc, rather than blindly carrying forward
-        // whatever page the filter happened to be scoped to in the CURRENT doc
-        // (finding 1). A filter widget can be moved to a different page and then
+        // whatever page the filter happened to be scoped to in the CURRENT doc.
+        // A filter widget can be moved to a different page and then
         // have a selection made there (stamping `scope.pageId` with that NEW page);
         // undoing the move puts the widget back on its original page, so the
         // carried filter must follow it there too — otherwise it keeps pointing at
@@ -563,7 +563,7 @@ export class StudioController {
    * and interactive-scoped filter entries). An undo entry pushed for such a diff can
    * never actually revert anything (the very next undo/redo swap re-overlays the
    * CURRENT value of those fields onto whatever gets swapped in) — yet committing it
-   * undoably still clears the redo stack, a "dead" undo (T3.3).
+   * undoably still clears the redo stack, a "dead" undo.
    *
    * `applyExternalMutation`'s dead-undo special-case used to hardcode the mutation
    * TYPES that can produce such a diff (`setActivePage` / `renameAIThread`), but the
@@ -742,7 +742,7 @@ export class StudioController {
       label,
       // Classify the transient-only diff from the SAME reducer fold `commitMutations` already
       // performs, rather than running `applyMutation` a second time here just to inspect the
-      // resulting doc (T3.1). `resolveUndoable` receives the fold's result (before `transform`),
+      // resulting doc. `resolveUndoable` receives the fold's result (before `transform`),
       // and `this.store.state` is still the PRE-commit state at call time, so this is the exact
       // prev→next diff the old two-pass code computed — pure dedup, no behavior change.
       resolveUndoable: (folded) => !this.isTransientOnlyDocDiff(this.store.state.doc, folded.doc),
@@ -792,7 +792,7 @@ export class StudioController {
       /**
        * Derive `undoable` from the reducer fold's result (before `transform`). Takes
        * precedence over `undoable`. Lets `applyExternalMutation` classify a transient-only
-       * diff from the SAME fold instead of running `applyMutation` twice (T3.1).
+       * diff from the SAME fold instead of running `applyMutation` twice.
        */
       resolveUndoable?: (folded: StudioState) => boolean;
       /** Client-only state layering, applied AFTER the reducer. */
@@ -842,7 +842,7 @@ export class StudioController {
        * Derive `undoable` from the reducer fold's result (before `transform`). Takes
        * precedence over `undoable`. Evaluated against the fold's `next` while `this.store.state`
        * is still the pre-commit state, so callers can classify the exact prev→next doc diff
-       * without a second `applyMutation` pass (T3.1).
+       * without a second `applyMutation` pass.
        */
       resolveUndoable?: (folded: StudioState) => boolean;
       /** Client-only state layering, applied AFTER the reducer fold. */
@@ -865,7 +865,7 @@ export class StudioController {
       options?.label === null
         ? undefined
         : (options?.label ?? mutations.map(mutationLabel).join(' + '));
-    // `resolveUndoable` (T3.1) classifies from the fold's `next` (evaluated while
+    // `resolveUndoable` classifies from the fold's `next` (evaluated while
     // `this.store.state` is still the pre-commit state); otherwise fall back to the explicit
     // `undoable` flag (default handled by `commitState`).
     const undoable = options?.resolveUndoable ? options.resolveUndoable(next) : options?.undoable;
@@ -953,7 +953,7 @@ export class StudioController {
 
   setGlobalCrossFilterMode = (mode: import('../models').StudioCrossFilterMode | null) => {
     const state = this.store.state;
-    // Value-equality no-op guard (finding 4): `{ ...state.doc.dashboard, ... }` always
+    // Value-equality no-op guard: `{ ...state.doc.dashboard, ... }` always
     // allocates a fresh `dashboard` object, so `commitDocPatch`'s reference-equality
     // guard can never catch a value-identical re-commit — mirrors the guard style used
     // by `setPageStackBreakpoint`/`reorderPages` elsewhere in this file.
@@ -968,7 +968,7 @@ export class StudioController {
 
   setCrossFilterAllPages = (allPages: boolean) => {
     const state = this.store.state;
-    // Value-equality no-op guard (finding 4) — see `setGlobalCrossFilterMode` above.
+    // Value-equality no-op guard — see `setGlobalCrossFilterMode` above.
     if (state.doc.dashboard.crossFilterAllPages === allPages) {
       return;
     }
@@ -1146,7 +1146,7 @@ export class StudioController {
       return;
     }
     const source = this.store.state.runtime.dataSources[sourceId];
-    // No-op guard (finding 4): `commitDataSourcePatch` always allocates a fresh
+    // No-op guard: `commitDataSourcePatch` always allocates a fresh
     // source/`dataSources` object, so an unknown `fieldId` or a value-identical
     // `updates` payload would otherwise still commit and churn every subscriber.
     // `mapPreservingIdentity` plus the per-field value-equality check mirror the
@@ -1587,7 +1587,7 @@ export class StudioController {
    * on the target page is omitted from `newRows`.
    *
    * `pageId` defaults to the active page. It exists because the validation and the caller's
-   * row computation must resolve the SAME page (F3): `StudioWidgetCard`'s keyboard reorder
+   * row computation must resolve the SAME page: `StudioWidgetCard`'s keyboard reorder
    * builds its rows from `pages[pageId]` — the card's own page, a public prop — while this
    * method used to validate (and stamp the mutation) against `getActivePage()`. The two
    * agreed only because `StudioCanvas` renders non-active pages `inert`, a rendering
@@ -1944,7 +1944,7 @@ export class StudioController {
     // just changed — report the assistant's widget edits while hiding the user's.
     const isExplicitTitleChange = 'title' in changes || 'subtitle' in changes;
     // Fold the widget update and any stale-filter removals into ONE `commitMutations`
-    // batch so the whole source switch is a single undoable step (finding 1.5). A
+    // batch so the whole source switch is a single undoable step. A
     // `removeFilter` for an id that doesn't exist is a clean fold no-op (the reducer
     // returns the same state), so callers may pass ids without pre-checking. When
     // `removeFilterIds` is empty this is a one-element batch — byte-identical to the
@@ -2109,11 +2109,11 @@ export class StudioController {
     // `options.undoable` (default `true`) is forwarded so system-initiated writes
     // (e.g. a setup panel's render-time "repair" of an invalid stored value) can opt
     // out of the undo timeline the same way `setDashboardDateRangeAll`/
-    // `StudioDateRangeBar`'s coverage-expansion effect already do (finding 2.4) —
+    // `StudioDateRangeBar`'s coverage-expansion effect already do —
     // otherwise merely rendering the panel could push an unauthored undo entry and,
     // if re-triggered after an undo, clear the redo stack.
     //
-    // `{ undoable: false }` is ALSO the self-repair signal (finding 4): almost every call
+    // `{ undoable: false }` is ALSO the self-repair signal: almost every call
     // site that passes it is a system-initiated fixup (e.g. `KpiSetupPanel`'s render-time
     // repair of an invalid stored `kpiAggregation`), not a user-driven edit. `commitState`
     // writes a recent-mutation-log line whenever the doc changed, REGARDLESS of
@@ -2127,7 +2127,7 @@ export class StudioController {
     // log", and every current caller wants both. There used to be a `logAsUserEdit` escape
     // hatch that separated them for `StudioGridWidget`'s edit-mode header sort (non-undoable
     // for gesture-coalescing reasons, yet an authored change worth logging). That caller is
-    // gone (F2): the sort now commits undoably and coalesces its own gesture through
+    // gone: the sort now commits undoably and coalesces its own gesture through
     // `foldUndoHistorySince`, because a non-undoable write into `doc.widgets` was silently
     // reverted by any unrelated undo — `carryTransientDocState` does not carry widget config —
     // and had no paired `undoMutationLog` entry for `undo()` to retract. If a caller ever needs
@@ -2397,7 +2397,7 @@ export class StudioController {
     relationship: import('../models').StudioRelationship,
   ): StudioMutationResult => {
     const state = this.store.state;
-    // Idempotent, mirroring `addExpressionField` (T3.3): without this guard a double-add
+    // Idempotent, mirroring `addExpressionField`: without this guard a double-add
     // (e.g. a re-delivered AI/wire `addRelationship` event) appends a second entry sharing
     // `relationship.id`, and `updateRelationship`/`removeRelationship` (both keyed on
     // `rel.id`) would then silently act on both instead of the one the caller intended.
@@ -2497,7 +2497,7 @@ export class StudioController {
     // callers are unaffected. A `{ undoable: false }` write lets a UI-driven self-repair
     // (e.g. a filters-drawer row rewriting a stored operator that is invalid for the
     // field type — finding 2.12) reconcile the doc without pushing an unauthored undo
-    // entry, mirroring `updateWidgetConfig`'s option used by `KpiSetupPanel` (finding 2.4).
+    // entry, mirroring `updateWidgetConfig`'s option used by `KpiSetupPanel`.
     options?: { undoable?: boolean },
   ): StudioMutationResult => {
     const state = this.store.state;
@@ -2508,7 +2508,7 @@ export class StudioController {
     if (!target) {
       return MUTATION_NOT_FOUND;
     }
-    // Payload screen (R6 F2). Unlike its sibling `addFilter`, this writer commits through
+    // Payload screen. Unlike its sibling `addFilter`, this writer commits through
     // `commitDocPatch` and so never reaches the shared reducer — it therefore applied NONE of
     // the validation `applyMutation`'s `addFilter` applies, and every value it accepted that
     // the reducer would have refused was silently dropped or rewritten by `deserializeState`'s
@@ -2554,7 +2554,7 @@ export class StudioController {
     }
     const switchingToRank = changes.filterMode === 'rank' && target.filterMode !== 'rank';
     // The guard must also re-run when an ALREADY-rank filter is re-pointed to a
-    // different page context via `changes.scope` (T3.3) — not just when switching INTO
+    // different page context via `changes.scope` — not just when switching INTO
     // rank mode. Without this, a rank filter moved to a page/widget that already has its
     // own rank filter bypasses `hasConflictingRankFilter` entirely and the one-rank-per-page
     // invariant ends up with two rank filters sharing a page context. No shipped UI patches
@@ -2616,7 +2616,7 @@ export class StudioController {
     this.commitDocPatch(
       { filters: nextFilters },
       {
-        // `{ undoable: false }` is ALSO the self-repair signal (finding 4): both
+        // `{ undoable: false }` is ALSO the self-repair signal: both
         // `PageFilterRow`/`WidgetFilterRow` pass it only from their render-time
         // "repair a stored operator invalid for the field type" effect, never from a
         // user-driven edit. `commitState` logs whenever the doc changed regardless of
@@ -3123,7 +3123,7 @@ export class StudioController {
       }
     }
     const { id, widgetRows, widgetColSpans, ...safeChanges } = changes as Partial<StudioPage>;
-    // Value screen for the keys that DO get written (R6 F2). `title` is `string` in
+    // Value screen for the keys that DO get written. `title` is `string` in
     // `StudioPage` and consumers render it with no fallback, so the load boundary coerces a
     // non-string to `'Untitled Page'` — the same reason the reducer's `renamePage` refuses
     // one. Accepting it here would show the caller's value until the next reload silently
@@ -3352,7 +3352,7 @@ export class StudioController {
           mutations.unshift({ type: 'removeFilter', args: { filterId: f.id } });
         }
       }
-      // Emitted-scope cleanup (T1.1): a cross-page move must also drop any filter this widget
+      // Emitted-scope cleanup: a cross-page move must also drop any filter this widget
       // EMITS whose scope is pinned to the source page — an `interactive` (filter-widget /
       // slider) selection or a `cross-filter` (chart-click) entry, both keyed by
       // `scope.sourceWidgetId` and carrying a `scope.pageId`. The move only rewrites page
@@ -3390,7 +3390,7 @@ export class StudioController {
    * SAME widget to a third page while this drag was in flight. Trusting it blindly
    * would make `commitWidgetMove` strip the widget from a page it no longer lives
    * on while still appending it to `targetRows`, duplicating the widget across two
-   * pages' `widgetRows` (finding 2). Re-resolve the widget's ACTUAL current page via
+   * pages' `widgetRows`. Re-resolve the widget's ACTUAL current page via
    * `resolveWidgetPageId` right before committing — mirroring the same guard
    * `moveWidgetToPage` already applies for its own (non-drag) entry point — so the
    * source-page rewrite always targets wherever the widget truly is now.
@@ -3442,8 +3442,8 @@ export class StudioController {
    * transforms to the shared {@link commitWidgetMove} core.
    */
   moveWidgetToPage = (widgetId: string, targetPageId: string) => {
-    // Resolve the widget's ACTUAL current page rather than assuming `activePageId`
-    // (finding 2): the widget may not live on the active page (not reachable from
+    // Resolve the widget's ACTUAL current page rather than assuming `activePageId`:
+    // the widget may not live on the active page (not reachable from
     // the shipped context-menu UI today, but this is a public controller method).
     // Hardcoding `activePageId` here would make `commitWidgetMove`'s source-page
     // rewrite a no-op fold (the widget isn't in that page's rows) while the target
@@ -3531,7 +3531,7 @@ export class StudioController {
       return false;
     }
 
-    // Reconcile the mutation log (finding 6): the commit being undone may have appended
+    // Reconcile the mutation log: the commit being undone may have appended
     // an entry to `mutationLog` (`commitState` pairs them 1:1 via `undoMutationLog`).
     // Remove it here — by reference, since `mutationLog` is capped independently and may
     // have already evicted it — so `getRecentMutations()` (surfaced to the AI via
@@ -3572,13 +3572,13 @@ export class StudioController {
       return false;
     }
 
-    // Reconcile the mutation log (finding 6) — mirrors `undo()` above: restore the entry
+    // Reconcile the mutation log — mirrors `undo()` above: restore the entry
     // `undo()` pulled out (if any), in lockstep with the doc, so re-applying the mutation
     // makes it visible to `getRecentMutations()` again.
     //
     // Unlike `undo()`'s removal (which never disturbs the relative order of what
     // remains), blindly RE-INSERTING at the tail here would break `getRecentMutations()`'s
-    // oldest-first ordering (finding 3): a non-undoable but LABELED commit (e.g.
+    // oldest-first ordering: a non-undoable but LABELED commit (e.g.
     // `applyExternalMutation`'s `setActivePage`/`renameAIThread`) can land between this
     // entry's undo and its redo without clearing the redo stack (only an UNDOABLE commit
     // does that), so by the time this entry is restored, a genuinely more recent entry may
@@ -3748,7 +3748,7 @@ export class StudioController {
     }
     const presentState = deserializeState(presentResult.state, dataSources);
     // Mode is taken from the present snapshot only (mode is not per-history-entry).
-    // Validate against the two allowed literals (finding 5): a tampered/legacy/foreign
+    // Validate against the two allowed literals: a tampered/legacy/foreign
     // session could carry any JSON value in `mode`, and installing it verbatim would let
     // `session.mode` (which every mode-gated UI branch trusts as `'view' | 'edit'`) hold
     // something else entirely. Fall back to the freshly-deserialized default (`'edit'`,
@@ -3761,7 +3761,7 @@ export class StudioController {
     };
 
     // Drop any history entries that fail to migrate rather than aborting the whole restore,
-    // and cap both stacks at `MAX_UNDO_HISTORY` (finding 5) — `commitState`'s trim only
+    // and cap both stacks at `MAX_UNDO_HISTORY` — `commitState`'s trim only
     // shifts one entry per commit, so a tampered/legacy session with an unbounded number of
     // entries would otherwise stay at that size forever. Both stacks are oldest-first with
     // the entry closest to `present` at the END (`undo`/`redo` both `pop()` the tail), so
@@ -3776,7 +3776,7 @@ export class StudioController {
     this.mutationLog = [];
     // Restored history carries no known mutation-log pairing (the log itself is never
     // persisted — see the reset just above), so pad `undoMutationLog`/`redoMutationLog`
-    // with `null` to the same length as their respective doc stacks (finding 6): `undo`/
+    // with `null` to the same length as their respective doc stacks: `undo`/
     // `redo` assume a 1:1 length match with `undoStack`/`redoStack`.
     this.undoMutationLog = this.undoStack.map(() => null);
     this.redoMutationLog = this.redoStack.map(() => null);

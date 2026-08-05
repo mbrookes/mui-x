@@ -165,7 +165,7 @@ function unboundedValueError(path: string): string {
 
 // `isRecord` (a plain object — not `null`, not an array — that everything the wire
 // carries as an `args` bag, a widget, a filter, or a scope must satisfy) is the shared
-// `isPlainRecord` from `internalGuards.ts` (finding 3.2), aliased to this file's
+// `isPlainRecord` from `internalGuards.ts`, aliased to this file's
 // established local name so every existing call site below is unchanged.
 
 // Caps every string leaf at `MAX_STRING_LENGTH` (Tier2 finding): a value can be
@@ -265,7 +265,7 @@ function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
  * Exported so the persistence LOAD boundary (`statePersistence.ts`'s `deserializeState`)
  * and the reducer (`applyMutation.ts`) can reuse the identical predicate when screening a
  * persisted widget/page/filter object's own keys, or a persisted widget's `config` own
- * keys (Findings 3.2 / T2-1 / T2-2), keeping the wire and load boundaries byte-for-byte in
+ * keys, keeping the wire and load boundaries byte-for-byte in
  * agreement rather than re-implementing the denylist check. The parameter is the wide
  * `object` (not `Record<string, unknown>`) precisely so every boundary can pass its own
  * concrete shape — a `StudioWidget`, `StudioPage`, `StudioFilterState`, or a raw wire
@@ -346,8 +346,8 @@ function validateWidget(widget: unknown, path: string): string | null {
   if (!isRecord(widget)) {
     return `${path} must be an object`;
   }
-  // Screen the widget object's OWN top-level keys for the prototype-hazard denylist
-  // (Finding 3.1), symmetric with the `updateWidget.args.changes` check below — the only
+  // Screen the widget object's OWN top-level keys for the prototype-hazard denylist,
+  // symmetric with the `updateWidget.args.changes` check below — the only
   // other place a wholesale widget object crosses the wire. Inert today (the reducer
   // spreads the widget rather than key-assigning its own keys), but an own
   // `__proto__`/`constructor`/`prototype` key was previously accepted and round-tripped;
@@ -566,8 +566,8 @@ function validateFilter(filter: unknown, path: string): string | null {
   if (!isRecord(filter)) {
     return `${path} must be an object`;
   }
-  // Screen the filter object's OWN top-level keys for the prototype-hazard denylist
-  // (Finding T2-2), closing the parity gap with `validateWidget` (which already screens
+  // Screen the filter object's OWN top-level keys for the prototype-hazard denylist,
+  // closing the parity gap with `validateWidget` (which already screens
   // its widget object's own keys). The reducer's `addFilter` appends the filter verbatim
   // (`[...state.filters, args.filter]`), so an own `__proto__`/`constructor`/`prototype`
   // key would round-trip through `serializeDoc` and poison a later `Object.assign`/spread

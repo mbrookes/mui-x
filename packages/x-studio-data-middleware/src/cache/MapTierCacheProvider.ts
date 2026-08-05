@@ -70,7 +70,7 @@ export class MapTierCacheProvider implements TierCacheProvider {
       max: maxEntries,
       // Floor an explicit `ttlMs: 0` to 1s — `lru-cache` otherwise treats
       // `ttl: 0` as "never expires" (see `./ttl.ts`), the opposite of what
-      // `ttlMs: 0` means on the Redis-backed providers (finding 2.1).
+      // `ttlMs: 0` means on the Redis-backed providers.
       ttl: floorTtlMs(ttlMs),
       allowStale: false,
     });
@@ -81,7 +81,7 @@ export class MapTierCacheProvider implements TierCacheProvider {
   }
 
   async set(key: string, value: TierEntry, ttlMs?: number): Promise<void> {
-    // Floor an explicit `ttlMs: 0` to 1s (finding 2.1) — see `./ttl.ts`. Any
+    // Floor an explicit `ttlMs: 0` to 1s — see `./ttl.ts`. Any
     // other value, including `undefined` (use the constructor default), is
     // passed through unchanged.
     const floored = floorTtlMs(ttlMs);

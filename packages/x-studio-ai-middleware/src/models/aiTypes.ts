@@ -167,7 +167,7 @@ export interface StudioAIDataConfig {
    * caller is actually allowed to query. (The MCP transport does not have this gap:
    * its state box is server-held, not request-supplied.)
    *
-   * FAIL-CLOSED DEFAULT ON THE CHAT TRANSPORT (finding F1): because of the trust
+   * FAIL-CLOSED DEFAULT ON THE CHAT TRANSPORT: because of the trust
    * boundary above, `query_data_source` on the chat transport now REFUSES to resolve
    * any data source when `allowedTables` is left `undefined` — rather than silently
    * trusting the client-supplied catalog — returning an error that instructs the host
@@ -288,7 +288,7 @@ export interface StudioAIRateLimit {
    * Called when a limit is reached before the loop would naturally finish.
    * Use this to increment a quota counter, log the overage, or trigger an alert.
    *
-   * @param {'tokens' | 'turns' | 'mutations' | 'toolCalls' | 'conversation'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached; `'mutations'` — mutation budget exceeded; `'toolCalls'` — tool-call budget exceeded; `'conversation'` — the in-flight conversation grew past `MAX_CONVERSATION_CHARS`, the aggregate bound on the `messages` array re-sent on every turn (finding F2). Unlike the four budgets above, `'conversation'` is NOT configurable: it is a package-owned backstop that holds even when no `rateLimit` is set at all, since the per-input caps it aggregates are themselves not configurable.
+   * @param {'tokens' | 'turns' | 'mutations' | 'toolCalls' | 'conversation'} reason `'tokens'` — token budget exceeded; `'turns'` — max iterations reached; `'mutations'` — mutation budget exceeded; `'toolCalls'` — tool-call budget exceeded; `'conversation'` — the in-flight conversation grew past `MAX_CONVERSATION_CHARS`, the aggregate bound on the `messages` array re-sent on every turn. Unlike the four budgets above, `'conversation'` is NOT configurable: it is a package-owned backstop that holds even when no `rateLimit` is set at all, since the per-input caps it aggregates are themselves not configurable.
    * @param {StudioAIUsage} usage  Token counts and iteration number at the point the limit was hit.
    */
   onLimitReached?: (

@@ -70,7 +70,7 @@ export function KpiSparkline(props: KpiSparklineProps) {
     // and the "150%" center text (itself just `Math.round(value)` on the SAME unclamped number)
     // would disagree with a visually-capped arc if the Gauge ever changes to clamp its own arc.
     // Clamping here keeps the arc, the center text, and the aria-label all reading the same
-    // (correctly capped) number (finding 8).
+    // (correctly capped) number.
     const percentValue = Math.min(Math.max((value / safeMax) * 100, 0), 100);
     // Text alternative: the gauge is a visual-only SVG.
     const gaugeAriaLabel = localeText.kpiGaugeAriaLabel(

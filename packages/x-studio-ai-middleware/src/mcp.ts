@@ -131,7 +131,7 @@ const MCP_UNSUPPORTED_TOOLS = new Set(
  * column values). `resources.ts` documents `query_data_source` as the single tool
  * name whose `toolPolicy` / `allowedTools` restriction governs ALL raw-row access,
  * and the resource path (`authorizeResourceDataAccess`) maps raw-row RESOURCE reads
- * onto that name (finding T2-B). Consulting the policy for these three sibling tools
+ * onto that name. Consulting the policy for these three sibling tools
  * under their OWN names left a per-`sourceId` `query_data_source` deny unable to gate
  * them — a contract violation between the tool and resource surfaces. Their policy
  * CONSULT is therefore routed under `query_data_source` (threading `sourceId`, like
@@ -150,7 +150,7 @@ const RAW_ROW_DATA_TOOLS = new Set([
  * Like the raw-row siblings above it must be governed by the documented
  * `query_data_source` contract (`resources.ts`) — otherwise a host that denies
  * `query_data_source` to lock down ALL raw-row access still leaks rows through
- * `summarise_page` (finding T2-α). Unlike those siblings it has no single
+ * `summarise_page`. Unlike those siblings it has no single
  * `sourceId` (it spans the whole page), so its consult is routed under
  * `query_data_source` SOURCE-AGNOSTICALLY — exactly mirroring the multi-source
  * `studio://dashboard/data-health` resource, whose single source-agnostic
@@ -158,7 +158,7 @@ const RAW_ROW_DATA_TOOLS = new Set([
  *
  * This entry-level consult catches a blanket / by-name deny only. A per-`sourceId`
  * deny is enforced SEPARATELY, inside the handler, via the
- * `authorizeSourceDataAccess` callback wired below (finding H3) — the analogy with
+ * `authorizeSourceDataAccess` callback wired below — the analogy with
  * `data-health` breaks down for per-source rules, because `data-health`'s source set
  * is host-controlled and returns nothing but counts, whereas this handler's source
  * set is model-controlled (`add_widget` accepts any `sourceId` unchecked) and it
@@ -167,7 +167,7 @@ const RAW_ROW_DATA_TOOLS = new Set([
 const MULTI_SOURCE_RAW_ROW_TOOLS = new Set(['summarise_page']);
 
 /**
- * Default bound (ms) on the host's `onStateChange` persistence hook (finding H5).
+ * Default bound (ms) on the host's `onStateChange` persistence hook.
  *
  * Every OTHER host callback reachable from a `tools/call` is explicitly bounded —
  * `approvalHandler` by `approvalTimeoutMs`, `contextEnricher` by
@@ -195,7 +195,7 @@ const DEFAULT_PERSIST_TIMEOUT_MS = 15_000;
  * Derived from `STUDIO_AI_TOOL_REGISTRY`'s `readOnly` fact (`@mui/x-studio-schema`),
  * mirroring `MCP_UNSUPPORTED_TOOLS` above, rather than hand-listed — a hand-listed
  * set previously covered only `get_dashboard_state`/`list_pages` and missed
- * `summarise_page`'s no-data path (Tier 3, iteration 25, finding T3-2):
+ * `summarise_page`'s no-data path:
  * `summarise_page` IS registered here (readOnly: true) but is normally reached
  * through the dispatch-table `handler` branch above (`createSummarisePageHandler`,
  * only wired up when `data` is configured) BEFORE this set is ever consulted —
@@ -215,7 +215,7 @@ const READ_ONLY_NO_MUTEX_TOOLS = new Set(
 
 /**
  * Apply the shared `capToolOutput` budget to every text content item of a
- * `tools/call` result (finding M3).
+ * `tools/call` result.
  *
  * `capToolOutput` was imported in exactly ONE place — the `ToolDispatchOutcome.output`
  * fold-in in `agenticLoop.ts` — so the byte budget it enforces was CHAT-ONLY, even
@@ -610,7 +610,7 @@ export function buildStudioMcpServer(
           });
       } else {
         try {
-          // Bounded (finding H5): this `await` runs INSIDE the per-session
+          // Bounded: this `await` runs INSIDE the per-session
           // `mutationChain` critical section, so an `onStateChange` promise that never
           // settles hung this call AND every subsequent mutating call in the session
           // forever — the exact failure mode `approvalTimeoutMs` was added to close for
@@ -697,7 +697,7 @@ export function buildStudioMcpServer(
    * (args-only, `proposed: undefined`) and the mutation path (which passes the
    * proposed mutation/effects).
    *
-   * Bounded wait (Tier 2, iteration 24, finding 1): mirrors
+   * Bounded wait: mirrors
    * `agenticLoop/toolDispatch.ts`'s `waitForApproval`, which races the chat
    * transport's approval pause against BOTH `approvalTimeoutMs` and an
    * `AbortSignal` so an abandoned approval can never hang the stream forever. MCP
@@ -724,7 +724,7 @@ export function buildStudioMcpServer(
       };
     }
     // Enrich human-facing approval labels from the REAL current state before handing
-    // `input` to the host (finding T2-A). The chat transport already rewrites
+    // `input` to the host. The chat transport already rewrites
     // `remove_widget`/`remove_page`/`apply_bulk_update` titles to the actual
     // state-derived entity title via `buildApprovalDisplayInput`; without the same
     // enrichment here, a prompt-injected model could get a destructive removal
@@ -796,13 +796,13 @@ export function buildStudioMcpServer(
 
   /**
    * The `tools/call` body. Extracted from the registration below so every one of its
-   * many returns funnels through the single `capCallToolResult` boundary (finding M3)
+   * many returns funnels through the single `capCallToolResult` boundary
    * — the MCP-side analogue of the chat loop's one `capToolOutput` fold-in point.
    *
    * `signal` is the SDK's per-request `RequestHandlerExtra.signal`, threaded into the
    * policy consults so an abandoned request stops waiting on a host policy at once
    * rather than holding this call — and, on the mutating branch, the whole mutation
-   * queue behind it — until the policy deadline elapses (finding H1).
+   * queue behind it — until the policy deadline elapses.
    */
   async function handleCallTool(
     request: CallToolRequest,
@@ -825,7 +825,7 @@ export function buildStudioMcpServer(
       // et al., and what excludes get_dashboard_state / summarise_page when the host
       // omits them.
       if (!isToolAllowed(toolName)) {
-        // Sanitized + capped before echoing (finding M7): `toolName` is entirely
+        // Sanitized + capped before echoing: `toolName` is entirely
         // client-supplied and unbounded here — it never matched a registered tool.
         return errorResult(`Unknown tool: ${safeIdentifier(toolName)}`);
       }
@@ -840,7 +840,7 @@ export function buildStudioMcpServer(
       // receives the same clean `Unknown tool` error uniformly.
       const handler = Object.hasOwn(toolHandlers, toolName) ? toolHandlers[toolName] : undefined;
       if (!handler && !registeredToolNames.has(toolName)) {
-        // Sanitized + capped before echoing (finding M7): `toolName` is entirely
+        // Sanitized + capped before echoing: `toolName` is entirely
         // client-supplied and unbounded here — it never matched a registered tool.
         return errorResult(`Unknown tool: ${safeIdentifier(toolName)}`);
       }
@@ -856,7 +856,7 @@ export function buildStudioMcpServer(
         // `compute_field_stats`) consult the policy under `query_data_source` — the
         // single tool name `resources.ts` documents as governing ALL raw-row access,
         // and the same name the raw-row RESOURCE path (`authorizeResourceDataAccess`)
-        // maps onto (finding T2-B). Thread `sourceId` into the consult input exactly
+        // maps onto. Thread `sourceId` into the consult input exactly
         // like that resource path, so one per-`sourceId` `query_data_source` rule gates
         // every raw-row surface (tool AND resource) identically. These tools stay
         // advertised / allow-listed under their OWN names (the `isToolAllowed` check
@@ -998,7 +998,7 @@ export function buildStudioMcpServer(
   }
 
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) =>
-    // The single MCP-side output-budget boundary (finding M3) — see `capCallToolResult`.
+    // The single MCP-side output-budget boundary — see `capCallToolResult`.
     // `extra?.signal`: the SDK always supplies `extra`, but reading it unguarded makes the
     // handler non-total for any caller that invokes it directly, and a throw here surfaces
     // as an opaque JSON-RPC internal error rather than a tool result. The signal is an
@@ -1012,7 +1012,7 @@ export function buildStudioMcpServer(
    * Authorization gate for the two resource URI families that execute a LIVE data
    * query — `studio://data/{sourceId}` and `studio://dashboard/data-health`.
    * Resource reads are a parallel data-access surface that previously bypassed
-   * every authorization chokepoint the tool path enforces (finding 2.1). This runs
+   * every authorization chokepoint the tool path enforces. This runs
    * the SAME gate the dispatch-table data tools run before returning rows —
    * `isToolAllowed` + the args-only policy consult + the approval bridge — mapped
    * onto `query_data_source`, the tool these resource reads conceptually invoke
@@ -1021,7 +1021,7 @@ export function buildStudioMcpServer(
    * `consultToolPolicyArgsOnly` also increments `sessionUsage.toolCalls`, so a
    * usage-aware policy no longer undercounts these reads.
    *
-   * `input.sourceId` (finding 2.3) is threaded into the policy consult AND the
+   * `input.sourceId` is threaded into the policy consult AND the
    * approval bridge, so a per-source `toolPolicy` rule (deny `query_data_source`
    * for one `sourceId`) or an `approvalHandler` that renders `ctx.input` sees which
    * source the `studio://data/{sourceId}` read targets — it is no longer blind.
@@ -1031,7 +1031,7 @@ export function buildStudioMcpServer(
   async function authorizeResourceDataAccess(
     input: {
       sourceId?: string;
-      /** The reading request's abort signal, threaded into the policy consult (finding H1). */
+      /** The reading request's abort signal, threaded into the policy consult. */
       signal?: AbortSignal;
     } = {},
   ): Promise<string | null> {
@@ -1076,14 +1076,14 @@ export function buildStudioMcpServer(
    * `query_data_source_examples` MCP prompt (a further-reduced per-source schema
    * slice; finding T2-2). The tool-call path rejects `get_dashboard_state` when it
    * is excluded from `allowedTools`, but these other read surfaces served
-   * equivalent payloads ungated (finding 2.1, T2-2). This runs the SAME
+   * equivalent payloads ungated. This runs the SAME
    * `isToolAllowed` + args-only policy consult + approval bridge the tool path
    * uses, mapped onto `get_dashboard_state`, so a host that hides that tool also
    * blocks every equivalent resource/prompt read. Returns a deny-reason string, or
    * `null` to proceed.
    */
   async function authorizeResourceStateAccess(
-    /** The reading request's abort signal, threaded into the policy consult (finding H1). */
+    /** The reading request's abort signal, threaded into the policy consult. */
     signal?: AbortSignal,
   ): Promise<string | null> {
     const gatedToolName = 'get_dashboard_state';
@@ -1131,7 +1131,7 @@ export function buildStudioMcpServer(
 
   registerPromptHandlers(server, {
     stateBox,
-    // Same `get_dashboard_state` gate as `studio://schema/{id}` (finding T2-2):
+    // Same `get_dashboard_state` gate as `studio://schema/{id}`:
     // `query_data_source_examples` serves a per-source schema slice of the same
     // payload family, so it must honor the same allowedTools/toolPolicy chokepoint.
     authorizeStateAccess: authorizeResourceStateAccess,

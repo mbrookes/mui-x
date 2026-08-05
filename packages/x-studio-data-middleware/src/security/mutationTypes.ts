@@ -187,7 +187,7 @@ export interface HandleBatchQueryOptions {
    * Cache provider (default: built-in LRU).
    * The host app can swap in a Redis provider for multi-node deployments.
    *
-   * ONE CACHE ⇒ ONE LOGICAL DATABASE (finding 2.4): a given cache provider (the
+   * ONE CACHE ⇒ ONE LOGICAL DATABASE: a given cache provider (the
    * built-in module-singleton default, or any instance you pass) must serve exactly
    * ONE logical data source. The cache key is derived from the caller's claims, the
    * compiled security policy, and the query descriptor — it carries NO data-source
@@ -199,7 +199,7 @@ export interface HandleBatchQueryOptions {
    */
   cacheProvider?: import('../cache/types').CacheProvider;
   /**
-   * Optional stable identity for the DATA SOURCE behind this request (finding 2.4).
+   * Optional stable identity for the DATA SOURCE behind this request.
    *
    * Folded into the cache key (via `generateCacheKey`) so a single process serving
    * MULTIPLE logical databases through one shared `cacheProvider` keeps their entries

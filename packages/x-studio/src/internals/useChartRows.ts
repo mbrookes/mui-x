@@ -29,12 +29,12 @@ type Row = Record<string, unknown>;
  *   the chart configuration is not yet valid.
  * @param extraFields    Non-xy dimension fields (heatmap `heatYField`, funnel
  *   `funnelReachedField`, sankey `sankeyTargetField`, `gantt*`) that must be enriched onto
- *   the returned rows so a one-hop cross-source extra dimension isn't read as `undefined`
- *   (finding 1.9). Defaults to `[]` for the xy families that don't use it.
+ *   the returned rows so a one-hop cross-source extra dimension isn't read as
+ *   `undefined`. Defaults to `[]` for the xy families that don't use it.
  * @param widgetFilters  The widget's fully resolved/scoped filter set (exactly what L3 used to
  *   produce `filteredRows`). Only the anchor-source-scoped subset is applied to the anchor rows
  *   during L4 re-anchoring, so a filter on an anchor-source field isn't silently re-widened back
- *   to every anchor row after L3's semi-join already narrowed it (finding 1.4). Defaults to `[]`.
+ *   to every anchor row after L3's semi-join already narrowed it. Defaults to `[]`.
  */
 export function useChartRows(
   filteredRows: Row[],

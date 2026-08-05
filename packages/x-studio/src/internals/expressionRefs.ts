@@ -34,7 +34,7 @@ export function collectExpressionRefs(expr: StudioExpression): string[] {
  * Checking only the top-level node (the previous behaviour) missed a join nested
  * inside a `FunctionExpression`, so the joined foreign source's rows were not tracked
  * as a dependency (stale cache) and the evaluator fell back to a slow per-row
- * linear scan (finding 2.18).
+ * linear scan.
  */
 export function collectJoinSourceIds(expr: StudioExpression): string[] {
   const ids: string[] = [];

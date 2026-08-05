@@ -68,7 +68,7 @@ export function isAreaStacked(chartType: string | undefined): boolean {
 /**
  * Per-x-position totals for 100%-stacked normalization: sums every series' value at each
  * label index (null → 0). One shared implementation for the multi-Y and split-by bar/line
- * renderers, previously hand-rolled at four call sites (finding 2.4).
+ * renderers, previously hand-rolled at four call sites.
  */
 export function computeStackTotals(columns: (number | null)[][], labelCount: number): number[] {
   const totals: number[] = new Array(labelCount).fill(0);
@@ -334,7 +334,7 @@ export function alignFilteredToAllLabels(
  *   default to the English literal, which meant a call site that forgot it emitted
  *   `"1 234 (filtered out)"` inside an otherwise fully localized tooltip — mixed-language
  *   output with nothing to flag it, and no compile error to catch the next such call site
- *   (finding M21).
+ *  .
  * @returns {(v: number | null, ctx: { dataIndex: number }) => string} A composite formatter showing "filtered / total" for cross-filtered data.
  */
 export function makeCrossFilterValueFormatter(
@@ -393,7 +393,7 @@ export function densifyBarLabels(labels: (string | number)[]) {
  * A temporal line/area x-axis is always rendered chronologically ascending. The series
  * values are aligned to the ORIGINAL label order (whatever `chartSortBy` /
  * `chartSortDirection` / rank produced), so without applying this permutation to the
- * series each value would plot against the wrong date (finding 1.7).
+ * series each value would plot against the wrong date.
  */
 export function getTemporalSortOrder(labels: (string | number)[]): number[] | null {
   if (getTemporalAxisData(labels) == null) {

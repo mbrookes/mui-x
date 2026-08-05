@@ -220,13 +220,13 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   // ── Pending message auto-submit ──────────────────────────────────────────────
   // A FIFO queue (not a single slot) so a `pendingMessage` and an `initialPrompt`
   // that both become eligible on the same mount don't clobber each other — each
-  // producer below pushes its own entry rather than overwriting the other's
-  // (finding 2.9); `AutoSubmitTrigger` drains the queue one entry at a time.
+  // producer below pushes its own entry rather than overwriting the other's;
+  // `AutoSubmitTrigger` drains the queue one entry at a time.
   const [pendingAutoSubmit, setPendingAutoSubmit] = React.useState<PendingAutoSubmit[]>([]);
   const pendingMessageIdRef = React.useRef<number | undefined>(undefined);
 
   // Prunes an entry out of the queue once `AutoSubmitTrigger` has consumed it — see the
-  // doc comment on `AutoSubmitTrigger` (finding 5) for why this must live in state
+  // doc comment on `AutoSubmitTrigger` for why this must live in state
   // rather than a ref local to that component.
   const handleAutoSubmitConsumed = React.useCallback((seq: number) => {
     setPendingAutoSubmit((prev) => prev.filter((item) => item.seq !== seq));
@@ -255,7 +255,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
   // ANY later empty thread (e.g. "+ New conversation", or selecting another empty
   // thread minutes/hours after mount) would re-satisfy the old "hasn't fired yet" +
   // "thread is empty" guard and auto-submit the stale, mount-time `initialPrompt`
-  // into a conversation the user never asked about (finding 2.1). Once the active
+  // into a conversation the user never asked about. Once the active
   // thread diverges from the mount-time thread, this effect permanently bails.
   const initialPromptSubmittedRef = React.useRef(false);
   const mountThreadIdRef = React.useRef<string | null>(null);
@@ -275,7 +275,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
       // Drawn from the same module-level monotonic counter as `pendingMessage.id`
       // (see `StudioContent`'s `pendingInsight.id`) so two auto-submit-eligible
       // events landing in the same millisecond never collide on `seq` — a plain
-      // `Date.now()` here previously could (finding 13).
+      // `Date.now()` here previously could.
       setPendingAutoSubmit((prev) =>
         enqueuePendingAutoSubmit(prev, { text, seq: nextAutoSubmitSeq() }),
       );
@@ -517,7 +517,7 @@ export function StudioChatPanel(props: StudioChatPanelProps) {
               // `StudioChatPanelSlotProps.chatBox` JSDoc ("cannot be overridden here") — a
               // consumer-supplied override would show the consumer's array in the rendered
               // ChatBox while `handleMessagesChange` keeps writing stream deltas into
-              // controller thread state, silently diverging the two (finding 2.8). Since
+              // controller thread state, silently diverging the two. Since
               // these are set AFTER `{...slotProps?.chatBox}` above, they always win.
               messages={threadMessages}
               onMessagesChange={handleMessagesChange}

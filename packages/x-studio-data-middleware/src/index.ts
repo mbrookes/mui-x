@@ -58,7 +58,7 @@ export { handleMutation } from './mutations/handleMutation';
 
 // ─── Query bounds ─────────────────────────────────────────────────────────────
 /**
- * Default value of `queryTimeoutMs` on both handler option shapes (F2). Exported
+ * Default value of `queryTimeoutMs` on both handler option shapes. Exported
  * so a host can log or reason about the bound it is running under without
  * hard-coding the number.
  */

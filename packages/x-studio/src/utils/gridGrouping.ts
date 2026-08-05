@@ -27,11 +27,11 @@ export function aggregateValues(
   aggregation: StudioGridSummaryAggregation,
 ): number | null {
   // Delegates wholesale to the shared `aggregateCellValues` — the single place that decides
-  // what each aggregation NAME means over a row set (finding M8). Every semantic this
+  // what each aggregation NAME means over a row set. Every semantic this
   // function had is preserved: `count` is `COUNT(*)` (one entry per row, nulls included),
   // `count_distinct` excludes null/undefined and is measured over the RAW values (finding
   // 2.23), and `sum`/`avg`/`min`/`max` route through the shared null-skip + boolean/
-  // numeric-string coercion (findings 2.13/2.17), so an empty set gives `sum` 0 and
+  // numeric-string coercion, so an empty set gives `sum` 0 and
   // `avg`/`min`/`max` `null` rather than a fabricated 0.
   return aggregateCellValues(values, aggregation);
 }
@@ -106,7 +106,7 @@ export function buildGroupedGridRows(
   widgetSourceId?: string,
   /**
    * Optional: expression fields — used to L2-enrich a related source's rows when a
-   * cross-source column is that source's calculated column (finding 2.3), so its value
+   * cross-source column is that source's calculated column, so its value
    * is present before the per-PK lookup map is built. Physical cross-source columns are
    * unaffected.
    */
@@ -153,7 +153,7 @@ export function buildGroupedGridRows(
         []) as Record<string, unknown>[];
       // A cross-source column that is the related source's calculated column has no value
       // on the raw related rows — route them through the shared L2 cache (scoped to just
-      // this field id) first, matching the display/export enrichment path (finding 2.3).
+      // this field id) first, matching the display/export enrichment path.
       const isRelatedExpression = (expressionFields ?? []).some(
         (ef) => ef.id === col.fieldId && ef.sourceId === col.sourceId && !ef.isMeasure,
       );

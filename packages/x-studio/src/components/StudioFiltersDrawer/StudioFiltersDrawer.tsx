@@ -57,7 +57,7 @@ import { CrossFilterSection } from './CrossFilterSection';
 /**
  * Content-comparison of a filter, ignoring the fields `applyFilterPreset` rewrites when it
  * materializes a preset: the re-minted `id` and the page-rescoped `scope`. Used to decide
- * whether the live page filters still equal a saved view (finding 3.10).
+ * whether the live page filters still equal a saved view.
  *
  * `dependsOn` (cascade references to other filters' ids, finding 3.11) is remapped from raw
  * ids to the referenced filter's *position* within `indexById` — a map built once per compared

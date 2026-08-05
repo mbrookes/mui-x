@@ -21,7 +21,7 @@ import { hasConflictingRankFilter } from '../internals/rankFilterScope';
  *
  * Every transform here that DROPS a filter cascades the drop into the survivors'
  * `dependsOn` via the shared `pruneDependsOnAgainstSelf`, exactly as the reducer's own
- * drop paths do (R6 F3). These transforms commit through `commitDocPatch` and never reach
+ * drop paths do. These transforms commit through `commitDocPatch` and never reach
  * `applyMutation`, so before that the LIVE doc kept dangling `dependsOn` ids that only
  * `serializeDoc` pruned — the in-memory cascade and the saved one disagreed until the next
  * reload, which is precisely the asymmetry `serializeDoc`'s own prune exists to prevent.
@@ -274,7 +274,7 @@ function dashboardDateRangeSourceId(filter: StudioFilterState): string {
  * `scope.kind === 'dashboard-date-range'` filter per source so each widget is filtered
  * by its own source's date field.
  *
- * ADDITIVE and field-preserving (finding 1.7): a source that already has a dashboard-date-range
+ * ADDITIVE and field-preserving: a source that already has a dashboard-date-range
  * filter keeps the field that filter was authored on (e.g. an AI-chosen `ship_date`) rather than
  * being silently re-pointed to the source's first date field, and is merely re-stamped with the
  * new `preset`/custom bounds. Sources genuinely missing coverage get a fresh filter on the field
@@ -564,7 +564,7 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   // own `filtersEquivalent` comparator); putting the bail here makes it hold for every caller,
   // including hosts calling `controller.applyFilterPreset` directly.
   // Pruned against the FINAL array: the apply drops the active page's page-scoped filters,
-  // and a RETAINED filter's `dependsOn` may name one of them (R6 F3). The preset's own
+  // and a RETAINED filter's `dependsOn` may name one of them. The preset's own
   // filters are already remapped through `idMap` above, so this only ever touches the
   // retained set.
   const nextFilters = pruneDependsOnAgainstSelf([...retained, ...applied]);
@@ -581,7 +581,7 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
  * `presetId` is a no-op. Only a real removal produces a new doc. This keeps a
  * logical no-op reference-equal so `commitDocPatch` skips it (no phantom undo entry).
  *
- * The "never manufactured into an empty array" clause describes a FACTORY-built doc (R6 F7).
+ * The "never manufactured into an empty array" clause describes a FACTORY-built doc.
  * A doc that came through `deserializeState` already carries `filterPresets: []` — the load
  * boundary's `screenFilterPresets` normalizes an absent value to the empty array — so for a
  * loaded doc the clause is vacuous rather than false: the `!presets` bail simply never fires,
@@ -605,7 +605,7 @@ export function deleteFilterPreset(doc: StudioDoc, presetId: string): StudioDoc 
  * stays reference-equal and `commitDocPatch` skips it (no phantom undo entry).
  *
  * As in `deleteFilterPreset`, the "never manufactured into an empty array" clause describes a
- * FACTORY-built doc; a loaded one already carries `[]` (R6 F7). No behaviour differs.
+ * FACTORY-built doc; a loaded one already carries `[]`. No behaviour differs.
  */
 export function renameFilterPreset(doc: StudioDoc, presetId: string, name: string): StudioDoc {
   const presets = doc.filterPresets;

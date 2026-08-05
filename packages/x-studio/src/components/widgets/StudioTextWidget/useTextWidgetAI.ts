@@ -45,7 +45,7 @@ class TextWidgetServerError extends Error {}
  * {@link CACHE_PREFIX}. Without a cap, every distinct (dashboard, page, widget,
  * prompt+data hash) combination a user ever generates leaves behind its own
  * entry forever — `localStorage` has no TTL/LRU of its own, so the cache grows
- * unbounded across the lifetime of the browser profile (finding 3.6). Kept
+ * unbounded across the lifetime of the browser profile. Kept
  * intentionally simple: a hard count cap with oldest-first eviction, not a full
  * cache library.
  */
@@ -210,14 +210,14 @@ export function useTextWidgetAI(
   // data, and (2) switching pages changed `activePageId` for every text widget on
   // every page at once, so N sibling text widgets across different pages all
   // recomputed (and re-fetched) in response to one page switch, even though only
-  // one page's data actually changed for any of them (finding 2.x).
+  // one page's data actually changed for any of them.
   const pages = useStudioSelector(selectPages);
   const dashboard = useStudioSelector(selectDashboard);
   // `buildPageSnapshot` (via `buildWidgetDataSummary`) reads sibling widget configs
   // from `doc.widgets`, row data from `runtime.dataSources`, and — through the data
   // pipeline (L2 enrichment, L3 scoped filters) — `doc.filters`, `doc.expressionFields`,
-  // and `doc.relationships`. None of these change `pages`/`dashboard` identity
-  // (finding 1.5 / 3.15), and filters/expression-fields/relationships each live in
+  // and `doc.relationships`. None of these change `pages`/`dashboard` identity,
+  // and filters/expression-fields/relationships each live in
   // their own `doc` partition, so all must be subscribed to directly. Otherwise adding
   // or editing a page filter (or a computed field, or a relationship) would leave this
   // memo — and the cached AI markdown it feeds — describing stale, pre-filter numbers
@@ -263,7 +263,7 @@ export function useTextWidgetAI(
   // `refresh()` bumps `seq` to force one cache-bypassing fetch for the key in effect
   // at the time of the click. Without resetting, `seq !== 0` would stay true forever,
   // so every later page/filter/prompt change (a new `cacheKey`) would also skip a
-  // perfectly valid cache entry for that new key (finding 3.7). The `if` below follows
+  // perfectly valid cache entry for that new key. The `if` below follows
   // the "adjust state while rendering" pattern (not an effect) so the reset is visible
   // to the very next effect run, with no extra committed render.
   const [refreshState, setRefreshState] = React.useState<{ seq: number; forKey: string }>({
@@ -343,7 +343,7 @@ Check the endpoint URL, its authentication headers, and the server logs for this
           if (sseEvent.type === 'text-delta') {
             content += String(sseEvent.delta ?? '');
           } else if (sseEvent.type === 'tool-approval-request') {
-            // Client-side guard (finding 3.15): this widget has no approval UI for a
+            // Client-side guard: this widget has no approval UI for a
             // human to review, so only auto-approve when the request's own `toolName`
             // is actually within the read-only allowlist this request declared above.
             // Blindly approving every request here would be safe only as long as the

@@ -72,8 +72,8 @@ export function useAdapterRows(
     }
     // Delegates to the shared helper (rather than calling `buildQueryDescriptor` directly)
     // so this — the live-render path — can never drift out of sync with the CSV export
-    // path's descriptor, which reads the same `studioRequestCache` entry by `cacheKey`
-    // (finding 2.3).
+    // path's descriptor, which reads the same `studioRequestCache` entry by `cacheKey`.
+    //
     return buildWidgetQueryDescriptor(widget, pageId, dataSource?.tableName, {
       filters,
       expressionFields,

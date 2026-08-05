@@ -240,7 +240,7 @@ function unrecognizedDecisionReason(action: unknown): string {
 
 /**
  * Coerce a host-returned decision to one this package's three consumers can safely
- * branch on (finding M3).
+ * branch on.
  *
  * Every consumer of a decision tests only the two NEGATIVE cases (`deny`,
  * `require-approval`) and falls through to allow, because those are the only two that
@@ -717,8 +717,8 @@ export async function executeToolWithPolicy(
     /** Page the `pageSnapshot` covers (request-time active page) — see `ToolPlanContext`. */
     snapshotPageId?: string;
     /**
-     * Whether the request runs under `privateMode` — see `ToolPlanContext.privateMode`
-     * (finding F4). Forwarded so a still-advertised WRITE tool's rejection states the
+     * Whether the request runs under `privateMode` — see `ToolPlanContext.privateMode`.
+     * Forwarded so a still-advertised WRITE tool's rejection states the
      * constraint rather than the withheld state that violates it.
      */
     privateMode?: boolean;

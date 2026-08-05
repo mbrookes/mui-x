@@ -200,8 +200,8 @@ const ALPHA3_TO_ALPHA2: Record<string, string> = {
   DMA: 'DM',
   SYC: 'SC',
   // Non-UN-member entities whose alpha-2 is already referenced by `EUROPEAN_ALPHA2_CODES`
-  // (`VA`, `XK`) — included here too so a data source that encodes them as alpha-3 resolves
-  // (finding 2.22).
+  // (`VA`, `XK`) — included here too so a data source that encodes them as alpha-3 resolves.
+  //
   VAT: 'VA',
   XKX: 'XK',
 };
@@ -908,7 +908,7 @@ export const EUROPEAN_ALPHA2_CODES = new Set<string>([
  * Cached `Intl.DisplayNames` instance for region (country) names, keyed by the locale it
  * was built under. Keying matters: a single un-keyed instance would pin every subsequent
  * lookup to whichever locale happened to construct it first, which is precisely the class
- * of bug the hardcoded `['en']` argument used to cause (finding 3.13).
+ * of bug the hardcoded `['en']` argument used to cause.
  */
 const regionDisplayNamesCache = new Map<string, Intl.DisplayNames | null>();
 

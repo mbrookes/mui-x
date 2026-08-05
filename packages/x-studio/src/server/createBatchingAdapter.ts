@@ -197,13 +197,13 @@ interface BatchRequest {
  * Mutable per-endpoint config the shared simple-mode loader reads on every batch dispatch.
  * Keeping `batchDelayMs` / `expressionFields` behind a live reference (rather than baking them
  * into the loader's closure at creation time) lets a recreated adapter refresh them — e.g. a
- * newly-added calculated column in `expressionFields` (finding 3.6) — instead of silently pinning
+ * newly-added calculated column in `expressionFields` — instead of silently pinning
  * the FIRST adapter instance's closure forever. A stale `expressionFields` list would leave the
  * `groupByIsExpressionField` guard evaluating against the old set, re-emitting the
  * `ORDER BY <expression-id>` that guard exists to prevent.
  *
  * IMPORTANT: `expressionFields` is merged (unioned by field id), never overwritten — see
- * `mergeExpressionFields` (finding 9). Multiple DISTINCT sources can legitimately share one
+ * `mergeExpressionFields`. Multiple DISTINCT sources can legitimately share one
  * endpoint, each contributing its own expression fields. `batchDelayMs` remains last-write-wins:
  * it is a scalar timing knob with no per-source meaning and no correctness consequence — the
  * batch window only decides how long requests wait to be coalesced.
@@ -224,7 +224,7 @@ interface LoaderRegistryEntry {
 
 /**
  * Merge a newly-registered adapter instance's `expressionFields` into the shared endpoint
- * config's list, keyed by field id (finding 9).
+ * config's list, keyed by field id.
  *
  * Simple-mode adapters for DIFFERENT `StudioDataSource`s can share one endpoint (see
  * "same-endpoint SQL JOIN generation" tests). Before this merge, registering a second instance
@@ -232,8 +232,8 @@ interface LoaderRegistryEntry {
  * out the first instance's entries. `buildBatchWidgetDescriptor` only ever looks up an expression
  * field by `id` (scoped to the descriptor's own `sourceId`), so a superset list is always safe:
  * an entry irrelevant to the current descriptor has zero effect. On an id collision the incoming
- * (newer) definition wins, so edits to an existing calculated field still refresh correctly
- * (finding 3.6).
+ * (newer) definition wins, so edits to an existing calculated field still refresh correctly.
+ *
  */
 function mergeExpressionFields(
   existing: StudioExpressionField[] | undefined,
@@ -314,7 +314,7 @@ function getBatchingEndpoint(adapter: StudioDataSourceAdapter | undefined): stri
 }
 
 /**
- * Stable per-request wire id for a batch entry (finding 2.14).
+ * Stable per-request wire id for a batch entry.
  *
  * The server echoes the descriptor `id` we send straight back onto its result
  * (`handler.ts` → `WidgetQueryResult.id`). Keying batch entries by `widgetId` alone
@@ -331,7 +331,7 @@ function batchEntryId(d: StudioQueryDescriptor): string {
 }
 
 /**
- * Route a server result back to its descriptor by the stable wire id (finding 2.14),
+ * Route a server result back to its descriptor by the stable wire id,
  * falling back to the bare `widgetId` ONLY when exactly one result carries it (back-compat
  * with any server/mock that echoes just the widgetId). With duplicate widgetIds in a batch
  * the fallback is intentionally skipped so the ambiguous case surfaces as a missing result
@@ -531,7 +531,7 @@ export function createBatchingAdapter(
     const promise: Promise<Map<unknown, Record<string, unknown>>> = joinAdapter
       .getRows(lookupDescriptor)
       .then((result) => {
-        // Key the join index through the shared `normalizeJoinKey` policy (finding 2.20)
+        // Key the join index through the shared `normalizeJoinKey` policy
         // so a numeric FK matches a string PK etc. — matching every other join path.
         const lookup = new Map<unknown, Record<string, unknown>>();
         for (const row of result.rows) {
@@ -575,7 +575,7 @@ export function createBatchingAdapter(
   }
 
   // `getExpressionFields` is read on every dispatch so a shared simple-mode loader always uses
-  // the latest expression-field list (finding 3.6). Relationship-aware mode passes its own
+  // the latest expression-field list. Relationship-aware mode passes its own
   // instance value directly (dedicated loader — no staleness possible). `fetchFn` is NOT read
   // from here: it travels per request (see `BatchRequest`), so same-endpoint adapters with
   // different credentials never borrow each other's fetch.
@@ -673,7 +673,7 @@ export function createBatchingAdapter(
               if (enr.logicalFieldId in row) {
                 return row; // Already set — don't overwrite (consistent with enrichRowsWithExpressions)
               }
-              // Probe with the SAME normalized key policy the lookup was built with (finding 2.20).
+              // Probe with the SAME normalized key policy the lookup was built with.
               const fkKey = normalizeJoinKey(row[enr.fkField]);
               const joinRow = fkKey !== null ? lookup.get(fkKey) : undefined;
               const enrichedValue = joinRow?.[enr.joinFieldId] ?? null;
@@ -681,7 +681,7 @@ export function createBatchingAdapter(
             });
           }
 
-          // Client-side residual filters (findings 1.4 / 1.5): predicates the server's query
+          // Client-side residual filters: predicates the server's query
           // protocol cannot express faithfully (OR-combined conditions, or operators with no
           // SQL equivalent / a case-sensitivity mismatch) were withheld from the request and
           // are enforced here — against the SAME evaluator in-memory sources use — so the
@@ -784,8 +784,8 @@ export function createBatchingAdapter(
       const config = { batchDelayMs, expressionFields };
       entry = {
         // Both the batch fn and the schedule fn read the live `config`, so a later adapter
-        // recreated at the same endpoint (e.g. a newly-added calculated column) is honoured
-        // (finding 3.6). The per-request `fetchFn` covers the rotated-token case (finding 3.14)
+        // recreated at the same endpoint (e.g. a newly-added calculated column) is honoured.
+        // The per-request `fetchFn` covers the rotated-token case
         // without letting one source's credentials leak into another's request (see
         // `BatchRequest`).
         loader: createLoader(
@@ -798,7 +798,7 @@ export function createBatchingAdapter(
     } else {
       // Refresh the shared loader's config instead of pinning the first instance's closure.
       entry.config.batchDelayMs = batchDelayMs;
-      // Union by field id rather than overwrite (finding 9): distinct sources sharing this
+      // Union by field id rather than overwrite: distinct sources sharing this
       // endpoint each register their own expression fields, and a later instance with none of
       // its own (or a different source's list) must not wipe out an earlier instance's entries.
       entry.config.expressionFields = mergeExpressionFields(
@@ -1649,7 +1649,7 @@ interface BuiltBatchDescriptor {
   /**
    * Filters that could NOT be faithfully sent to the server (OR-combined conditions or
    * operators with no equivalent / a case-sensitivity mismatch on the wire protocol) and
-   * must be re-applied to the returned raw rows client-side (findings 1.4 / 1.5). Only set
+   * must be re-applied to the returned raw rows client-side. Only set
    * for raw-row queries — when the server aggregates, the predicate is dropped with a warning
    * instead, since it cannot be re-applied to pre-aggregated rows.
    */
@@ -1710,7 +1710,7 @@ function buildBatchWidgetDescriptor(
     // Split the filter into server-executable predicates and a client-side residual
     // (OR conditions / unmappable operators) so neither is silently mistranslated (1.4 / 1.5).
     // Leaves we DO push down are checked for NULL-handling divergence via
-    // warnServerLeafDivergence (finding 2.16a).
+    // warnServerLeafDivergence.
     //
     // This MUST run before the aggregation push-down decision below: "a leaf fell to the client
     // residual" is one of that decision's inputs, and the two used to run in the opposite order.
@@ -1727,7 +1727,7 @@ function buildBatchWidgetDescriptor(
     // the batch entry with "no such column". Relationship-aware mode handles this via resolve()'s
     // `skip` (server predicate) + the isPlainPrimaryField check (residual projection); simple mode
     // needs the same two guards. The predicate is dropped and the leaf's client residual is
-    // rejected — never silently (finding 2.6). (The returned raw rows aren't enriched with the
+    // rejected — never silently. (The returned raw rows aren't enriched with the
     // calculated value, so a client-side residual over them cannot be evaluated faithfully either.)
     const isOwnSourceExpressionField = (fieldId: string): boolean =>
       expressionFields?.some((ef) => ef.id === fieldId && ef.sourceId === d.sourceId) ?? false;
@@ -1777,7 +1777,7 @@ function buildBatchWidgetDescriptor(
     // (calculated-column) field id has no guaranteed physical column of the same name — emitting
     // `ORDER BY <expression-field-id>` unresolved fails the whole batch entry with "no such
     // column". Relationship-aware mode already strips this case via its `skip`/`unresolved`
-    // check (`orderByColumn`, below); simple mode needs the same guard (finding 2.11).
+    // check (`orderByColumn`, below); simple mode needs the same guard.
     const groupByIsExpressionField = Boolean(
       d.groupBy &&
       expressionFields?.some((ef) => ef.id === d.groupBy && ef.sourceId === d.sourceId),
@@ -1969,7 +1969,7 @@ function buildBatchWidgetDescriptor(
       // client-side, but this predicate cannot be re-applied at the adapter's raw-row residual
       // stage (the expression column isn't materialised there). Warn rather than drop it
       // silently, honouring the module's "degrades to client-side, never silently dropped"
-      // contract (finding 1.7).
+      // contract.
       warnAdapterDivergence(
         warnDedupe,
         `A filter on the computed field "${pred.column}" for source "${d.sourceId}" targets an ` +
@@ -2046,7 +2046,7 @@ function buildBatchWidgetDescriptor(
       // (typically a field 2+ relationship hops away, e.g. `orders.date` filtering a `products`
       // widget). Emitting it would produce a "no such column" SQL error, so it is dropped — but,
       // like the `skip` branch above, never silently: the widget will show MORE rows than the same
-      // dashboard on an in-memory source, and that divergence must be surfaced (finding 2.5).
+      // dashboard on an in-memory source, and that divergence must be surfaced.
       warnAdapterDivergence(
         warnDedupe,
         `A filter on "${pred.column}" for source "${d.sourceId}" could not be resolved to any ` +
@@ -2102,7 +2102,7 @@ function buildBatchWidgetDescriptor(
       // `unresolved` (resolvable to no column in this source). `resolveField`'s contract requires
       // callers to drop an unresolved field from SELECT/WHERE — which they do — but the ORDER BY
       // emission previously checked only `.skip`, so an unresolved groupBy (a field 2+ hops away)
-      // would emit `ORDER BY <nonexistent column>` and fail the whole batch entry (finding 2.19).
+      // would emit `ORDER BY <nonexistent column>` and fail the whole batch entry.
       orderBy:
         orderByColumn && !orderByColumn.skip && !orderByColumn.unresolved
           ? [
@@ -2133,7 +2133,7 @@ function buildBatchWidgetDescriptor(
  *    in-memory results (trading one silent-wrong-data bug for a subtler one). `contains` was
  *    even worse: it mapped to `'like'` and forwarded the raw needle WITHOUT `%` wildcards, so
  *    the server's `whereLike(col, value)` behaved as a case-sensitive EXACT match — silently
- *    returning only rows equal to the needle instead of every row containing it (finding 1.7).
+ *    returning only rows equal to the needle instead of every row containing it.
  *    All three substring operators are evaluated client-side to stay byte-for-byte consistent.
  *
  * Presence in this map is NECESSARY but not SUFFICIENT for pushdown: `isOpValueServerTranslatable`
@@ -2181,7 +2181,7 @@ function warnAdapterDivergence(dedupe: Set<string>, message: string): void {
  * in-memory evaluator's truthy-bound semantics (`filterUtils.ts`: `range.from ? … : null`), so
  * an empty string counts as "unset". An open-ended between ({ from } or { to } only) is NOT
  * fully bounded — the wire path would send `whereBetween(col, [value, undefined])`, a binding
- * error on Postgres / a silent wrong result on SQLite/MySQL (finding 2.15). Single-bound
+ * error on Postgres / a silent wrong result on SQLite/MySQL. Single-bound
  * betweens are therefore kept client-side, where a missing bound is treated as unbounded.
  */
 function isFullyBoundedBetween(value: unknown): boolean {
@@ -2190,7 +2190,7 @@ function isFullyBoundedBetween(value: unknown): boolean {
   }
   // `!= null && !== ''` rather than a truthiness check so a genuine `0` bound (e.g.
   // "between 0 and 100") counts as SET — a truthiness check treated `0` as unset and kept
-  // the whole predicate client-side, mirroring the in-memory bug this pairs with (finding 2.25).
+  // the whole predicate client-side, mirroring the in-memory bug this pairs with.
   const hasBound = (v: unknown): boolean => v != null && v !== '';
   if (Array.isArray(value)) {
     return value.length === 2 && hasBound(value[0]) && hasBound(value[1]);
@@ -2209,12 +2209,12 @@ function isFullyBoundedBetween(value: unknown): boolean {
  *    predicate selects no rows either way, so it is kept client-side where one evaluator owns the
  *    empty-selection rule (see `leafToClientFilterState`'s `filterMode` note, finding T2.3);
  *  - an open-ended `between` (only one bound set) is unbounded in-memory but becomes a
- *    malformed two-arg `whereBetween` on the wire (finding 2.15);
+ *    malformed two-arg `whereBetween` on the wire;
  *  - a `boolean` field whose value is not one of the two spellings `toWirePredicateValue` can
  *    coerce to a real boolean (see the `boolean` branch below);
- *  - `not_equals` on a `date`/`datetime` field, whose faithful form is an OR (finding T1.3b);
+ *  - `not_equals` on a `date`/`datetime` field, whose faithful form is an OR;
  *  - `equals` on a `date`/`datetime` field whose value does not reduce to a calendar day, so the
- *    day-range rewrite in `toPredicatesFor` cannot be built (finding T1.3b).
+ *    day-range rewrite in `toPredicatesFor` cannot be built.
  *
  * The two date cases exist because `equals`/`not_equals` on a `date`/`datetime` field are
  * DAY-granular in-memory for EVERY value form: `filterUtils`' `compileSingleCondition` routes both
@@ -2293,13 +2293,13 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
   // silently dropping the second condition entirely (never emitted in `leafToPredicates` either,
   // since that function has the same `value2 !== undefined` gate) instead of failing translation
   // and falling back to the client-side residual, where the in-memory evaluator enforces both
-  // conditions correctly (finding 2.8).
+  // conditions correctly.
   const hasSecondCondition = leaf.op2 !== undefined && isConditionComplete(leaf.op2, leaf.value2);
   if (!hasSecondCondition) {
     return true;
   }
   // A second condition combined with OR ("x < 5 OR x > 100") cannot be expressed as two
-  // AND-ed predicates — the server would AND them and return zero rows (finding 1.4).
+  // AND-ed predicates — the server would AND them and return zero rows.
   if (leaf.conjunction === 'or') {
     return false;
   }
@@ -2308,7 +2308,7 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
 
 /**
  * Warn (once per widget-descriptor build) about the null-handling drift of a leaf that IS pushed
- * to the server but whose semantics differ subtly from the in-memory evaluator (finding 2.16a).
+ * to the server but whose semantics differ subtly from the in-memory evaluator.
  * Unlike the operators routed to the client residual, `not_equals` stays server-side because its
  * pushdown is essential (it is a common, high-selectivity filter, and routing it client-side would
  * defeat the query pushdown and, for aggregated widgets, drop the filter entirely). The divergence
@@ -2321,7 +2321,7 @@ function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
  * ("Use a `between` range instead"), i.e. a dashboard viewer saw a wrong number and only a
  * developer saw the console note. It is now TRANSLATED to a faithful `>= D AND < nextDay(D)` pair
  * by `toPredicatesFor`, and the shapes that cannot be translated are routed to the client residual
- * by `isOpValueServerTranslatable`, so there is nothing left to warn about (finding T1.3b).
+ * by `isOpValueServerTranslatable`, so there is nothing left to warn about.
  *
  * `not_equals` on a `date`/`datetime` field is likewise no longer pushed at all (its faithful form
  * is an OR), so this warning only ever fires for a non-date `not_equals`.
@@ -2387,8 +2387,8 @@ function coerceWireBoolean(value: unknown): boolean | null {
  * Applied to BOTH the first predicate AND the `op2`/`value2` second condition — the object→tuple
  * conversion was previously inlined in the first-predicate branch only, so a second-condition
  * `between` (e.g. "amount > 0 AND amount between 10–20") shipped its raw `{ from, to }` object,
- * which the middleware rejects for a non-array `between` value → the whole batch entry errors
- * (finding 1.5).
+ * which the middleware rejects for a non-array `between` value → the whole batch entry errors.
+ *
  *
  * Each `between` bound is ALSO resolved individually (not just the top-level value): the drawer
  * lets a user pick a relative date for either bound of a `between` filter
@@ -2463,8 +2463,8 @@ function nextDayIso(dateOnly: string): string {
 
 /**
  * Emit the server FilterPredicate(s) for one (operator, value) pair, translating a bare-date bound
- * on a `date`/`datetime` field so it keeps the in-memory DAY-granularity semantics on the wire
- * (finding T1.3). In-memory, a bare-date bound compares the row's whole day (`compileDateBound`),
+ * on a `date`/`datetime` field so it keeps the in-memory DAY-granularity semantics on the wire.
+ * In-memory, a bare-date bound compares the row's whole day (`compileDateBound`),
  * so on a DATETIME column:
  *  - `<= D` covers the entire day D → the wire must run `< nextDay(D)` (a plain `col <= 'D'` at
  *    midnight would drop everything after midnight of day D);
@@ -2479,7 +2479,7 @@ function nextDayIso(dateOnly: string): string {
  * `equals`/`not_equals` branches of `compileSingleCondition` run BOTH sides through
  * `toDayComparable`, which truncates to `YYYY-MM-DD` whether or not the filter value carries a
  * time. So `= D` becomes `>= day(D) AND < nextDay(day(D))` for every value that reduces to a
- * calendar day, not only for bare dates (finding T1.3b). Before this, a "On 2024-07-10" filter on
+ * calendar day, not only for bare dates. Before this, a "On 2024-07-10" filter on
  * a DATETIME column shipped `WHERE created_at = '2024-07-10'` — matching only exact-midnight rows,
  * so a KPI that reads a real number in-memory read 0 through the adapter.
  *
@@ -2603,8 +2603,8 @@ interface PartitionedFilter {
  * (`clientLeaves`) so the adapter path matches the in-memory evaluator exactly.
  *
  * Was previously an unconditional AND flatten (`flattenFilterNode`) that silently:
- *  - turned an intra-leaf OR into an AND (finding 1.4), and
- *  - dropped any leaf whose operator did not map (finding 1.5).
+ *  - turned an intra-leaf OR into an AND, and
+ *  - dropped any leaf whose operator did not map.
  *
  * Now:
  *  - AND group → children partitioned recursively (AND distributes, so each child is
@@ -2635,9 +2635,9 @@ function partitionFilterNode(
       return;
     }
     if (isLeafServerTranslatable(n)) {
-      // Surface any NULL-handling drift for leaves we DO push down (finding 2.16a) before
+      // Surface any NULL-handling drift for leaves we DO push down before
       // emitting the predicate. Date-granularity drift is no longer warned about — it is
-      // translated away by `toPredicatesFor` or routed to the residual (finding T1.3b).
+      // translated away by `toPredicatesFor` or routed to the residual.
       onServerLeaf?.(n);
       const emitted = leafToPredicates(n);
       result.predicates.push(...emitted);
@@ -2673,7 +2673,7 @@ function leafToClientFilterState(leaf: StudioFilterLeaf): StudioFilterState {
     // selection ("any value") arrives as a selection-mode `in []`: in-memory `isFilterComplete`
     // drops it (→ match everything), but a `'condition'` restamp makes `isConditionComplete('in',
     // [])` true and re-applies `in []` as a real predicate that matches NOTHING — inverting the
-    // filter and blanking the widget on the adapter path (finding T2.3).
+    // filter and blanking the widget on the adapter path.
     filterMode: leaf.filterMode ?? 'condition',
   } as unknown as StudioFilterState;
 }

@@ -229,7 +229,7 @@ export function getCachedEnrichedRows(
 
   // Collect the joined source IDs used by JoinFieldExpression fields — walking the FULL
   // expression tree, not just the top-level node, so a join nested inside e.g.
-  // `if(customers.country == 'US', 1, 0)` is tracked as a dependency (finding 2.18).
+  // `if(customers.country == 'US', 1, 0)` is tracked as a dependency.
   const joinedSourceIds = new Set<string>();
   for (const ef of relevantFields) {
     for (const joinSourceId of collectJoinSourceIds(ef.expression)) {

@@ -174,7 +174,7 @@ export function StudioExpressionFieldDialog(props: StudioExpressionFieldDialogPr
   // doc and guessing. `null` = no rejection to show; otherwise the localized reason.
   const [saveError, setSaveError] = React.useState<string | null>(null);
 
-  // Stable across re-renders (finding 3.11): the previous `expr-${Date.now()}` was
+  // Stable across re-renders: the previous `expr-${Date.now()}` was
   // recomputed on every render for a new (non-edit) field, churning the `draftField`/
   // `validationErrors` memos below (both depend on `fieldId`) on every keystroke until
   // save. Generated once per mount via a lazy ref initializer, not `useMemo` (which

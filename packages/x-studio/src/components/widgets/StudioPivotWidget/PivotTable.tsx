@@ -39,7 +39,7 @@ export function PivotTable({ matrix, aggFn, valueField, showTotals, height }: Pi
 
   // Cell resolution (aggregation + rounding) is shared with the CSV export
   // (`pivotToCsv`) via `resolvePivotCellValue`, so an exported cell can never differ
-  // from the displayed cell (finding 3.2); only the presentation differs.
+  // from the displayed cell; only the presentation differs.
   const fmt = (agg: Parameters<typeof resolvePivotCellValue>[0]) => {
     const value = resolvePivotCellValue(agg, aggFn);
     if (value === null) {

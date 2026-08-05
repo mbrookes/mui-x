@@ -49,7 +49,7 @@ export {
   MUTATION_TYPES,
   // The `dependsOn` referential-integrity cascade, published so `@mui/x-studio`'s filter-drop
   // paths — which commit through `commitDocPatch` and never reach the reducer — enforce the
-  // same invariant every reducer drop path does (R6 F3).
+  // same invariant every reducer drop path does.
   pruneDependsOnAgainstSelf,
 } from './applyMutation';
 // The rank-filter scope helpers moved out of `applyMutation.ts` into their own
@@ -71,7 +71,7 @@ export type { ParseStateMutationResult } from './parseStateMutation';
 // scope WITHOUT going through `applyMutation` (`StudioController.updateFilter` commits via
 // `commitDocPatch`, never the reducer) is held to the same standard as its reducer-routed
 // sibling `addFilter` — rather than accepting a scope live that the load boundary then
-// silently drops on the next reload (R6 F2). `isValidFilterScope` is stage 1 (WELLFORMEDNESS:
+// silently drops on the next reload. `isValidFilterScope` is stage 1 (WELLFORMEDNESS:
 // kind membership, required id fields, prototype-hazard keys, size bounds — a payload judged
 // in isolation); `hasResolvableFilterAnchors` is stage 2 (EXISTENCE: every id the scope names
 // resolves against a doc). The reducer's `addFilter` runs exactly these two, in this order.

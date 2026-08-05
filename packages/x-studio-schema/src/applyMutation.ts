@@ -483,7 +483,7 @@ function isInsertableAddedWidget(widget: unknown): widget is StudioWidget {
     isPlainRecord(widget) &&
     // Screen the WIDGET OBJECT's own top-level keys against the prototype-hazard
     // denylist, symmetric with the wire boundary's `hasUnsafeOwnKeys(widget)` rejection
-    // in `validateWidget` and the load boundary's `screenWidgets` (Finding T2-1). A
+    // in `validateWidget` and the load boundary's `screenWidgets`. A
     // `JSON.parse`-built widget from a server-built mutation that bypasses
     // `parseStateMutation` can materialize a real own `"__proto__"` DATA property (an
     // object literal never would); installing it verbatim would round-trip through
@@ -2153,7 +2153,7 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       // OTHER writer that installs a scope — `@mui/x-studio`'s `StudioController.updateFilter`,
       // which re-points an existing filter's scope through `commitDocPatch` and never reaches
       // this reducer — enforces the identical rule instead of accepting an orphan live and
-      // losing the whole filter on the next load (R6 F2). See that function for the full
+      // losing the whole filter on the next load. See that function for the full
       // rationale (widget anchor, page anchor, why an unresolvable one is unclearable dead
       // weight, and why `page` scope's optional `pageId` is exempt).
       if (!hasResolvableFilterAnchors(scope, state)) {

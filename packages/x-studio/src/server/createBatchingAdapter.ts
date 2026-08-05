@@ -36,7 +36,14 @@ import type {
   StudioRelationship,
   ClientMutationDescriptor,
   ClientMutationResult,
+  // The batch-query WIRE PROTOCOL, from the one module that defines it for both sides.
+  // These used to be declared locally here as hand-kept copies of the middleware's.
+  FilterPredicate,
+  AggregationSpec,
+  JoinDescriptor,
+  SemiJoinDescriptor,
 } from '../models';
+import { MAX_ITEMS_PER_BATCH } from '../models';
 import {
   applyFilters,
   isConditionComplete,
@@ -51,20 +58,6 @@ import {
   isClientOnlyAggFn,
 } from './aggregationPushdown';
 import type { AggFn } from '../internals/chartTypeRegistry';
-
-/** Structured filter predicate sent to the server (mirrors FilterPredicate in @mui/x-studio-data-middleware) */
-interface FilterPredicate {
-  column: string;
-  operator: 'eq' | 'neq' | 'in' | 'lt' | 'lte' | 'gt' | 'gte' | 'like' | 'between';
-  value?: unknown;
-}
-
-/** Aggregation spec sent to the server (mirrors AggregationSpec in @mui/x-studio-data-middleware) */
-interface AggregationSpec {
-  column: string;
-  func: 'sum' | 'avg' | 'count' | 'min' | 'max';
-  alias: string;
-}
 
 /**
  * The identifier charset every ALIAS position on the wire must match.
@@ -89,32 +82,20 @@ interface AggregationSpec {
 const SAFE_WIRE_ALIAS = /^[A-Za-z0-9_-]+$/;
 
 /**
- * Maximum widget descriptors this adapter puts in ONE POST body.
+ * The server's per-request item cap, which the batcher CHUNKS against.
  *
- * MIRRORED CONSTANT — changing this value alone is a silent protocol break.
+ * Re-exported from `@mui/x-studio-schema`'s wire-protocol module rather than declared here. It
+ * used to be a hand-kept copy of the middleware's `MAX_WIDGETS_PER_BATCH`, held in sync by one
+ * assertion in each package's own suite — an arrangement that cannot fail until it is too late,
+ * since neither suite can see the other side of the wire. The dependency direction was never the
+ * obstacle it was argued to be: both packages already depend on the zero-dependency schema
+ * package, which is where a constraint with two implementers belongs.
  *
- * It must equal `MAX_WIDGETS_PER_BATCH` in `@mui/x-studio-data-middleware` (50, sourced
- * there from `shared/limits.ts`'s `MAX_ITEMS_PER_BATCH`). The value is DUPLICATED rather
- * than imported because x-studio must stay free of a dependency on the server package —
- * that package is Node-only and peer-depends on Knex, while this one ships to the
- * browser — the same reason `ClientMutationDescriptor` and `OPERATOR_MAP` are mirrors
- * rather than re-exports. The server package's `index.ts` now DOES publish the symbol,
- * so a HOST assembling its own batches can import it; that changes nothing here, because
- * the missing export was never the binding constraint — the dependency direction is.
- *
- * Two tests, one on each side of the wire, are the only things keeping the copies in
- * sync — deliberately one per suite, so drift is caught whichever package's tests the
- * change was made against:
- *
- * - `x-studio/src/server/createBatchingAdapter.test.ts` — "mirrors the server's batch cap"
- * - `x-studio-data-middleware/src/__tests__/clientWireSeam.test.ts` — "seam — batch size"
- *
- * Over-cap batches are not a hypothetical: nothing in Studio caps widgets per page, and the
- * server rejects an over-cap request by THROWING before its per-widget loop — so the failure
- * arrives as one un-attributed transport error for every widget on the page, not as a per-widget
- * result.
+ * Over-cap batches are not hypothetical: nothing in Studio caps widgets per page, and the server
+ * rejects an over-cap request by THROWING before its per-widget loop — so the failure arrives as
+ * one un-attributed transport error for every widget on the page, not as a per-widget result.
  */
-export const MAX_BATCH_WIDGETS_PER_REQUEST = 50;
+export const MAX_BATCH_WIDGETS_PER_REQUEST = MAX_ITEMS_PER_BATCH;
 
 /**
  * A minimal DataLoader-style batch scheduler.
@@ -866,12 +847,12 @@ export function createBatchingAdapter(
 
 // ── Cross-source field resolution ───────────────────────────────────────────
 
-/** Internal JOIN descriptor matching the shape expected by x-studio-data-middleware */
-interface JoinDescriptorInternal {
-  table: string;
-  type: 'left';
-  on: [string, string][];
-}
+/**
+ * The wire JOIN descriptor. Aliased rather than re-declared: this used to be a hand-kept copy of
+ * `JoinDescriptor`, which is how the `on`-pair ORIENTATION drifted from what the middleware
+ * requires.
+ */
+type JoinDescriptorInternal = JoinDescriptor;
 
 /**
  * Internal SEMI-JOIN descriptor matching `SemiJoinDescriptor` in
@@ -885,18 +866,7 @@ interface JoinDescriptorInternal {
  * aggregate reads high by a data-dependent factor. See the orientation branch in
  * `resolveField`.
  */
-interface SemiJoinDescriptorInternal {
-  table: string;
-  column: string;
-  foreignColumn: string;
-  filters: FilterPredicate[];
-  /**
-   * Nested subquery, applied inside this one. Exactly one level of nesting is ever produced, for
-   * the two-hop many-to-many shape (widget → junction → remote) `dataSourceGraph.findJoinPath`
-   * models as `hops: 2`. The middleware caps nesting at the same two levels.
-   */
-  semiJoins?: SemiJoinDescriptorInternal[];
-}
+type SemiJoinDescriptorInternal = SemiJoinDescriptor;
 
 /**
  * The DEEPEST level of a semi-join tree — where a predicate on the filtered source belongs.
@@ -2021,7 +1991,11 @@ function buildBatchWidgetDescriptor(
       // filters. For a one-hop semi-join that is the descriptor itself; for a two-hop
       // many-to-many one it is the nested level, since the junction exists only to link the two
       // tables and carries no predicate of its own.
-      innermostSemiJoin(group).filters.push({ ...pred, column: r.semiJoin.filterColumn });
+      // `filters` is OPTIONAL on the wire type (a semi-join may legitimately carry none), so it
+      // is initialized here rather than assumed. The client's own hand-kept copy declared it
+      // REQUIRED, which is why this push was previously unguarded.
+      const innermost = innermostSemiJoin(group);
+      (innermost.filters ??= []).push({ ...pred, column: r.semiJoin.filterColumn });
       return [];
     }
     if (r.fanOut) {
@@ -2483,6 +2457,41 @@ function nextDayIso(dateOnly: string): string {
  * `not_equals` has no AND-expressible day form (`< D OR >= nextDay(D)`) and so is not routed here
  * at all — `isOpValueServerTranslatable` keeps it client-side.
  */
+/**
+ * Build a wire predicate, narrowing `value` to the shape THIS operator admits.
+ *
+ * The wire `FilterPredicate` is a DISCRIMINATED UNION — `in` takes an array, `between` a
+ * two-tuple, `eq`/`neq` a scalar — and this is the one place the client turns an untyped
+ * document value into one. It exists because the client used to declare its own
+ * `{ operator: …; value?: unknown }` copy of the type, which could not express that binding at
+ * all: a one-sided `between` or a mis-shaped `in` type-checked here and was rejected by the
+ * middleware at runtime, per widget, in production.
+ *
+ * Every caller reaches this only for a leaf `isLeafServerTranslatable` already vetted, so the
+ * value fits by construction. The per-operator narrowing is what makes that contract legible
+ * rather than assumed, and confines the "trust the vetting" step to one commented site instead
+ * of leaving the whole payload untyped.
+ */
+function makePredicate(
+  column: string,
+  operator: FilterPredicate['operator'],
+  value: unknown,
+): FilterPredicate {
+  switch (operator) {
+    case 'in':
+      return { column, operator, value: value as (string | number)[] };
+    case 'between':
+      return { column, operator, value: value as [string | number, string | number] };
+    case 'like':
+      return { column, operator, value: value as string };
+    case 'eq':
+    case 'neq':
+      return { column, operator, value: value as string | number | boolean };
+    default:
+      return { column, operator, value: value as string | number };
+  }
+}
+
 function toPredicatesFor(
   field: string,
   operator: FilterPredicate['operator'],
@@ -2510,15 +2519,15 @@ function toPredicatesFor(
   }
   if (isDate && operator === 'between' && Array.isArray(value) && value.length === 2) {
     const [from, to] = value as [unknown, unknown];
-    const predicates: FilterPredicate[] = [{ column: field, operator: 'gte', value: from }];
+    const predicates: FilterPredicate[] = [makePredicate(field, 'gte', from)];
     predicates.push(
       isDateOnlyWireValue(to)
-        ? { column: field, operator: 'lt', value: nextDayIso(to) }
-        : { column: field, operator: 'lte', value: to },
+        ? makePredicate(field, 'lt', nextDayIso(to))
+        : makePredicate(field, 'lte', to),
     );
     return predicates;
   }
-  return [{ column: field, operator, value }];
+  return [makePredicate(field, operator, value)];
 }
 
 /**

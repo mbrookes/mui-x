@@ -75,6 +75,7 @@ src/
   anomalyDetection.ts     detectAnomaliesIQR (+ private median helper)
   unsafeKeys.ts           The single shared prototype-hazard key denylist
   wireLimits.ts           MAX_ARRAY_LENGTH/MAX_STRING_LENGTH — shared wire trust-boundary size caps
+  dataWireTypes.ts        The batch-query WIRE PROTOCOL — the one definition, for both implementers
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
   docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
   rankFilterScope.ts      Rank-filter page-scope resolution + the uniqueness sweep, shared by all three producers

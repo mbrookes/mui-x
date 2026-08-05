@@ -1077,23 +1077,21 @@ async function runHandler(
 }
 
 describe('seam — batch size', () => {
-  it("the client's cap is the server's cap", () => {
-    // The two constants are separate copies: x-studio must not depend on this
-    // Node-only, Knex-peered package, so the value is mirrored by hand. (It IS
-    // re-exported from this package's `index.ts` now, for hosts that batch
-    // themselves — but that does not let x-studio import it, and the dependency
-    // direction, not the missing export, was always the binding constraint.)
+  it("the client's cap IS the server's cap — one constant, not two", () => {
+    // These were separate copies until the wire protocol moved into `@mui/x-studio-schema`:
+    // x-studio must not depend on this Node-only, Knex-peered package, so the value was
+    // mirrored by hand and this assertion (plus its twin in the client's suite) was the entire
+    // mechanism keeping them equal. Both now resolve to `MAX_ITEMS_PER_BATCH` in the shared
+    // wire module, so the equality is structural.
     //
-    // Nothing in the type system or the build connects the two. This assertion and
-    // its twin in `x-studio/src/server/createBatchingAdapter.test.ts` are the entire
-    // mechanism — one per suite on purpose, so drift is caught whichever package's
-    // tests the change was validated against.
+    // Kept anyway, and deliberately: it is the one assertion that would catch either side
+    // quietly reintroducing a local literal — the exact regression the shared module exists to
+    // prevent, and the cheapest possible guard against it.
     expect(
       MAX_BATCH_WIDGETS_PER_REQUEST,
-      'MAX_BATCH_WIDGETS_PER_REQUEST (x-studio/src/server/createBatchingAdapter.ts) must equal ' +
-        'MAX_WIDGETS_PER_BATCH (x-studio-data-middleware/src/handler.ts, from shared/limits.ts ' +
-        'MAX_ITEMS_PER_BATCH). They are hand-kept copies — update BOTH, or the client chunks ' +
-        'batches the server rejects outright.',
+      'The client cap and the server cap must both resolve to `MAX_ITEMS_PER_BATCH` in ' +
+        "@mui/x-studio-schema's dataWireTypes.ts. If these differ, one side has gone back to a " +
+        'local literal, and the client will chunk batches the server rejects outright.',
     ).toBe(MAX_WIDGETS_PER_BATCH);
   });
 

@@ -132,3 +132,24 @@ export type {
 // `internalGuards.ts` remains unexported — those really are boundary internals.)
 export { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 export { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';
+
+// The batch-query WIRE PROTOCOL, published because it has two implementers that must not depend
+// on each other: `@mui/x-studio`'s `createBatchingAdapter` builds these payloads and
+// `@mui/x-studio-data-middleware`'s `handleBatchQuery` validates them. Before this, each declared
+// the protocol independently — and they had already drifted (the client's `FilterPredicate` was a
+// flat `value?: unknown` bag where the server's is a discriminated union binding each operator to
+// its value type, so the client could not catch a one-sided `between` or a mis-shaped `in` at
+// compile time at all). Same arrangement `aiTypes.ts` has always had for the AI protocol.
+export type {
+  AggregationSpec,
+  JoinDescriptor,
+  SemiJoinDescriptor,
+  BatchWidgetDescriptor,
+  HavingPredicate,
+  FilterPredicate,
+  OrderBy,
+  BatchQueryRequest,
+  WidgetQueryResult,
+  BatchQueryResponse,
+} from './dataWireTypes';
+export { MAX_ITEMS_PER_BATCH } from './dataWireTypes';

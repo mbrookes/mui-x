@@ -20,6 +20,7 @@
     "bench": "npx tsx src/benchmarks/run.ts"
   },
   "dependencies": {
+    "@mui/x-studio-schema": "workspace:*",
     "lru-cache": "^11.0.0"
   },
   "peerDependencies": {

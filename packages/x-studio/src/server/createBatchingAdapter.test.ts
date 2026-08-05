@@ -8,22 +8,8 @@
  * a unique endpoint URL per test via `uid()`.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-/*
- * `import/no-relative-packages` is disabled deliberately and ONLY for the batch-cap
- * mirror below. `MAX_BATCH_WIDGETS_PER_REQUEST` is a hand-kept copy of the server
- * package's `MAX_WIDGETS_PER_BATCH`, and this package must NOT depend on that package
- * (Node-only, Knex-peered) — so the only way to compare the two values is a relative
- * source import confined to a test, exactly as the mirroring assertion in
- * `x-studio-data-middleware/src/__tests__/clientWireSeam.test.ts` does in the other
- * direction. `shared/limits.ts` is the dependency-free module both server constants are
- * sourced from, so importing it pulls in no server runtime.
- */
-/* eslint-disable-next-line import/no-relative-packages */
-import { MAX_ITEMS_PER_BATCH } from '../../../x-studio-data-middleware/src/shared/limits';
-import {
-  createBatchingAdapter,
-  MAX_BATCH_WIDGETS_PER_REQUEST,
-} from './createBatchingAdapter';
+import { MAX_ITEMS_PER_BATCH } from '../models';
+import { createBatchingAdapter, MAX_BATCH_WIDGETS_PER_REQUEST } from './createBatchingAdapter';
 import { applyFilters } from '../internals/filterUtils';
 import type {
   StudioDataSource,
@@ -33,30 +19,24 @@ import type {
   StudioRelationship,
 } from '../models';
 
-// ── The mirrored batch cap ───────────────────────────────────────────────────
+// ── The batch cap ───────────────────────────────────────────────────────────
 //
-// `MAX_BATCH_WIDGETS_PER_REQUEST` (this package) and `MAX_WIDGETS_PER_BATCH`
-// (`@mui/x-studio-data-middleware`, sourced from its `shared/limits.ts`
-// `MAX_ITEMS_PER_BATCH`) are separate copies of ONE protocol constant, because
-// x-studio must not depend on the Node-only server package. Nothing in the type
-// system or the build connects them; assertions like this one are the entire
-// mechanism.
+// This used to be a MIRROR test: `MAX_BATCH_WIDGETS_PER_REQUEST` was a hand-kept copy of the
+// server's `MAX_WIDGETS_PER_BATCH`, nothing in the type system connected them, and an assertion
+// in each package's own suite was the entire mechanism keeping them equal.
 //
-// It is asserted from BOTH suites on purpose. The server package already had the
-// mirror in `clientWireSeam.test.ts`, but a change made to THIS file and validated
-// with `--project "x-studio"` never ran it — drift would ship green. Chunking that
-// silently exceeds the server's cap does not degrade: `handleBatchQuery` rejects an
-// over-cap request before its per-widget loop, so every widget on the page fails with
-// one un-attributed transport error.
+// Both are now re-exports of ONE constant — `MAX_ITEMS_PER_BATCH` in `@mui/x-studio-schema`'s
+// wire-protocol module — so they cannot differ and there is no drift left to catch. What remains
+// worth pinning is the BEHAVIOUR the constant exists for: that the batcher actually chunks
+// against it. `handleBatchQuery` rejects an over-cap request before its per-widget loop, so a
+// batch one item too large fails every widget on the page with one un-attributed transport error.
 
 describe('createBatchingAdapter — batch cap', () => {
-  it("mirrors the server's batch cap", () => {
+  it('re-exports the one shared batch cap, rather than a copy of it', () => {
     expect(
       MAX_BATCH_WIDGETS_PER_REQUEST,
-      'MAX_BATCH_WIDGETS_PER_REQUEST (x-studio/src/server/createBatchingAdapter.ts) must equal ' +
-        'MAX_WIDGETS_PER_BATCH (x-studio-data-middleware, from shared/limits.ts ' +
-        'MAX_ITEMS_PER_BATCH). They are hand-kept copies — update BOTH, or the client chunks ' +
-        'batches the server rejects outright.',
+      'MAX_BATCH_WIDGETS_PER_REQUEST must BE the shared `MAX_ITEMS_PER_BATCH`, not a copy of ' +
+        'its value — the client chunks against it and the middleware rejects against it.',
     ).toBe(MAX_ITEMS_PER_BATCH);
   });
 });

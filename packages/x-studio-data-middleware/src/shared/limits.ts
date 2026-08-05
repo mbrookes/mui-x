@@ -1,12 +1,8 @@
-/**
- * Hard ceiling on the number of items (widgets, mutations, …) a single batch
- * request may contain, shared by `handler.ts`'s `MAX_WIDGETS_PER_BATCH` and
- * `mutations/handleMutation.ts`'s `MAX_MUTATIONS_PER_BATCH` — both were
- * independently declared at the same value (50), so this is the one place
- * that value lives; each file re-exports its own named constant (with its
- * own explanatory comment for what it bounds) sourced from this one.
- */
-export const MAX_ITEMS_PER_BATCH = 50;
+// `MAX_ITEMS_PER_BATCH` is a WIRE constraint — the client chunks against it, this package
+// rejects against it — so it lives in the shared protocol module and is re-exported here for
+// the call sites that already import it from this file. Every other bound below is a rejection
+// rule of this package's own and deliberately stays local. See `dataWireTypes.ts`.
+export { MAX_ITEMS_PER_BATCH } from '@mui/x-studio-schema';
 
 /**
  * Shared per-array size ceiling for the collection fields inside a SINGLE widget

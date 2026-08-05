@@ -93,6 +93,25 @@ Why each boundary sits where it does:
 - **`runtime.dataSources` is never undone** — an undo must never revert live data to stale rows.
 - **Cross-filter-scoped filter entries live in `doc.filters`**, not `session`. The reducer manipulates them (cleanup on `removeWidget`/`removePage`/`applyBulkUpdate`) and `applyCrossFilter` is _deliberately_ undoable, so a chart-click cross-filter is Ctrl+Z-able like any other doc edit. They are stripped only at the persistence boundary.
 
+### `MutationHistory` (`src/store/MutationHistory.ts`)
+
+The undo/redo stacks and the recent-mutation log, extracted from the controller. Five parallel
+arrays, a counter and a `WeakMap` that must move in lockstep — the `StudioDoc[]` undo stack is 1:1
+length-matched with its label pairing, the redo side mirrors it, and the visible log is capped
+INDEPENDENTLY so an entry can scroll out of it while its undo pairing is still live. Nine
+controller members touched those seven fields and each had to know the whole arrangement.
+
+The split is by concern, not by line count: `stepBack`/`stepForward` move the stacks and **return
+the doc to swap to**, while the controller keeps `carryTransientDocState`,
+`normalizeSessionAfterDocSwap` and `store.setState` in one shared `swapDoc`. So the subtle half —
+which doc lands on which stack, and where a redone log entry re-inserts — is pure array
+bookkeeping with no store, no React and no I/O, and has its own focused suite alongside the
+controller's end-to-end coverage.
+
+Two incidental guarantees the inline version had are now explicit: `restore` copies the arrays it
+is given (the old code was accidentally safe because its `.slice()` always produced a fresh one),
+and `snapshot` returns copies so a serializer cannot observe the live stacks changing.
+
 ### `StudioController` (`src/store/StudioController.ts`)
 
 Wraps a `Store<StudioState>` from `@mui/x-internals/store` — a minimal observable (`state`, `subscribe`, `setState`, `getSnapshot`) built to back `useSyncExternalStore`. State is never mutated in place; every method computes a new object and passes it to a private `commitState`, which:

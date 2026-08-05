@@ -69,16 +69,12 @@ import { collectExpressionRefs } from '../internals/expressionRefs';
 import { resolveWidgetPageId as resolveWidgetPageIdInPages } from '../internals/widgetPageResolution';
 import { stripKeys, resolveEffectiveChartType } from '../internals/widgetConfigSanitization';
 import * as docTransforms from './docTransforms';
+import { MutationHistory, MAX_UNDO_HISTORY } from './MutationHistory';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
 // `@mui/x-studio-schema` as `MIN_SPAN` — the single source of truth shared with
 // the reducer that clamps AI-driven resizes and with `canvasGridConstants.ts`.
 // (Kept under the local `MIN_SPAN_COLS` name it is used by below.)
-
-const MAX_UNDO_HISTORY = 100;
-
-/** Cap on the recent-mutation log surfaced to the AI assistant. */
-const MAX_MUTATION_LOG = 20;
 
 /**
  * Why a controller mutation REFUSED a caller's request.
@@ -173,33 +169,11 @@ export class StudioController {
   // Undo/redo snapshot ONLY the `doc` partition. Session (mode/shell) and runtime
   // (dataSources) are deliberately not time-travelled: a Ctrl+Z must never revert a
   // view↔edit switch or wipe freshly-injected live data back to stale rows.
-  private undoStack: StudioDoc[] = [];
-  private redoStack: StudioDoc[] = [];
-  /** Compact, labeled log of recent user-driven mutations (oldest first). */
-  private mutationLog: StudioAIRecentMutation[] = [];
-  // Parallel to `undoStack`/`redoStack`: index `i` records the
-  // `mutationLog` entry (or `null` when the commit was unlabeled) that the SAME
-  // commit appended when it pushed `undoStack[i]`/`redoStack[i]`. `undo`/`redo`
-  // use this to reconcile `mutationLog` in lockstep with the doc swap — removing
-  // the paired entry on undo, restoring it on redo — instead of leaving
-  // `getRecentMutations()` (surfaced to the AI via the `get_recent_changes` tool)
-  // reporting a mutation the user has since undone. Length always mirrors its
-  // paired doc stack; entries are the SAME object reference stored in
-  // `mutationLog`, so they can be located/removed by reference equality even
-  // though `mutationLog` is capped (`MAX_MUTATION_LOG`) independently of
-  // `undoStack`/`redoStack` (`MAX_UNDO_HISTORY`) and may have already evicted it.
-  private undoMutationLog: (StudioAIRecentMutation | null)[] = [];
-  private redoMutationLog: (StudioAIRecentMutation | null)[] = [];
-  // Monotonic commit counter, keyed per log entry via `mutationSeq` (the redo
-  // reinsertion needs a total order over log entries). `StudioAIRecentMutation.at` is a
-  // public, AI-facing ISO timestamp with only millisecond resolution — two commits inside
-  // the same synchronous call chain (routine in tests, and reachable in real fast-path
-  // usage, e.g. two AI-tool-driven mutations in one turn) can share an identical `at`,
-  // which would make a strict `>` comparison on `at` fail to order them and silently fall
-  // back to appending at the tail. A private WeakMap side-table gives every entry an
-  // exact, collision-free order without changing the public log-entry shape.
-  private mutationSeqCounter = 0;
-  private readonly mutationSeq = new WeakMap<StudioAIRecentMutation, number>();
+  /**
+   * Undo/redo stacks and the recent-mutation log. Extracted: seven fields that must move in
+   * lockstep, and nine members that each had to know how. See `MutationHistory`.
+   */
+  private readonly history = new MutationHistory();
 
   constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
@@ -266,62 +240,13 @@ export class StudioController {
     }
 
     if (resetHistory) {
-      this.undoStack = [];
-      this.redoStack = [];
-      this.mutationLog = [];
-      this.undoMutationLog = [];
-      this.redoMutationLog = [];
+      this.history.reset();
     } else if (nextState.doc !== current.doc) {
-      // Built once so the SAME object reference can be pushed onto both
-      // `mutationLog` and, when undoable, `undoMutationLog` — `undo`/`redo` locate this
-      // exact entry by reference to reconcile the log with the doc swap.
-      const logEntry: StudioAIRecentMutation | null = label
-        ? { label, at: new Date().toISOString() }
-        : null;
-      if (logEntry) {
-        this.mutationSeq.set(logEntry, this.mutationSeqCounter);
-        this.mutationSeqCounter += 1;
-      }
-
-      if (undoable) {
-        // The undo entry is the OLD doc, pushed only when the doc actually changed by
-        // reference AND the commit is undoable. A commit that only touches
-        // `session`/`runtime` (drawer toggle, data refresh, selection…) still takes effect
-        // immediately below, but creates NO undo entry — regardless of the `undoable`
-        // flag — because there is no authored-document change to revert. This is the core
-        // staleness fix.
-        this.undoStack.push(current.doc);
-        this.undoMutationLog.push(logEntry);
-        // Any new undoable action clears the redo stack
-        this.redoStack = [];
-        this.redoMutationLog = [];
-
-        if (this.undoStack.length > MAX_UNDO_HISTORY) {
-          this.undoStack.shift();
-          this.undoMutationLog.shift();
-        }
-      }
-
-      // Recent-mutation log (2.11): record the label whenever the DOC changed, regardless
-      // of `undoable` — NOT only inside the undoable branch. Transient-only doc mutations
-      // that reach the controller through the AI wire path (`applyExternalMutation` →
-      // `setActivePage` / `renameAIThread`) commit NON-undoably (an undo entry for them can
-      // revert nothing — `carryTransientDocState` re-overlays their current value onto any
-      // swap), yet they ARE authored-visible changes the assistant's change log must
-      // surface. Gating this push on `undoable` silently dropped them, contradicting
-      // `applyExternalMutation`'s "logging/label behaviour is unchanged" contract and
-      // `setActivePage`'s "only the AI-driven path logs setActivePage" comment. The push
-      // stays OUT of the `resetHistory` branch (a history reset clears the log above), and a
-      // session/runtime-only commit never reaches here (guarded by `nextState.doc !==
-      // current.doc`), so drawer/selection/data-refresh writes are still never logged.
-      // (A non-undoable labeled commit has no paired `undoMutationLog` entry — it can never
-      // be reached by undo/redo, so there is nothing to reconcile for it.)
-      if (logEntry) {
-        this.mutationLog.push(logEntry);
-        if (this.mutationLog.length > MAX_MUTATION_LOG) {
-          this.mutationLog.shift();
-        }
-      }
+      // `undoable` gates the UNDO entry; `label` gates the LOG line; they are independent.
+      // A commit touching only `session`/`runtime` never reaches here (guarded by the
+      // `nextState.doc !== current.doc` above), so drawer/selection/data-refresh writes are
+      // never logged regardless of either flag.
+      this.history.record(current.doc, label ?? null, undoable);
     }
 
     // Dangling-selection normalization, applied HERE (the single choke point every
@@ -695,8 +620,7 @@ export class StudioController {
    * {@link MAX_MUTATION_LOG}. Consumed by the AI chat adapter to give the model
    * a sense of what the user changed recently.
    */
-  getRecentMutations = (): StudioAIRecentMutation[] => [...this.mutationLog];
-
+  getRecentMutations = (): StudioAIRecentMutation[] => this.history.recent();
   /**
    * Applies a `StateMutation` produced by the AI backend (streamed as a
    * `state-mutation` SSE event) through the shared `applyMutation` reducer — the
@@ -3452,113 +3376,46 @@ export class StudioController {
    *
    * @param {StudioDoc} baselineDoc The `doc` reference captured before the gesture's first commit.
    */
-  foldUndoHistorySince = (baselineDoc: StudioDoc) => {
-    const baseIndex = this.undoStack.lastIndexOf(baselineDoc);
-    if (baseIndex === -1 || baseIndex === this.undoStack.length - 1) {
-      return;
-    }
-    const foldedLogEntries = this.undoMutationLog.slice(baseIndex + 1);
-    this.undoStack.length = baseIndex + 1;
-    this.undoMutationLog.length = baseIndex + 1;
-    const lastLogEntry = foldedLogEntries.filter((entry) => entry !== null).pop() ?? null;
-    if (lastLogEntry) {
-      this.undoMutationLog[baseIndex] = lastLogEntry;
-    }
+  /**
+   * The controller-owned half of an undo/redo step: overlay the transient doc fields that must
+   * survive a swap, re-normalize the session against the incoming doc, and publish.
+   *
+   * `MutationHistory` owns which doc comes back; this owns what happens to it. Shared by `undo`
+   * and `redo` because the two differ only in the direction they pop, and having written the
+   * overlay twice is how one of them could drift from the other.
+   */
+  private swapDoc = (current: StudioState, incomingDoc: StudioDoc) => {
+    const doc = this.carryTransientDocState(current.doc, incomingDoc);
+    this.store.setState({
+      ...current,
+      doc,
+      session: this.normalizeSessionAfterDocSwap(current.session, doc),
+    });
   };
 
-  canUndo = () => this.undoStack.length > 0;
+  foldUndoHistorySince = (baselineDoc: StudioDoc) => {
+    this.history.foldSince(baselineDoc);
+  };
 
+  canUndo = () => this.history.canUndo();
   undo = () => {
-    const previousDoc = this.undoStack.pop();
-    const pairedLogEntry = this.undoMutationLog.pop() ?? null;
-
+    const current = this.store.state;
+    const previousDoc = this.history.stepBack(current.doc);
     if (previousDoc == null) {
       return false;
     }
-
-    // Reconcile the mutation log: the commit being undone may have appended
-    // an entry to `mutationLog` (`commitState` pairs them 1:1 via `undoMutationLog`).
-    // Remove it here — by reference, since `mutationLog` is capped independently and may
-    // have already evicted it — so `getRecentMutations()` (surfaced to the AI via
-    // `get_recent_changes`) stops describing a mutation the user just reverted. Carry the
-    // (possibly `null`) paired entry onto `redoMutationLog` so a subsequent `redo()` can
-    // restore it in lockstep with the doc.
-    this.redoMutationLog.push(pairedLogEntry);
-    if (pairedLogEntry) {
-      const idx = this.mutationLog.indexOf(pairedLogEntry);
-      if (idx !== -1) {
-        this.mutationLog.splice(idx, 1);
-      }
-    }
-
-    const current = this.store.state;
-    this.redoStack.push(current.doc);
-    // Swap only the doc; session and runtime carry forward unchanged by construction,
-    // except for nulling a widget selection the reverted doc no longer contains. The
-    // swapped-in doc first has the current doc's NON-undoable transient state carried
-    // forward (interactive filters + cross-filter toggles) so a Ctrl+Z does not revert
-    // them (1.1); session is then normalized against the CARRIED doc.
-    const doc = this.carryTransientDocState(current.doc, previousDoc);
-    this.store.setState({
-      ...current,
-      doc,
-      session: this.normalizeSessionAfterDocSwap(current.session, doc),
-    });
+    this.swapDoc(current, previousDoc);
     return true;
   };
 
-  canRedo = () => this.redoStack.length > 0;
-
+  canRedo = () => this.history.canRedo();
   redo = () => {
-    const nextDoc = this.redoStack.pop();
-    const pairedLogEntry = this.redoMutationLog.pop() ?? null;
-
+    const current = this.store.state;
+    const nextDoc = this.history.stepForward(current.doc);
     if (nextDoc == null) {
       return false;
     }
-
-    // Reconcile the mutation log — mirrors `undo()` above: restore the entry
-    // `undo()` pulled out (if any), in lockstep with the doc, so re-applying the mutation
-    // makes it visible to `getRecentMutations()` again.
-    //
-    // Unlike `undo()`'s removal (which never disturbs the relative order of what
-    // remains), blindly RE-INSERTING at the tail here would break `getRecentMutations()`'s
-    // oldest-first ordering: a non-undoable but LABELED commit (e.g.
-    // `applyExternalMutation`'s `setActivePage`/`renameAIThread`) can land between this
-    // entry's undo and its redo without clearing the redo stack (only an UNDOABLE commit
-    // does that), so by the time this entry is restored, a genuinely more recent entry may
-    // already sit at the tail. Appending past it would make the redone (older) entry look
-    // newer than it is. Ordering by `at` (a public, millisecond-resolution ISO timestamp)
-    // is not safe here — two commits inside the same synchronous call chain can share an
-    // identical `at`, which a strict `>` comparison treats as "not newer" and falls through
-    // to the tail. `mutationSeq` is a private, collision-free monotonic counter stamped
-    // once per entry at original commit time (see its declaration), so re-inserting before
-    // the first existing entry with a strictly greater sequence number restores correct
-    // chronological order instead of assuming "restored == newest".
-    this.undoMutationLog.push(pairedLogEntry);
-    if (pairedLogEntry) {
-      const pairedSeq = this.mutationSeq.get(pairedLogEntry) ?? -1;
-      const insertAt = this.mutationLog.findIndex(
-        (entry) => (this.mutationSeq.get(entry) ?? -1) > pairedSeq,
-      );
-      if (insertAt === -1) {
-        this.mutationLog.push(pairedLogEntry);
-      } else {
-        this.mutationLog.splice(insertAt, 0, pairedLogEntry);
-      }
-      if (this.mutationLog.length > MAX_MUTATION_LOG) {
-        this.mutationLog.shift();
-      }
-    }
-
-    const current = this.store.state;
-    this.undoStack.push(current.doc);
-    const doc = this.carryTransientDocState(current.doc, nextDoc);
-    this.store.setState({
-      ...current,
-      doc,
-      session: this.normalizeSessionAfterDocSwap(current.session, doc),
-    });
+    this.swapDoc(current, nextDoc);
     return true;
   };
 
@@ -3644,8 +3501,8 @@ export class StudioController {
     return {
       schemaVersion: CURRENT_SCHEMA_VERSION,
       present: toSnapshot(this.store.state.doc),
-      past: this.undoStack.map(toSnapshot),
-      future: this.redoStack.map(toSnapshot),
+      past: this.history.snapshot().undo.map(toSnapshot),
+      future: this.history.snapshot().redo.map(toSnapshot),
     };
   };
 
@@ -3711,19 +3568,18 @@ export class StudioController {
     // the entry closest to `present` at the END (`undo`/`redo` both `pop()` the tail), so
     // truncating from the front keeps the most-recent entries, mirroring `commitState`'s
     // `shift()` eviction of the oldest entry.
-    this.undoStack = (
-      (Array.isArray(past) ? past : []).map(toDoc).filter(Boolean) as StudioDoc[]
-    ).slice(-MAX_UNDO_HISTORY);
-    this.redoStack = (
-      (Array.isArray(future) ? future : []).map(toDoc).filter(Boolean) as StudioDoc[]
-    ).slice(-MAX_UNDO_HISTORY);
-    this.mutationLog = [];
-    // Restored history carries no known mutation-log pairing (the log itself is never
-    // persisted — see the reset just above), so pad `undoMutationLog`/`redoMutationLog`
-    // with `null` to the same length as their respective doc stacks: `undo`/
-    // `redo` assume a 1:1 length match with `undoStack`/`redoStack`.
-    this.undoMutationLog = this.undoStack.map(() => null);
-    this.redoMutationLog = this.redoStack.map(() => null);
+    // `MutationHistory.restore` re-establishes the 1:1 pairing (padding with `null`, since a
+    // serialized session carries docs and never log entries) and clears the log. The
+    // `MAX_UNDO_HISTORY` truncation stays HERE because it belongs to parsing an untrusted
+    // payload, not to the history's own bookkeeping.
+    this.history.restore(
+      ((Array.isArray(past) ? past : []).map(toDoc).filter(Boolean) as StudioDoc[]).slice(
+        -MAX_UNDO_HISTORY,
+      ),
+      ((Array.isArray(future) ? future : []).map(toDoc).filter(Boolean) as StudioDoc[]).slice(
+        -MAX_UNDO_HISTORY,
+      ),
+    );
     this.store.setState(presentWithMode);
 
     return presentResult;

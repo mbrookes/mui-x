@@ -211,8 +211,13 @@ Nothing in the design pushes back on it: it is the default home for anything sta
 accumulates by default. The same shape appears on the server (`executeToolOnState.ts`, 1,772
 code lines) and in the adapter (`createBatchingAdapter.ts`, 1,472).
 
-The seams are already visible in the file and would split cleanly into history/undo, doc
-writes, and runtime/adapter bookkeeping.
+> **Status: the first seam is cut.** The undo/redo stacks and the mutation log — seven fields
+> touched by nine members — are now `store/MutationHistory.ts`, with the controller keeping only
+> the doc-swap half in a shared `swapDoc`. 1,896 → 1,773 code lines. The extraction made two
+> incidental guarantees explicit (`restore` and `snapshot` now copy rather than alias) and gained
+> a focused 15-test suite for arithmetic the controller's end-to-end tests reach only expensively.
+>
+> Doc writes and runtime/adapter bookkeeping remain as the next two seams.
 
 **Related, smaller:** the widget registry lives in `internals/` but imports every widget
 component — 21 of the package's 56 upward layer edges. A registry belongs at the composition

@@ -29,6 +29,7 @@ import type {
   StudioDataSource,
 } from '../models/studioTypes';
 import { asString, capText, capMaybeText } from './promptCaps';
+import { isPlainRecord } from './guards';
 import {
   capString,
   capTitle,
@@ -655,11 +656,6 @@ export const MAX_PAGE_SNAPSHOT_CHARS = 100_000;
 /** Cap a value to {@link MAX_REQUEST_STRING_LENGTH} when it is a string; pass through otherwise. */
 export function capRequestString(value: unknown): unknown {
   return capMaybeText(value, MAX_REQUEST_STRING_LENGTH);
-}
-
-/** Plain-object guard mirroring `buildAISystemPrompt.ts`'s own defensive shape checks. */
-export function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /**

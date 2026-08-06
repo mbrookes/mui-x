@@ -175,13 +175,17 @@ the chokepoint.
 > 1,322**, against `requestCaps.ts` at 407 code lines and `valueCaps.ts` at 105. All 1,649
 > middleware tests pass with no test edited beyond its import line.
 >
-> One thing this surfaced and did not fix: `isPlainRecord` moved to `requestCaps.ts` with its
-> only callers, but the package holds **three** byte-identical copies of that predicate
-> (`handleAIChat`'s, `buildAISystemPrompt`'s `isPlainObject`, and `executeToolOnState`'s
-> `isOpRecord`), while `@mui/x-studio-schema` publishes a **stricter** one that also requires a
-> plain prototype. Collapsing them is a behavior decision per site, not a dedup — the strict
-> version rejects class instances and `Object.create(proto)` bags — so it is left deliberate
-> rather than swept.
+> This surfaced a fourth duplication, since resolved: the package held **three** byte-identical
+> copies of the "is this a usable bag of keys" predicate (`handleAIChat`'s `isPlainRecord`,
+> `buildAISystemPrompt`'s `isPlainObject`, `executeToolOnState`'s `isOpRecord`), each written
+> where its first caller happened to be. They are now `internal/guards.ts`.
+>
+> They were **not** replaced with `@mui/x-studio-schema`'s exported `isPlainRecord`, which also
+> requires a plain prototype. That strictness is right where the schema uses it — screening a
+> persisted `StudioDoc`, where `JSON.parse` could never have produced a non-plain prototype — and
+> wrong here: `customWidgets` and `skills` arrive from the HOST as live JavaScript, so a host that
+> builds them with a class or a factory would have its configuration silently dropped from the
+> prompt as "malformed". The two predicates coexist deliberately, and `guards.ts` says why.
 
 ## Issue 2 — six of eight importers want something other than tool execution
 

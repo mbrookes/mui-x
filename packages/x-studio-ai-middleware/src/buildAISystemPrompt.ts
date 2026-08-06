@@ -14,6 +14,7 @@ import type {
 } from './models/aiTypes';
 import { WIDGET_KIND_DESCRIPTIONS, CHART_TYPE_DOCS, KPI_SPARKLINE_DOC } from './widgetConfigMeta';
 import { asString } from './internal/promptCaps';
+import { isPlainRecord } from './internal/guards';
 import { getWidget, getPage } from './internal/entityLookup';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -1156,9 +1157,6 @@ export interface BuildAISystemPromptOptions {
 }
 
 /** Plain-object guard for defensively probing client-supplied `richContext` shapes below. */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * Renders the optional `<dashboard_context>` and `<server_context>` blocks from
@@ -1195,7 +1193,7 @@ function buildRichContextBlock(
       recentMutations?: unknown;
       omitted?: unknown;
     };
-    if (isPlainObject(rc.fieldStats) && Object.keys(rc.fieldStats).length > 0) {
+    if (isPlainRecord(rc.fieldStats) && Object.keys(rc.fieldStats).length > 0) {
       // The stat values are typed `number`, but `richContext` is client-supplied, so a
       // hand-crafted request body could smuggle a `</dashboard_context>…` string into a
       // `number`-typed field. `promptLine` routes them through the line sanitizer like
@@ -1203,7 +1201,7 @@ function buildRichContextBlock(
       // (defense-in-depth; an `undefined` still renders `"undefined"`, matching the
       // prior raw interpolation).
       const lines = Object.entries(rc.fieldStats)
-        .filter((entry): entry is [string, Record<string, unknown>] => isPlainObject(entry[1]))
+        .filter((entry): entry is [string, Record<string, unknown>] => isPlainRecord(entry[1]))
         .map(([key, s]) =>
           s.min !== undefined || s.max !== undefined
             ? promptLine`  - ${key}: min=${s.min}, max=${s.max}, mean=${s.mean} (n=${s.sampledRows})`
@@ -1213,7 +1211,7 @@ function buildRichContextBlock(
         inner.push(`Field statistics (from the live filtered view):\n${lines.join('\n')}`);
       }
     }
-    if (isPlainObject(rc.pageLayout) && Array.isArray(rc.pageLayout.rows)) {
+    if (isPlainRecord(rc.pageLayout) && Array.isArray(rc.pageLayout.rows)) {
       const { pageId, rows, crossFilters } = rc.pageLayout as {
         pageId: unknown;
         rows: unknown[];
@@ -1225,7 +1223,7 @@ function buildRichContextBlock(
         .map(
           ({ i, row }) =>
             `  Row ${i + 1}: ${row
-              .filter(isPlainObject)
+              .filter(isPlainRecord)
               .map(
                 (w) =>
                   // `chartType` and `colSpan` are typed `string?`/`number?`, but
@@ -1243,7 +1241,7 @@ function buildRichContextBlock(
       const layout = [`${layoutHeader}\n${rowLines}`];
       if (Array.isArray(crossFilters) && crossFilters.length > 0) {
         const crossFilterLines = crossFilters
-          .filter(isPlainObject)
+          .filter(isPlainRecord)
           .map((c) => promptLine`  - ${c.sourceWidgetId} filters by \`${c.field}\` (${c.scope})`);
         if (crossFilterLines.length > 0) {
           layout.push(`Cross-filter graph:\n${crossFilterLines.join('\n')}`);
@@ -1253,7 +1251,7 @@ function buildRichContextBlock(
     }
     if (Array.isArray(rc.recentMutations) && rc.recentMutations.length > 0) {
       const mutationLines = rc.recentMutations
-        .filter(isPlainObject)
+        .filter(isPlainRecord)
         .map((m) => promptLine`  - ${m.label}`);
       if (mutationLines.length > 0) {
         inner.push(`Recent user changes (oldest first):\n${mutationLines.join('\n')}`);

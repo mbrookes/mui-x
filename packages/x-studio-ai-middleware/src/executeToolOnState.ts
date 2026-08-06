@@ -54,6 +54,7 @@ import {
   resolveFieldType,
 } from './internal/widgetFromArgs';
 import { projectStateForAI } from './internal/stateProjection';
+import { isPlainRecord } from './internal/guards';
 import { getWidget, getPage } from './internal/entityLookup';
 // Shared pure functions: the widget factory (so AI-created and UI-created widgets
 // share defaults) and the single mutation reducer (so the server-threaded state
@@ -504,11 +505,6 @@ function collectBulkOps<T>(
   return raw as T[];
 }
 
-/** True for a plain (non-array, non-null) record — the shape both op-entry checks start from. */
-function isOpRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 /**
  * Op 1 — removals.
  *
@@ -576,7 +572,7 @@ function applyBulkAdditions(
     args.widgetAdditions,
     {
       name: 'widgetAdditions',
-      isEntry: (a) => isOpRecord(a) && typeof a.kind === 'string' && typeof a.title === 'string',
+      isEntry: (a) => isPlainRecord(a) && typeof a.kind === 'string' && typeof a.title === 'string',
       shapeHelp:
         'must be an array of objects each with a string `kind` and string `title` ' +
         '(e.g. [{ "kind": "chart", "title": "Revenue" }]).',
@@ -592,7 +588,7 @@ function applyBulkAdditions(
   // message rather than silently orphaned.
   const batchHasTitleRefs =
     args.layout !== undefined ||
-    (isOpRecord(args.colSpans) && Object.keys(args.colSpans).length > 0);
+    (isPlainRecord(args.colSpans) && Object.keys(args.colSpans).length > 0);
 
   for (const addition of additions) {
     const built = buildWidgetFromArgs(addition, ctx.customWidgets);
@@ -641,7 +637,7 @@ function applyBulkUpdates(
     args.widgetUpdates,
     {
       name: 'widgetUpdates',
-      isEntry: (u) => isOpRecord(u) && typeof u.widgetId === 'string',
+      isEntry: (u) => isPlainRecord(u) && typeof u.widgetId === 'string',
       shapeHelp:
         'must be an array of objects each with a string `widgetId` ' +
         '(e.g. [{ "widgetId": "w1", "title": "New" }]).',

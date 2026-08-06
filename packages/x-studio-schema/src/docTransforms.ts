@@ -31,11 +31,23 @@ import { hasConflictingRankFilter } from './rankFilterScope';
  */
 
 /**
+ * Maps one element, returning the element ITSELF when it should be left untouched.
+ *
+ * Named rather than written inline in {@link mapPreservingIdentity}'s signature so its own
+ * parameter is documented here, on the callback, instead of being attributed to the enclosing
+ * function — the same reason `mutationHandlers/layout.ts` names `CanWriteSpan`.
+ *
+ * @param {T} item The element being mapped.
+ * @returns {T} The replacement, or `item` unchanged to signal "no change".
+ */
+type IdentityPreservingMapFn<T> = (item: T) => T;
+
+/**
  * `Array.prototype.map` that returns the ORIGINAL array when no element's reference
  * changed. Mirrors the controller-local helper of the same name so an unknown-id
  * update reaches the commit choke point's no-op guard with an unchanged array reference.
  */
-function mapPreservingIdentity<T>(array: T[], mapFn: (item: T) => T): T[] {
+function mapPreservingIdentity<T>(array: T[], mapFn: IdentityPreservingMapFn<T>): T[] {
   let changed = false;
   const next = array.map((item) => {
     const mapped = mapFn(item);

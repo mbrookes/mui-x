@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import type { StudioMapGeographyDefinition } from '../components/widgets/StudioMapWidget/geographyLoaders';
+import type { StudioMapGeographyDefinition } from './geographyLoaders';
 import {
   StudioUIConfigContext,
   useStudioGeographies,

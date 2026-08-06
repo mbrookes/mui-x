@@ -24,8 +24,12 @@ import {
 } from '../../../internals/dataSourceGraph';
 import { normalizeJoinKey } from '../../../internals/joinKeys';
 import { lookup } from '../../../utils/safeLookup';
-import { normalizeToAlpha2, alpha2ToName, STATE_ABBR_TO_NAME } from './countryUtils';
-import type { StudioMapGeographyDefinition } from './geographyLoaders';
+import {
+  normalizeToAlpha2,
+  alpha2ToName,
+  STATE_ABBR_TO_NAME,
+} from '../../../internals/countryUtils';
+import type { StudioMapGeographyDefinition } from '../../../internals/geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';

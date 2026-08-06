@@ -37,7 +37,7 @@ import {
   selectPages,
   selectCrossFilterAllPages,
 } from '../../context';
-import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
+import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
 import { getReachableSourceIds } from '../../internals/dataSourceGraph';
 import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
 import { buildRankFilterWidgetPageIndex } from '../../internals/rankFilterScope';

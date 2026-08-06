@@ -18,7 +18,7 @@ import type {
   StudioCustomWidgetDef,
 } from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
-import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
+import type { StudioMapGeographyDefinition } from '../../internals/geographyLoaders';
 import { StudioController } from '../../store';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';

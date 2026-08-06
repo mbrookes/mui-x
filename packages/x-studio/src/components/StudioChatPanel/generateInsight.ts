@@ -22,7 +22,7 @@ import {
   enrichWithCrossSourceFields,
   enrichWithCrossSourceColumns,
 } from '../../internals/crossSourceEnrichment';
-import { normalizeToAlpha2, normalizeToStateAbbr } from '../widgets/StudioMapWidget/countryUtils';
+import { normalizeToAlpha2, normalizeToStateAbbr } from '../../internals/countryUtils';
 import {
   computeAggregate,
   findDateFilter,

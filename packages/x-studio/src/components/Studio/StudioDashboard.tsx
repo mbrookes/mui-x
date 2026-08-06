@@ -12,7 +12,7 @@ import type {
   StudioCustomWidgetDef,
 } from '../../models';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
-import type { StudioMapGeographyDefinition } from '../widgets/StudioMapWidget/geographyLoaders';
+import type { StudioMapGeographyDefinition } from '../../internals/geographyLoaders';
 
 /**
  * Props for `StudioDashboard` — the embed-first entry point to Studio.

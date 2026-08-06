@@ -8,7 +8,7 @@
  * Normalization is deterministic — no fuzzy matching.
  */
 
-import { getStudioLocale } from '../../../internals/studioLocale';
+import { getStudioLocale } from './studioLocale';
 
 /** ISO alpha-3 → alpha-2 mapping for the ~195 UN member states. */
 const ALPHA3_TO_ALPHA2: Record<string, string> = {

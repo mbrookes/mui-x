@@ -69,10 +69,7 @@ export type { StudioPivotWidgetProps } from './components/widgets/StudioPivotWid
 // ─── StudioMapWidget ──────────────────────────────────────────────────────────
 export { StudioMapWidget } from './components/widgets/StudioMapWidget';
 export type { StudioMapWidgetProps } from './components/widgets/StudioMapWidget';
-export type {
-  GeographyLoader,
-  StudioMapGeographyDefinition,
-} from './components/widgets/StudioMapWidget/geographyLoaders';
+export type { GeographyLoader, StudioMapGeographyDefinition } from './internals/geographyLoaders';
 
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './components/StudioDataDrawer/StudioDataDrawer';

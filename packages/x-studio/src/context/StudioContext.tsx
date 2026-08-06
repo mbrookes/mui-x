@@ -16,7 +16,7 @@ import {
 import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
 import { setActiveStudioLocale } from '../internals/studioLocale';
 import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
-import type { StudioMapGeographyDefinition } from '../components/widgets/StudioMapWidget/geographyLoaders';
+import type { StudioMapGeographyDefinition } from '../internals/geographyLoaders';
 
 /** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */
 export const CanvasScrollContext =

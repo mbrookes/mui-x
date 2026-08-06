@@ -14,8 +14,11 @@
 import * as React from 'react';
 import { describe, it, expect } from 'vitest';
 import { renderHook } from '@mui/internal-test-utils';
-import type { StudioCustomWidgetDef } from '../models';
-import { StudioUIConfigContext, DEFAULT_STUDIO_LOCALE_TEXT } from './StudioUIConfigContext';
+import type { StudioCustomWidgetDef } from '../../models';
+import {
+  StudioUIConfigContext,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from './builtinWidgetDefs';
 
 // Mutable slot the `Wrapper` component below reads from on every render. Tests

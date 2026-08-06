@@ -4,7 +4,7 @@ import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } fr
 import CloseIcon from '@mui/icons-material/Close';
 import { useStudioSelector, makeSelectWidget } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
-import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
+import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
 import { lookup } from '../../utils/safeLookup';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';

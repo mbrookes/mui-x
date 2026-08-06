@@ -6,3 +6,4 @@ export * from '@mui/x-studio-schema';
 export * from './customWidgetTypes';
 // UI feature-flag prop types (component props, not persisted/AI-protocol state).
 export * from './featureFlags';
+export type { StudioAIConfig } from './aiConfig';

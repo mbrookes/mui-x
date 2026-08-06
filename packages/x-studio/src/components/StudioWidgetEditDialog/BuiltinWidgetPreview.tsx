@@ -7,7 +7,7 @@ import {
   selectActivePageId,
   makeSelectWidgetSource,
 } from '../../context';
-import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
+import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { resolveWidgetPageId } from '../../internals/widgetPageResolution';
 

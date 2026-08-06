@@ -19,8 +19,8 @@ import {
   normalizeToAlpha2,
   normalizeToStateAbbr,
 } from './countryUtils';
-import { getStudioLocale } from '../../../internals/studioLocale';
-import type { StudioLocaleText } from '../../../internals/localeText';
+import { getStudioLocale } from './studioLocale';
+import type { StudioLocaleText } from './localeText';
 
 export type GeographyLoader = () => Promise<ExtendedFeatureCollection>;
 

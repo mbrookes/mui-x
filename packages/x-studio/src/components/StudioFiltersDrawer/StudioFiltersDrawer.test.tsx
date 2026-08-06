@@ -12,7 +12,7 @@ import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
 import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { createStudioHarness } from '../../internals/test-utils';
-import { BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
+import { BUILTIN_WIDGET_DEFS } from '../widgets/builtinWidgetDefs';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
 
 const { render } = createRenderer();

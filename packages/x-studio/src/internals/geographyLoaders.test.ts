@@ -1,8 +1,8 @@
 import { describe, expect, it, afterEach } from 'vitest';
 import { getBuiltInGeographyDefinitions } from './geographyLoaders';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
-import { frLocaleText } from '../../../locales/fr';
-import { setActiveStudioLocale } from '../../../internals/studioLocale';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from './localeText';
+import { frLocaleText } from '../locales/fr';
+import { setActiveStudioLocale } from './studioLocale';
 
 const BUILT_IN_GEOGRAPHY_DEFINITIONS = getBuiltInGeographyDefinitions(DEFAULT_STUDIO_LOCALE_TEXT);
 

@@ -23,11 +23,11 @@ import type {
   GridFeatureFlags,
   StudioCustomWidgetDef,
 } from '../models';
-import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
+import type { StudioAIConfig } from '../models/aiConfig';
 import {
   getBuiltInGeographyDefinitions,
   type StudioMapGeographyDefinition,
-} from '../components/widgets/StudioMapWidget/geographyLoaders';
+} from './geographyLoaders';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from './localeText';
 import type { StudioLocaleText } from './localeText';
 

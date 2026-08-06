@@ -47,7 +47,7 @@ import {
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
-import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../../internals/builtinWidgetDefs';
+import { useWidgetDefMap, BUILTIN_WIDGET_DEFS } from '../widgets/builtinWidgetDefs';
 import { StudioWidgetEditDialog } from '../StudioWidgetEditDialog';
 import { isWidgetOfKind } from '../../models';
 import type { StudioPageTheme } from '../../models';

@@ -5,13 +5,13 @@ import type {
   StudioCustomWidgetDef,
   StudioCustomWidgetSetupPanelProps,
   StudioWidgetOf,
-} from '../models';
-import type { BuiltinStudioWidgetKind } from '../models/baseTypes';
+} from '../../models';
+import type { BuiltinStudioWidgetKind } from '../../models/baseTypes';
 import {
   useStudioUIConfig,
   type StudioWidgetDef,
   type StudioWidgetRenderProps,
-} from './StudioUIConfigContext';
+} from '../../internals/StudioUIConfigContext';
 // ── Widget-kind registry: built-in widget components + setup panels ─────────
 // Deliberately kept OUT of `StudioUIConfigContext.ts`: these widget/setup-panel
 // modules import hooks (`useStudioFeatures`, `useStudioGeographies`,
@@ -22,26 +22,26 @@ import {
 // `StudioUIConfigContext.ts` (for `useStudioUIConfig` and the registry types)
 // but is never imported back by it or by any widget/setup-panel module, so the
 // dependency graph stays acyclic.
-import { StudioGridWidget } from '../components/widgets/StudioGridWidget/StudioGridWidget';
-import type { StudioGridWidgetProps } from '../components/widgets/StudioGridWidget/StudioGridWidget';
-import { StudioChartWidget, CHART_MIN_HEIGHT } from '../components/widgets/StudioChartWidget';
-import type { StudioChartWidgetProps } from '../components/widgets/StudioChartWidget';
-import { StudioKpiWidget } from '../components/widgets/StudioKpiWidget';
-import type { StudioKpiWidgetProps } from '../components/widgets/StudioKpiWidget/StudioKpiWidget';
-import { StudioTextWidget } from '../components/widgets/StudioTextWidget';
-import type { StudioTextWidgetProps } from '../components/widgets/StudioTextWidget/StudioTextWidget';
-import { StudioFilterWidget } from '../components/widgets/StudioFilterWidget';
-import type { StudioFilterWidgetProps } from '../components/widgets/StudioFilterWidget';
-import { StudioPivotWidget } from '../components/widgets/StudioPivotWidget/StudioPivotWidget';
-import { StudioMapWidget } from '../components/widgets/StudioMapWidget';
-import { ChartSetupPanel } from '../components/StudioComposeDrawer/ChartSetupPanel';
-import { GridSetupPanel } from '../components/StudioComposeDrawer/GridSetupPanel';
-import { KpiSetupPanel } from '../components/StudioComposeDrawer/KpiSetupPanel';
-import { TextSetupPanel } from '../components/StudioComposeDrawer/TextSetupPanel';
-import { FilterSetupPanel } from '../components/StudioComposeDrawer/FilterSetupPanel';
-import { PivotSetupPanel } from '../components/StudioComposeDrawer/PivotSetupPanel';
-import { MapSetupPanel } from '../components/StudioComposeDrawer/MapSetupPanel';
-import { sanitizeFiniteNumber } from './cssValueValidation';
+import { StudioGridWidget } from './StudioGridWidget/StudioGridWidget';
+import type { StudioGridWidgetProps } from './StudioGridWidget/StudioGridWidget';
+import { StudioChartWidget, CHART_MIN_HEIGHT } from './StudioChartWidget';
+import type { StudioChartWidgetProps } from './StudioChartWidget';
+import { StudioKpiWidget } from './StudioKpiWidget';
+import type { StudioKpiWidgetProps } from './StudioKpiWidget/StudioKpiWidget';
+import { StudioTextWidget } from './StudioTextWidget';
+import type { StudioTextWidgetProps } from './StudioTextWidget/StudioTextWidget';
+import { StudioFilterWidget } from './StudioFilterWidget';
+import type { StudioFilterWidgetProps } from './StudioFilterWidget';
+import { StudioPivotWidget } from './StudioPivotWidget/StudioPivotWidget';
+import { StudioMapWidget } from './StudioMapWidget';
+import { ChartSetupPanel } from '../StudioComposeDrawer/ChartSetupPanel';
+import { GridSetupPanel } from '../StudioComposeDrawer/GridSetupPanel';
+import { KpiSetupPanel } from '../StudioComposeDrawer/KpiSetupPanel';
+import { TextSetupPanel } from '../StudioComposeDrawer/TextSetupPanel';
+import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
+import { PivotSetupPanel } from '../StudioComposeDrawer/PivotSetupPanel';
+import { MapSetupPanel } from '../StudioComposeDrawer/MapSetupPanel';
+import { sanitizeFiniteNumber } from '../../internals/cssValueValidation';
 
 const KPI_WIDGET_MIN_HEIGHT = 160;
 const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;

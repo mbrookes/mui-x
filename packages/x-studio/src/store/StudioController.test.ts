@@ -3188,7 +3188,14 @@ describe('StudioController.getRecentMutations', () => {
     controller.addWidget(makeWidget('w1', { kind: 'chart' }));
 
     // Definition changes — each of these was silent before the rule was applied.
-    controller.addExpressionField({ id: 'e1', name: 'Margin', expression: 'a - b' });
+    controller.addExpressionField({
+      id: 'e1',
+      label: 'Margin',
+      expression: { operator: 'subtract' as const, inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+      sourceId: 'orders',
+      type: 'number' as const,
+      isMeasure: false,
+    });
     controller.saveFilterPreset('Q1');
     const labels = controller.getRecentMutations().map((m) => m.label);
     expect(labels).toContain('addExpressionField:e1');

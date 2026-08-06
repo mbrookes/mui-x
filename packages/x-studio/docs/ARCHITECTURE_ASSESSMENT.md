@@ -72,9 +72,9 @@ Classifying every intra-`x-studio` relative import by directory layer
 825 cross-layer imports, of which 56 point "upward" — 6.8%
 ```
 
-For a 343-file package that is genuine discipline. 21 of the 56 are a single known pattern
-(the widget registry in `internals/` importing widget components), noted under
-[issue 3](#issue-3--studiocontroller-is-a-god-object).
+For a 343-file package that is genuine discipline. 21 of the 56 were a single known pattern —
+the widget registry in `internals/` importing widget components — since resolved; see the note
+under [issue 3](#issue-3--studiocontroller-is-a-god-object).
 
 ### Custom widgets are first-class
 
@@ -257,6 +257,26 @@ code lines) and in the adapter (`createBatchingAdapter.ts`, 1,472).
 **Related, smaller:** the widget registry lives in `internals/` but imports every widget
 component — 21 of the package's 56 upward layer edges. A registry belongs at the composition
 root, assembled from the layer above, not underneath the layer it references.
+
+> **Status: CLOSED — 21 upward edges to zero.**
+>
+> `builtinWidgetDefs.ts` moved to `components/widgets/`, beside the widgets it registers and
+> below every consumer (all six were already in `components/`). That accounted for 19.
+>
+> The remaining two were not the registry and were more interesting. `geographyLoaders.ts` and
+> `countryUtils.ts` sat under `components/widgets/StudioMapWidget/` but import no component and
+> render nothing — 1,246 lines of locale and geography data filed under a widget because that
+> widget was their first caller. They are `internals/` now, which is what they always were.
+>
+> The last edge was type-only: `internals/StudioUIConfigContext.ts` importing `StudioAIConfig`
+> from the SSE adapter. It is a host-facing public config type, so it moved to `models/aiConfig.ts`
+> where the package's other public contracts live; `studioBackendAdapter.ts` re-exports it, so no
+> consumer's import changed.
+>
+> Worth noting what this was NOT: the registry never needed assembling at the composition root or
+> injecting through context. It needed to be in the right directory. The measurement said
+> "`internals/` imports `components/`", and the fix was to stop filing component-layer things
+> under `internals/` — and, in two cases, to stop filing internals under `components/`.
 
 ## Why the review rounds could not find these
 

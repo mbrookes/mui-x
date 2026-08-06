@@ -4,7 +4,7 @@ import { Box, Tab, Tabs } from '@mui/material';
 import { useDrawerSubheader } from '../Studio/DrawerPanelContext';
 import { useStudioSelector, selectWidgets, selectShell, useStudioLocaleText } from '../../context';
 import { StudioUIConfigContext } from '../../internals/StudioUIConfigContext';
-import { useWidgetDefMap } from '../../internals/builtinWidgetDefs';
+import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { AddWidgetView } from './AddWidgetView';
 import { FieldDetailView } from './FieldDetailView';

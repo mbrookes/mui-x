@@ -36,7 +36,13 @@ import type { TranslationGap } from '../gaps';
 import { compileSpec } from '../compile';
 import { collectBindInputs } from '../compile/params';
 import { VegaOverlays, ArcLabelsPlot } from '../overlays';
-import { FACET_CELL_MARGIN, MAX_FACET_DEPTH, planFacets, resolveGridSize } from '../facet';
+import {
+  DEFAULT_CHART_MARGIN_Y,
+  FACET_CELL_MARGIN,
+  MAX_FACET_DEPTH,
+  planFacets,
+  resolveGridSize,
+} from '../facet';
 import { ParamInputs } from './ParamInputs';
 import { OverlayLegend } from './OverlayLegend';
 import { SizeLegend } from './SizeLegend';
@@ -204,7 +210,6 @@ const AXIS_LABEL_CHAR_PX = 7;
 // 40px horizontally before the axis takes its share. The allowance below covers
 // both, and the pinned axis width is therefore `allowance - 40`.
 const DEFAULT_CHART_MARGIN_X = 40;
-const DEFAULT_CHART_MARGIN_Y = 40;
 // Never pin the axis so tight that its labels cannot render at all.
 const MIN_PINNED_Y_AXIS_WIDTH = 30;
 // y-axis: title(rotated) + tick marks + right overhang of the last x label.
@@ -393,7 +398,9 @@ function resolveVegaViewSize(
       height === undefined
         ? height
         : height +
-          (xAxisDrawn ? X_AXIS_BASE_ALLOWANCE : (budgetsBareMargins && DEFAULT_CHART_MARGIN_Y) || 0),
+          (xAxisDrawn
+            ? X_AXIS_BASE_ALLOWANCE
+            : (budgetsBareMargins && DEFAULT_CHART_MARGIN_Y) || 0),
   };
 }
 
@@ -536,6 +543,12 @@ export interface VegaLiteChartProps {
     /** Render only the shared legend (no plot), used for the single trellis legend. */
     legendOnly?: boolean;
   };
+  /**
+   * Bottom-axis thickness to pin instead of letting x-charts measure it, so a
+   * composed cell's plot lands on exactly the size its spec asked for. Set by
+   * the composite planner (see `FacetCell.xAxisHeight`), not by callers.
+   */
+  xAxisHeight?: number;
 }
 
 /**
@@ -554,7 +567,8 @@ export interface VegaLiteChartProps {
  * `<VegaLiteChart />` instances. See GAPS.md for the full support matrix.
  */
 export function VegaLiteChart(props: VegaLiteChartProps) {
-  const { spec, data, datasets, width, height, colors, onGaps, children, cell } = props;
+  const { spec, data, datasets, width, height, colors, onGaps, children, cell, xAxisHeight } =
+    props;
   const depth = React.useContext(FacetDepthContext);
 
   // Only the outermost instance (no inherited param context) owns the shared
@@ -844,6 +858,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
                 colors={colors}
                 onGaps={handleCellGaps}
                 cell={cellProps}
+                xAxisHeight={cell.xAxisHeight}
               />
             </div>
           );
@@ -919,6 +934,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
         colors={colors}
         onGaps={onGaps}
         cell={cell}
+        xAxisHeight={xAxisHeight}
       >
         {children}
       </SingleViewChart>
@@ -947,7 +963,8 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
  * composition as an unsupported gap).
  */
 function SingleViewChart(props: VegaLiteChartProps) {
-  const { spec, data, datasets, width, height, colors, onGaps, children, cell } = props;
+  const { spec, data, datasets, width, height, colors, onGaps, children, cell, xAxisHeight } =
+    props;
   const paramCtx = React.useContext(VegaParamsContext);
   const paramValues = paramCtx?.values;
 
@@ -1217,10 +1234,20 @@ function SingleViewChart(props: VegaLiteChartProps) {
     }
     return stripped as T;
   };
+  // Pin the bottom axis to exactly the thickness the surface budgeted for it,
+  // the same determinism `pinStandaloneYAxisWidth` gives the y axis below. Left
+  // on `height: 'auto'` x-charts measures the rotated labels itself, and where
+  // that measurement exceeds the budget the surplus comes out of the plot:
+  // `interactive_concat_layer`'s genre cell wanted 112px for its -40° labels
+  // against the 46px budgeted, and drew its bars at 54px where Vega draws 120px.
+  const pinXAxisHeight = <T extends Record<string, unknown>>(config: T): T =>
+    xAxisHeight === undefined || (config as { position?: string }).position === 'none'
+      ? config
+      : { ...config, height: xAxisHeight };
   const xAxis = compiled.xAxis
     ? [
         rotateXLabelsIfCramped(
-          dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom),
+          pinXAxisHeight(dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom)),
           resolvedWidth,
           Boolean(compiled.yAxis),
         ),

@@ -114,6 +114,13 @@ export interface FacetCell {
   width: number;
   /** Cell height passed to the nested chart. */
   height: number;
+  /**
+   * Bottom-axis thickness the cell pins, so `plot = height − margins − axis`
+   * lands back on the plot size the spec asked for. Set only where x-charts'
+   * own `'auto'` measurement would disagree with the budget — see
+   * `xAxisLabelExtent`.
+   */
+  xAxisHeight?: number;
 }
 
 export interface FacetPlan {
@@ -547,6 +554,16 @@ const VEGA_DEFAULT_STEP = 20;
 const CELL_Y_AXIS_ALLOWANCE = 60;
 const CELL_X_AXIS_ALLOWANCE = 40;
 const AXIS_LABEL_CHAR_PX = 7;
+/**
+ * x-charts' own DEFAULT_MARGINS are 20 on every side, so a surface gives up
+ * 40px vertically before the axis takes its share. A cell that budgets chrome
+ * and then pins the axis has to subtract this, or the two would double-count.
+ */
+export const DEFAULT_CHART_MARGIN_Y = 40;
+/** One line of tick-label text, for the rotated-label extent below. */
+const AXIS_LABEL_LINE_PX = 12;
+/** Tick mark plus the gap between the axis line and its labels. */
+const AXIS_TICK_PAD = 10;
 const CELL_Y_AXIS_ALLOWANCE_BASE = 38;
 
 /** Padding to leave beside an axis that is hidden (`axis: null`) — just a small margin. */
@@ -625,6 +642,35 @@ function yAxisAllowance(def: VegaChannelDef | undefined, rows: readonly DatasetR
     CELL_Y_AXIS_ALLOWANCE,
     CELL_Y_AXIS_ALLOWANCE_BASE + Math.min(chars, 10) * AXIS_LABEL_CHAR_PX,
   );
+}
+
+/** An explicit `axis.labelAngle`, in degrees, or 0 when the labels sit flat. */
+function labelAngleOf(def: VegaChannelDef | undefined): number {
+  if (!isFieldDef(def)) {
+    return 0;
+  }
+  const angle = (def.axis as { labelAngle?: unknown } | null | undefined)?.labelAngle;
+  return typeof angle === 'number' ? angle : 0;
+}
+
+/**
+ * Vertical space a discrete x axis' tick labels need. A rotated label costs
+ * `width·sin θ + lineHeight·cos θ` rather than the single flat line the default
+ * allowance assumes — `interactive_concat_layer` angles "Concert/Performance"
+ * by -40°, which is 105px of label against the 40px budgeted for it. Without
+ * this the surface is sized for flat labels, x-charts measures the real rotated
+ * ones, and the difference comes out of the plot: that cell drew its bars at
+ * 54px where Vega draws 120px.
+ */
+function xAxisLabelExtent(def: VegaChannelDef | undefined, rows: readonly DatasetRow[]): number {
+  const angle = labelAngleOf(def);
+  if (angle === 0) {
+    return CELL_X_AXIS_ALLOWANCE;
+  }
+  const radians = (Math.abs(angle) * Math.PI) / 180;
+  const width = longestCategoryLabelChars(def, rows) * AXIS_LABEL_CHAR_PX;
+  const extent = width * Math.sin(radians) + AXIS_LABEL_LINE_PX * Math.cos(radians);
+  return Math.max(CELL_X_AXIS_ALLOWANCE, Math.ceil(extent) + AXIS_TICK_PAD);
 }
 
 /** Inner-cell channel defs + explicit spec sizes, used to size a cell like Vega. */
@@ -816,7 +862,7 @@ function naturalConcatSize(
   entry: VegaLiteSpec,
   rows: readonly DatasetRow[],
   defaultView?: { width: number; height: number },
-): { width: number; height: number } {
+): { width: number; height: number; xAxisHeight?: number } {
   const hconcat = (entry as { hconcat?: VegaLiteSpec[] }).hconcat;
   const vconcat =
     (entry as { vconcat?: VegaLiteSpec[] }).vconcat ??
@@ -869,6 +915,11 @@ function naturalConcatSize(
       CONCAT_PLOT_FAR_PAD +
       (channelAxisTitled(yDef) ? AXIS_TITLE_ALLOWANCE : 0)
     : 0;
+  // The same budget-and-pin pairing for the bottom x axis.
+  const xChrome =
+    xAxisLabelExtent(xDef, rows) +
+    CONCAT_PLOT_FAR_PAD +
+    (channelAxisTitled(xDef) ? AXIS_TITLE_ALLOWANCE : 0);
   return {
     // The left y-axis widens the view; the bottom x-axis heightens it — but only
     // when that axis is actually drawn. A drawn axis also needs the OPPOSITE
@@ -879,13 +930,13 @@ function naturalConcatSize(
     // strips) has no slack at all — the drawing area came out NEGATIVE, so
     // x-charts rendered no marks whatsoever.
     width: plotWidth + (yShown ? yChrome : CONCAT_HIDDEN_AXIS_PAD),
-    height:
-      plotHeight +
-      (channelAxisShown(xDef)
-        ? CELL_X_AXIS_ALLOWANCE +
-          CONCAT_PLOT_FAR_PAD +
-          (channelAxisTitled(xDef) ? AXIS_TITLE_ALLOWANCE : 0)
-        : CONCAT_HIDDEN_AXIS_PAD),
+    height: plotHeight + (channelAxisShown(xDef) ? xChrome : CONCAT_HIDDEN_AXIS_PAD),
+    // Only a rotated axis pins itself: everywhere else x-charts' own `'auto'`
+    // measurement already lands inside the flat allowance, and pinning would
+    // change layouts that are currently pixel-exact against Vega.
+    ...(channelAxisShown(xDef) && labelAngleOf(xDef) !== 0
+      ? { xAxisHeight: xChrome - DEFAULT_CHART_MARGIN_Y }
+      : null),
   };
 }
 
@@ -1425,6 +1476,7 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
       header,
       width: Math.max(40, natural.width),
       height: Math.max(40, natural.height),
+      ...(natural.xAxisHeight !== undefined ? { xAxisHeight: natural.xAxisHeight } : null),
     };
   });
   return { columns, rows: gridRows, cells, gaps };

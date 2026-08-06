@@ -3164,12 +3164,41 @@ describe('StudioController.getRecentMutations', () => {
   it('leaves the log untouched when an unlabeled/non-undoable commit is undone', () => {
     const controller = new StudioController();
     controller.addFilter(makeFilter({ id: 'a', field: 'revenue' }));
-    controller.setPageStackBreakpoint(600); // undoable but unlabeled — no log entry
-    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+    // A cross-filter, then a clear. `clearAllCrossFilters` is undoable but deliberately
+    // unlabeled (see the log rule on `StudioController`), which is exactly the combination this
+    // test needs: an undo step with no paired log entry to remove. `applyCrossFilter` needs a
+    // real source widget or it no-ops.
+    controller.addWidget(makeWidget('w1', { kind: 'chart' }));
+    controller.applyCrossFilter('w1', 'region', 'EMEA');
+    controller.clearAllCrossFilters();
+    const before = controller.getRecentMutations().map((m) => m.label);
+    expect(before).toContain('applyCrossFilter:w1:region');
 
-    controller.undo(); // reverts the stack-breakpoint change; no paired log entry to remove
+    controller.undo(); // reverts the clear; no paired log entry to remove
 
-    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(['addFilter:revenue']);
+    expect(controller.getRecentMutations().map((m) => m.label)).toEqual(before);
+  });
+
+  it('logs a definition change and stays silent for navigation and interaction', () => {
+    // The two halves of the log rule documented on `StudioController`. Both matter: the log is
+    // what tells the model the USER changed something, and the same mutations arriving over the
+    // wire are always logged — so a silent user-side writer makes `getRecentMutations()` report
+    // the assistant's edits while hiding the user's.
+    const controller = new StudioController();
+    controller.addWidget(makeWidget('w1', { kind: 'chart' }));
+
+    // Definition changes — each of these was silent before the rule was applied.
+    controller.addExpressionField({ id: 'e1', name: 'Margin', expression: 'a - b' });
+    controller.saveFilterPreset('Q1');
+    const labels = controller.getRecentMutations().map((m) => m.label);
+    expect(labels).toContain('addExpressionField:e1');
+    expect(labels.some((l) => l.startsWith('saveFilterPreset'))).toBe(true);
+
+    // Viewing position and transient interaction stay out of it.
+    const beforeNav = controller.getRecentMutations().length;
+    controller.applyInteractiveFilter('w1', 'region', 'equals', 'EMEA');
+    controller.clearInteractiveFilter('w1');
+    expect(controller.getRecentMutations()).toHaveLength(beforeNav);
   });
 
   it('does not resurrect a log entry that was evicted by the MAX_MUTATION_LOG cap', () => {

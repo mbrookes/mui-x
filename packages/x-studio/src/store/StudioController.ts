@@ -805,10 +805,7 @@ export class StudioController {
     if (state.doc.dashboard.globalCrossFilterMode === mode) {
       return;
     }
-    this.commitMutation(
-      { type: 'setGlobalCrossFilterMode', args: { mode } },
-      { undoable: false, label: null },
-    );
+    this.commitMutation({ type: 'setGlobalCrossFilterMode', args: { mode } }, { undoable: false });
   };
 
   setCrossFilterAllPages = (allPages: boolean) => {
@@ -819,7 +816,7 @@ export class StudioController {
     }
     this.commitMutation(
       { type: 'setCrossFilterAllPages', args: { allPages } },
-      { undoable: false, label: null },
+      { undoable: false },
     );
   };
 
@@ -1020,7 +1017,7 @@ export class StudioController {
     // update/remove siblings so no path through this class can leave a stale entry behind. Placed
     // AFTER the guards so a rejected add never evicts anything.
     this.invalidateSources(field.sourceId);
-    this.commitMutation({ type: 'addExpressionField', args: { field } }, { label: null });
+    this.commitMutation({ type: 'addExpressionField', args: { field } });
     return MUTATION_COMMITTED;
   };
 
@@ -1076,10 +1073,7 @@ export class StudioController {
     // edit can repoint `sourceId`, and the pre-edit source's cached rows are just as stale as the
     // new one's. See `invalidateSources` for why the `cacheKey` cannot catch this.
     this.invalidateSources(existing.sourceId, updatedField.sourceId);
-    this.commitMutation(
-      { type: 'updateExpressionField', args: { fieldId, updates } },
-      { label: null },
-    );
+    this.commitMutation({ type: 'updateExpressionField', args: { fieldId, updates } });
     return MUTATION_COMMITTED;
   };
 
@@ -1171,7 +1165,7 @@ export class StudioController {
         state.doc.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId)?.sourceId,
       );
     }
-    this.commitMutation({ type: 'removeExpressionField', args: { fieldId } }, { label: null });
+    this.commitMutation({ type: 'removeExpressionField', args: { fieldId } });
     return referenceCount;
   };
 
@@ -1372,10 +1366,10 @@ export class StudioController {
     if (activePage.stackBreakpoint === breakpoint) {
       return;
     }
-    this.commitMutation(
-      { type: 'setPageStackBreakpoint', args: { pageId: activePage.id, breakpoint } },
-      { label: null },
-    );
+    this.commitMutation({
+      type: 'setPageStackBreakpoint',
+      args: { pageId: activePage.id, breakpoint },
+    });
   };
 
   /**
@@ -2019,7 +2013,7 @@ export class StudioController {
     // relationship makes a JOIN available that the previous responses were computed without, and
     // nothing about relationships feeds the request `cacheKey`. See `invalidateSources`.
     this.invalidateSources(...StudioController.relationshipSourceIds(relationship));
-    this.commitMutation({ type: 'addRelationship', args: { relationship } }, { label: null });
+    this.commitMutation({ type: 'addRelationship', args: { relationship } });
     return MUTATION_COMMITTED;
   };
 
@@ -2064,10 +2058,7 @@ export class StudioController {
     // The reducer's handler keeps the per-entry identity preservation this used to do with
     // `mapPreservingIdentity`: it rebuilds only entries that actually differ, which matters for a
     // host-authored initial doc where two entries can share an id.
-    this.commitMutation(
-      { type: 'updateRelationship', args: { relationshipId: id, patch } },
-      { label: null },
-    );
+    this.commitMutation({ type: 'updateRelationship', args: { relationshipId: id, patch } });
     return MUTATION_COMMITTED;
   };
 
@@ -2081,10 +2072,7 @@ export class StudioController {
       // unknown id must stay a clean no-op. See `invalidateSources`.
       this.invalidateSources(...StudioController.relationshipSourceIds(existing));
     }
-    this.commitMutation(
-      { type: 'removeRelationship', args: { relationshipId: id } },
-      { label: null },
-    );
+    this.commitMutation({ type: 'removeRelationship', args: { relationshipId: id } });
   };
 
   /**
@@ -2263,7 +2251,7 @@ export class StudioController {
   };
 
   toggleFilter = (filterId: string) => {
-    this.commitMutation({ type: 'toggleFilter', args: { filterId } }, { label: null });
+    this.commitMutation({ type: 'toggleFilter', args: { filterId } });
   };
 
   /**
@@ -2287,13 +2275,10 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    this.commitMutation(
-      {
-        type: 'setDashboardDateRange',
-        args: { pageId, fieldId, sourceId, fieldType, preset, customFrom, customTo },
-      },
-      { label: null },
-    );
+    this.commitMutation({
+      type: 'setDashboardDateRange',
+      args: { pageId, fieldId, sourceId, fieldType, preset, customFrom, customTo },
+    });
   };
 
   /**
@@ -2319,7 +2304,7 @@ export class StudioController {
         type: 'setDashboardDateRangeAll',
         args: { pageId, fields, preset, customFrom, customTo },
       },
-      { ...options, label: null },
+      options,
     );
   };
 
@@ -2343,13 +2328,10 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    this.commitMutation(
-      {
-        type: 'setWidgetDateRange',
-        args: { widgetId, fieldId, sourceId, fieldType, preset, customFrom, customTo },
-      },
-      { label: null },
-    );
+    this.commitMutation({
+      type: 'setWidgetDateRange',
+      args: { widgetId, fieldId, sourceId, fieldType, preset, customFrom, customTo },
+    });
   };
 
   /**
@@ -2380,6 +2362,28 @@ export class StudioController {
   private static resolveWidgetPageIdInDoc = (doc: StudioDoc, widgetId: string): string =>
     resolveWidgetPageIdInPages(doc.pages, doc.dashboard.activePageId, widgetId);
 
+  /**
+   * Whether a writer records a line in the recent-mutation log.
+   *
+   * The log's job is telling the model **what the user just changed**; it is capped at
+   * `MAX_MUTATION_LOG` entries; and the same mutation arriving over the wire is always logged
+   * (`applyExternalMutation` passes `mutationLabel(mutation)`). So silence here is not neutral —
+   * it makes `getRecentMutations()` report the assistant's edits while hiding the user's.
+   *
+   * The rule, applied writer by writer rather than swept:
+   *
+   * - **A change to the dashboard's DEFINITION is logged.** Expression fields, relationships,
+   *   filter presets, date ranges, cross-filter modes, page order, page properties. These are
+   *   authored edits, and the log is the only place they surface as an event.
+   * - **A change to the VIEWING POSITION, or a transient interaction, is not.** Navigation,
+   *   interactive filters, cross-filter clears. The state each produces is already described in
+   *   the prompt's `<dashboard_state>` block on every request, so a log line duplicates what the
+   *   model has while evicting something it does not.
+   *
+   * Nineteen writers moved from silent to logged on this rule. The four that stay silent —
+   * {@link applyInteractiveFilter}, {@link clearInteractiveFilter}, {@link clearAllCrossFilters}
+   * and {@link setActivePage} — each say why at the call.
+   */
   applyInteractiveFilter = (
     sourceWidgetId: string,
     field: string,
@@ -2443,6 +2447,8 @@ export class StudioController {
       return;
     }
 
+    // Unlogged: an interactive selection is a viewer gesture, not a document edit, and the
+    // filter it creates is visible in `<dashboard_state>` for as long as it exists.
     this.commitMutation(
       { type: 'applyInteractiveFilter', args: { sourceWidgetId, filter: interactiveFilter } },
       { undoable: false, label: null },
@@ -2570,10 +2576,7 @@ export class StudioController {
     // is collision-resistant (timestamp + per-process counter + random suffix),
     // unlike the previous millisecond-resolution `preset-${Date.now()}`.
     const id = createPresetId();
-    this.commitMutation(
-      { type: 'saveFilterPreset', args: { presetId: id, name } },
-      { label: null },
-    );
+    this.commitMutation({ type: 'saveFilterPreset', args: { presetId: id, name } });
     return id;
   };
 
@@ -2589,14 +2592,14 @@ export class StudioController {
    * Applies a saved filter preset by replacing all page-level filters with the preset's filters.
    */
   applyFilterPreset = (presetId: string) => {
-    this.commitMutation({ type: 'applyFilterPreset', args: { presetId } }, { label: null });
+    this.commitMutation({ type: 'applyFilterPreset', args: { presetId } });
   };
 
   /**
    * Deletes a saved filter preset by ID.
    */
   deleteFilterPreset = (presetId: string) => {
-    this.commitMutation({ type: 'deleteFilterPreset', args: { presetId } }, { label: null });
+    this.commitMutation({ type: 'deleteFilterPreset', args: { presetId } });
   };
 
   /**
@@ -2605,16 +2608,16 @@ export class StudioController {
   renameFilterPreset = (presetId: string, name: string) => {
     // The pure transform preserves the original `filterPresets` array reference on an
     // unknown `presetId` (via `mapPreservingIdentity`), so `commitDocPatch` no-ops it.
-    this.commitMutation({ type: 'renameFilterPreset', args: { presetId, name } }, { label: null });
+    this.commitMutation({ type: 'renameFilterPreset', args: { presetId, name } });
   };
 
   /**
    * Clears all cross-filters.
    */
   clearAllCrossFilters = () => {
-    // `label: null` preserves this writer's existing "absent from the mutation log" behaviour.
-    // That gap is real and documented, but closing it is a per-writer decision, not something to
-    // change as a side effect of moving the write onto the reducer.
+    // Unlogged: clearing cross-filters is the end of an interaction, not an edit. The filters it
+    // removes are visible in `<dashboard_state>` while they exist and absent from it afterwards,
+    // so the model can already see the result. See the log rule above `applyInteractiveFilter`.
     this.commitMutation({ type: 'clearAllCrossFilters', args: {} }, { label: null });
   };
 
@@ -2692,10 +2695,7 @@ export class StudioController {
     // `safeChanges` (not `changes`): the excluded keys are dropped HERE so the dev warning above
     // can name them. The reducer re-excludes them anyway, for callers that never came through
     // this method.
-    this.commitMutation(
-      { type: 'updateActivePage', args: { pageId, changes: safeChanges } },
-      { label: null },
-    );
+    this.commitMutation({ type: 'updateActivePage', args: { pageId, changes: safeChanges } });
     return MUTATION_COMMITTED;
   };
 
@@ -2710,8 +2710,10 @@ export class StudioController {
     if (!this.getPage(pageId) || state.doc.dashboard.activePageId === pageId) {
       return;
     }
-    // D5: user-driven navigation stays non-undoable and unlogged (`label: null`) —
-    // only the AI-driven `applyExternalMutation` path logs `setActivePage`.
+    // Unlogged, and non-undoable: navigation is a viewing position, not an edit, and
+    // `activePageId` is already in `<dashboard_state>` on every request. Only the AI-driven
+    // `applyExternalMutation` path logs `setActivePage`. See the log rule above
+    // `applyInteractiveFilter`.
     this.commitMutation(
       { type: 'setActivePage', args: { pageId } },
       { undoable: false, label: null },
@@ -2776,7 +2778,7 @@ export class StudioController {
    * The active page is not changed.
    */
   reorderPages = (pageIds: string[]) => {
-    this.commitMutation({ type: 'reorderPages', args: { pageIds } }, { label: null });
+    this.commitMutation({ type: 'reorderPages', args: { pageIds } });
   };
 
   /**

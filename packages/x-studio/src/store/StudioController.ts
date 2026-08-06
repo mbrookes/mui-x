@@ -73,6 +73,11 @@ import { stripKeys, resolveEffectiveChartType } from '../internals/widgetConfigS
 // it. Only `isSameManagedFilterContent` is still called directly from here, by the two
 // `applyCrossFilter`/`applyInteractiveFilter` writers that remain outside the reducer.
 import { MutationHistory, MAX_UNDO_HISTORY } from './MutationHistory';
+import { mapPreservingIdentity } from '../utils/mapPreservingIdentity';
+// Pure `StudioRuntime -> StudioRuntime` transforms. The counterpart to `applyMutation` for the
+// host-injected partition: they answer only "what is the next runtime", and cache eviction —
+// an I/O side effect on a module-level singleton — stays here where it can be seen.
+import * as runtimeTransforms from './runtimeTransforms';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
 // `@mui/x-studio-schema` as `MIN_SPAN` — the single source of truth shared with
@@ -148,24 +153,6 @@ const MUTATION_RANK_CONFLICT: StudioMutationResult = Object.freeze({
   reason: 'rank-conflict',
 });
 const MUTATION_INVALID: StudioMutationResult = Object.freeze({ ok: false, reason: 'invalid' });
-
-/**
- * `Array.prototype.map` that returns the ORIGINAL array when no element's reference
- * changed (1.6). Lets identity-preserving doc writers reach `commitDocPatch`'s
- * reference-equality no-op guard with an unchanged array reference on a logical
- * no-op (unknown-id / rejected update), so it never becomes an undoable, logged step.
- */
-function mapPreservingIdentity<T>(array: T[], mapFn: (item: T) => T): T[] {
-  let changed = false;
-  const next = array.map((item) => {
-    const mapped = mapFn(item);
-    if (mapped !== item) {
-      changed = true;
-    }
-    return mapped;
-  });
-  return changed ? next : array;
-}
 
 export class StudioController {
   readonly store: Store<StudioState>;
@@ -562,46 +549,25 @@ export class StudioController {
   };
 
   /**
-   * Commits a patch to a single runtime data source: shallow-merges `patch` onto the
-   * source identified by `sourceId`, leaving `doc` and `session` untouched, always as
-   * a NON-undoable commit (host-injected data is infrastructure, not an authored edit;
-   * a runtime-only commit structurally never pushes an undo entry anyway, so baking in
-   * `undoable: false` is observably identical). No-ops when the source is missing.
+   * The runtime choke point: commit a runtime computed by `runtimeTransforms`, ALWAYS
+   * non-undoably.
+   *
+   * Runtime writes are never undoable by design — a Ctrl+Z must not revert freshly-injected live
+   * data back to stale rows — so unlike the doc side there is no per-writer flag to thread. A
+   * transform that declines returns the SAME runtime, and the reference check here turns that
+   * into a genuine no-op instead of a subscriber notification for nothing.
    */
-  private commitDataSourcePatch = (sourceId: string, patch: Partial<StudioDataSource>) => {
+  private commitRuntime = (nextRuntime: StudioRuntime) => {
     const state = this.store.state;
-    // `Object.hasOwn` rather than a bare bracket read: `sourceId` is caller-authored (host,
-    // AI tool call, or a doc-stored `widget.sourceId`), and a key like `constructor`/`toString`
-    // resolves a FUNCTION off `Object.prototype` on a plain-object `Record`. That truthy
-    // non-source value passes the `if (!source)` check and gets spread into `dataSources` as a
-    // real entry. Matches the convention already documented across `selectors.ts` and
-    // `commitWidgetMove` in this file.
-    if (!Object.hasOwn(state.runtime.dataSources, sourceId)) {
+    if (nextRuntime === state.runtime) {
       return;
     }
-    const source = state.runtime.dataSources[sourceId];
-    // Key-wise reference no-op guard, mirroring `commitDocPatch` (1.6), `commitShellPatch` and
-    // `updateState` (2.4). This was the only commit helper without one: `setDataSourceRows (id,
-    // sameArrayRef)` — a host poller re-injecting the SAME rows array from an effect — still
-    // rebuilt the source object AND the `dataSources` record, changing both references and
-    // notifying every subscriber for no actual change. `updateDataSourceField` had to grow its own
-    // guard for exactly this; putting it here covers every caller instead.
-    const keys = Object.keys(patch) as (keyof StudioDataSource)[];
-    if (keys.every((key) => patch[key] === source[key])) {
-      return;
-    }
-    this.commitState(
-      {
-        ...state,
-        runtime: {
-          ...state.runtime,
-          dataSources: {
-            ...state.runtime.dataSources,
-            [sourceId]: { ...source, ...patch },
-          },
-        },
-      },
-      { undoable: false },
+    this.commitState({ ...state, runtime: nextRuntime }, { undoable: false });
+  };
+
+  private commitDataSourcePatch = (sourceId: string, patch: Partial<StudioDataSource>) => {
+    this.commitRuntime(
+      runtimeTransforms.patchDataSource(this.store.state.runtime, sourceId, patch),
     );
   };
 
@@ -924,59 +890,19 @@ export class StudioController {
     });
   };
 
+  /**
+   * Registers or replaces a data source, preserving a separately-registered adapter the incoming
+   * object omits. See `runtimeTransforms.upsertDataSource` for that rule.
+   */
   upsertDataSource = (dataSource: StudioDataSource) => {
-    const state = this.store.state;
-    // Own-key read (see `commitDataSourcePatch`): a source id of `constructor`/`toString` would
-    // otherwise resolve a function off `Object.prototype`, whose truthy `?.adapter` (undefined)
-    // and non-matching identity make the branches below behave as if a real source existed.
-    const existing = Object.hasOwn(state.runtime.dataSources, dataSource.id)
-      ? state.runtime.dataSources[dataSource.id]
-      : undefined;
-    // Preserve an adapter that was registered separately (via `setDataSourceAdapter` /
-    // the `dataAdapters` prop) when the incoming source carries none. A config produced by
-    // `serializeState()`/JSON never has an `adapter` field, so a config-swap reload
-    // (`StudioDashboard`) would otherwise silently wipe every registered adapter and make
-    // adapter-backed sources fall back to (usually absent) static rows. If the incoming
-    // source brings its own adapter, it wins.
-    const nextDataSource =
-      dataSource.adapter || !existing?.adapter
-        ? dataSource
-        : { ...dataSource, adapter: existing.adapter };
-    // Same-reference guard (2.9): when the resolved entry is reference-identical to the one
-    // already stored (a host re-injecting the SAME source object from an effect/poller, no
-    // adapter carried over), invalidating the cache and committing would bump the source
-    // generation, evict every cached adapter result, and mark in-flight requests stale on every
-    // call — an unbounded refetch loop when paired with an `onStateChange`-driven re-render.
-    // `setDataSourceAdapter` (below) got exactly this guard for exactly this loop hazard; mirror
-    // it here so an unchanged re-injection is a clean no-op (no invalidation, no commit). The
-    // adapter-carry branch always builds a fresh object, so it is never reference-equal and
-    // still commits as before.
-    if (nextDataSource === existing) {
+    const next = runtimeTransforms.upsertDataSource(this.store.state.runtime, dataSource);
+    if (next === this.store.state.runtime) {
       return;
     }
-    // Replacing the source entry means any rows the old entry cached under its id are now
-    // stale, regardless of whether the old or new entry carries an adapter — always
-    // invalidate so a config-swap cannot serve pre-swap rows for the new source. (The
-    // previous `if (dataSource.adapter)` guard skipped exactly this case: an adapter-less
-    // incoming source replacing an adapter-backed one, which is the config-swap path.)
+    // Evicted only when the write actually LANDS, so a re-registration that changed nothing does
+    // not throw away every cached response for the source.
     studioRequestCache.invalidateSource(dataSource.id);
-    // Host-driven data injection (e.g. a periodic refresh or a config-swap reload)
-    // is infrastructure, not an authored edit — it must not create an undo-stack
-    // entry (a user pressing Ctrl+Z should never revert live data to stale rows or
-    // remove a source's rows). Same convention as interactive filter selection.
-    this.commitState(
-      {
-        ...state,
-        runtime: {
-          ...state.runtime,
-          dataSources: {
-            ...state.runtime.dataSources,
-            [dataSource.id]: nextDataSource,
-          },
-        },
-      },
-      { undoable: false },
-    );
+    this.commitRuntime(next);
   };
 
   /**
@@ -1006,29 +932,14 @@ export class StudioController {
     this.commitDataSourcePatch(sourceId, { adapter });
   };
 
-  /**
-   * Removes a runtime data source by id (2.1). Non-undoable — data-source injection and
-   * removal is host infrastructure, not an authored edit — and invalidates the request
-   * cache for the removed id so a later re-registration under the same id cannot serve its
-   * pre-removal rows. No-ops when the source is absent. Used by `StudioDashboard` to prune
-   * sources that a new `config` prop dropped (`loadSerializedState` preserves the previous
-   * controller's entire `runtime.dataSources`, so a removed source would otherwise survive).
-   */
+  /** Removes a data source and evicts its cached adapter responses. */
   removeDataSource = (sourceId: string) => {
-    const state = this.store.state;
-    // Own-key guard — see `commitDataSourcePatch`. A bare truthiness check on an inherited key
-    // would pass, then `delete nextDataSources['constructor']` deletes nothing while the commit
-    // still invalidates the request cache and churns every subscriber.
-    if (!Object.hasOwn(state.runtime.dataSources, sourceId)) {
+    const next = runtimeTransforms.removeDataSource(this.store.state.runtime, sourceId);
+    if (next === this.store.state.runtime) {
       return;
     }
     studioRequestCache.invalidateSource(sourceId);
-    const nextDataSources = { ...state.runtime.dataSources };
-    delete nextDataSources[sourceId];
-    this.commitState(
-      { ...state, runtime: { ...state.runtime, dataSources: nextDataSources } },
-      { undoable: false },
-    );
+    this.commitRuntime(next);
   };
 
   /**
@@ -1050,30 +961,9 @@ export class StudioController {
     fieldId: string,
     updates: Partial<import('../models').StudioDataField>,
   ) => {
-    // Own-key guard — see `commitDataSourcePatch`.
-    if (!Object.hasOwn(this.store.state.runtime.dataSources, sourceId)) {
-      return;
-    }
-    const source = this.store.state.runtime.dataSources[sourceId];
-    // No-op guard: `commitDataSourcePatch` always allocates a fresh
-    // source/`dataSources` object, so an unknown `fieldId` or a value-identical
-    // `updates` payload would otherwise still commit and churn every subscriber.
-    // `mapPreservingIdentity` plus the per-field value-equality check mirror the
-    // idiom `updateFilter` uses for the same class of doc-side write.
-    const nextFields = mapPreservingIdentity(source.fields, (f: StudioDataField) => {
-      if (f.id !== fieldId) {
-        return f;
-      }
-      const changeKeys = Object.keys(updates) as (keyof StudioDataField)[];
-      if (changeKeys.every((key) => updates[key] === f[key])) {
-        return f;
-      }
-      return { ...f, ...updates };
-    });
-    if (nextFields === source.fields) {
-      return;
-    }
-    this.commitDataSourcePatch(sourceId, { fields: nextFields });
+    this.commitRuntime(
+      runtimeTransforms.updateDataSourceField(this.store.state.runtime, sourceId, fieldId, updates),
+    );
   };
 
   /**

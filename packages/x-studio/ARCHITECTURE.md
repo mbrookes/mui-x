@@ -112,6 +112,25 @@ Two incidental guarantees the inline version had are now explicit: `restore` cop
 is given (the old code was accidentally safe because its `.slice()` always produced a fresh one),
 and `snapshot` returns copies so a serializer cannot observe the live stacks changing.
 
+### `runtimeTransforms` (`src/store/runtimeTransforms.ts`)
+
+Pure `StudioRuntime → StudioRuntime` transforms for the host-injected data sources — the
+counterpart to what `applyMutation` is for `doc`.
+
+The two partitions differ in a way that shapes the file. `doc` is persisted and undoable, so its
+reducer lives in the shared schema package and runs on both sides of the wire. `runtime` is
+neither — host-injected live data that must never be persisted or reverted by an undo — so it
+stays in this package and needs no mutation vocabulary. What it does need is the same
+**discipline**: one place that decides what a write does, returning the SAME runtime object when
+nothing changed, so `commitRuntime` can treat a logical no-op as a no-op.
+
+Cache eviction deliberately stays in the controller. `studioRequestCache.invalidateSource(...)` is
+an I/O side effect on a module-level singleton, and interleaving it with state computation is what
+made these writers hard to read: `upsertDataSource` used to check existence, resolve the adapter,
+evict the cache and commit with the early returns of three concerns braided together. Each
+transform now answers only "what is the next runtime"; the controller decides what to evict, and
+evicts only when the write actually lands.
+
 ### `StudioController` (`src/store/StudioController.ts`)
 
 Wraps a `Store<StudioState>` from `@mui/x-internals/store` — a minimal observable (`state`, `subscribe`, `setState`, `getSnapshot`) built to back `useSyncExternalStore`. State is never mutated in place; every method computes a new object and passes it to a private `commitState`, which:

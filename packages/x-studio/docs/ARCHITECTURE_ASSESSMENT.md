@@ -217,7 +217,21 @@ code lines) and in the adapter (`createBatchingAdapter.ts`, 1,472).
 > incidental guarantees explicit (`restore` and `snapshot` now copy rather than alias) and gained
 > a focused 15-test suite for arithmetic the controller's end-to-end tests reach only expensively.
 >
-> Doc writes and runtime/adapter bookkeeping remain as the next two seams.
+> **Doc writes** are no longer a seam to cut: issue 2 routed all of them through the shared
+> reducer and deleted `commitDocPatch`, so the controller now holds screening and side effects
+> rather than write logic.
+>
+> **Runtime/adapter bookkeeping** is extracted to `store/runtimeTransforms.ts` — pure
+> `StudioRuntime → StudioRuntime` functions with the same no-op contract the doc reducer has, and
+> a single `commitRuntime` choke point. Cache eviction stayed behind deliberately: it is I/O on a
+> module-level singleton and was previously braided through the state computation. 14 focused
+> tests, every one of them about the no-op contract, because a transform that rebuilt on a
+> logical no-op would churn every subscriber and no controller-level test would catch it — the
+> state is value-identical either way.
+>
+> Remaining: the **widget-write cluster** (`duplicateWidget`, `updateWidget`, `commitWidgetMove`,
+> `setAdjacentWidgetColSpans` and the two `sanitizeWidget*` helpers), which is now the largest
+> thing in the file.
 
 **Related, smaller:** the widget registry lives in `internals/` but imports every widget
 component — 21 of the package's 56 upward layer edges. A registry belongs at the composition

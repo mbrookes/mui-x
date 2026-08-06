@@ -6,7 +6,8 @@
 
 import { WIDGET_CONFIG_DESCRIPTION } from './studioAITools';
 import { sanitizeForPromptLine } from './buildAISystemPrompt';
-import { buildWidgetFromArgs, MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
+import { buildWidgetFromArgs } from './executeToolOnState';
+import { MAX_FILTER_STRING_LENGTH } from './internal/valueCaps';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
 import { asString, capText, MAX_GENERATED_TITLE_LENGTH } from './internal/promptCaps';

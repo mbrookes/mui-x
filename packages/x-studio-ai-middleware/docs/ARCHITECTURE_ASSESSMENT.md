@@ -41,12 +41,12 @@ ones: a stated invariant ("one place to look for what bounds request input") tha
 documented import cycle already being routed around, and knowledge about widget config split
 across four locations with no compile-time tie between them.
 
-| #   | Issue                                                                           | Severity | Shape of the fix                                    |
-| :-- | :------------------------------------------------------------------------------ | :------- | :-------------------------------------------------- |
-| 1   | The request trust boundary is split across two files by which field it caps     | Medium   | One `requestCaps` module at the chokepoint          |
-| 2   | Four concerns in one file; 6 of 8 importers want a concern other than the name  | Medium   | Split along seams the importers already reveal      |
-| 3   | ~~Config-key facts in four places; 15 tool-writable keys unchecked~~ **CLOSED** | Medium   | Mapped type over `StudioWidgetConfig` in the schema |
-| 4   | ~~Layout validation implemented twice, kept aligned by comment~~ **CLOSED**     | Low      | Shared predicate; policy stayed at each site        |
+| #   | Issue                                                                               | Severity | Shape of the fix                                    |
+| :-- | :---------------------------------------------------------------------------------- | :------- | :-------------------------------------------------- |
+| 1   | ~~Request trust boundary split across two files by which field it caps~~ **CLOSED** | Medium   | One `internal/requestCaps.ts` at the chokepoint     |
+| 2   | Four concerns in one file; 6 of 8 importers want a concern other than the name      | Medium   | Split along seams the importers already reveal      |
+| 3   | ~~Config-key facts in four places; 15 tool-writable keys unchecked~~ **CLOSED**     | Medium   | Mapped type over `StudioWidgetConfig` in the schema |
+| 4   | ~~Layout validation implemented twice, kept aligned by comment~~ **CLOSED**         | Low      | Shared predicate; policy stayed at each site        |
 
 Composition of `executeToolOnState.ts`, by code lines (blank and comment lines excluded):
 
@@ -149,9 +149,39 @@ been demonstrated; the cost so far is comprehension and the near-certainty that 
 request-input cap lands in whichever of the two files its field is read from.
 
 **The fix.** A `internal/requestCaps.ts` holding both halves, imported by `handleAIChat.ts` at
-the chokepoint. `capIncomingDashboardState` moves with its 30 constants and 12 helpers, which
-alone removes 370 of `executeToolOnState.ts`'s 1,772 code lines and, per issue 2, two of its
-importers.
+the chokepoint.
+
+> **Status: CLOSED.** The boundary is one module. `capIncomingDashboardState` moved with its 30
+> `MAX_STATE_*` constants and its entity cap helpers; `capIncomingRichContext`,
+> `capIncomingCustomWidgets`, `capIncomingSkills` and `capIncomingPageSnapshot` moved up to join
+> them, and `handleAIChat.ts` now imports all five from one place.
+>
+> The move needed a third module first. Roughly a hundred code lines of the original span were
+> not request-shaped at all — `capTitle` caps a title wherever one arrives, `capFilterValue` caps
+> a filter value whether it came in on the request body or out of a model's tool arguments — and
+> both `requestCaps.ts` and `executeToolOnState.ts` need them. Those are `internal/valueCaps.ts`,
+> a leaf that imports only types, so neither consumer depends on the other. `MAX_LAYOUT_ROWS`
+> went there too: `MAX_STATE_LAYOUT_ROWS = MAX_LAYOUT_ROWS` was a deliberate tie between the
+> request cap and the tool-arg cap, and leaving the two on opposite sides of the split would have
+> either broken the tie or formed a cycle.
+>
+> `capIncomingDashboardState`'s eight `describe` blocks moved to `internal/requestCaps.test.ts`
+> with it. They had been in `executeToolOnState.test.ts` for the same accidental reason the
+> function had been in `executeToolOnState.ts`. The two helpers both files needed are now
+> `internal/testFixtures.ts` rather than a copy each — duplicating them would have recreated, in
+> the tests, the problem being removed from the source.
+>
+> Result: `executeToolOnState.ts` **3,282 → 2,416 raw lines**, `handleAIChat.ts` **1,727 →
+> 1,322**, against `requestCaps.ts` at 407 code lines and `valueCaps.ts` at 105. All 1,649
+> middleware tests pass with no test edited beyond its import line.
+>
+> One thing this surfaced and did not fix: `isPlainRecord` moved to `requestCaps.ts` with its
+> only callers, but the package holds **three** byte-identical copies of that predicate
+> (`handleAIChat`'s, `buildAISystemPrompt`'s `isPlainObject`, and `executeToolOnState`'s
+> `isOpRecord`), while `@mui/x-studio-schema` publishes a **stricter** one that also requires a
+> plain prototype. Collapsing them is a behavior decision per site, not a dedup — the strict
+> version rejects class instances and `Object.create(proto)` bags — so it is left deliberate
+> rather than swept.
 
 ## Issue 2 — six of eight importers want something other than tool execution
 

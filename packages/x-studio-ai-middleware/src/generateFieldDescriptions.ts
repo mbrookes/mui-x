@@ -13,7 +13,7 @@ import { readChatCompletionBody, type GenerateInsightOptions } from './handleGen
 import { PROMPT_LINE_BREAK_RE, sanitizeForPromptLine } from './buildAISystemPrompt';
 import { withTimeout } from './mcp/helpers';
 import { LLM_FETCH_TIMEOUT_MS } from './agenticLoop';
-import { MAX_FILTER_STRING_LENGTH } from './executeToolOnState';
+import { MAX_FILTER_STRING_LENGTH } from './internal/valueCaps';
 import { capText } from './internal/promptCaps';
 import { linkAbortSignal, readBodyWithTimeout } from './internal/llmFetch';
 import { reportProviderHttpError } from './internal/providerError';

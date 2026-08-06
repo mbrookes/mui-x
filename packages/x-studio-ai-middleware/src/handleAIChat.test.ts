@@ -12,13 +12,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   handleAIChat,
   CONTEXT_ENRICHER_TIMEOUT_MS,
+  MAX_REQUEST_MESSAGES,
+  type StudioAIHandlerOptions,
+} from './handleAIChat';
+import {
   capIncomingCustomWidgets,
   capIncomingRichContext,
   capIncomingSkills,
   capIncomingPageSnapshot,
-  MAX_REQUEST_MESSAGES,
-  type StudioAIHandlerOptions,
-} from './handleAIChat';
+} from './internal/requestCaps';
 import { createDefaultStudioState } from './models/studioTypes';
 import type { StudioDataSource, StudioCustomWidgetDef } from './models/studioTypes';
 import type { StudioAISkill, SerializableSkill } from './models/aiTypes';

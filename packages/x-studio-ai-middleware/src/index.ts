@@ -37,14 +37,15 @@ export type {
 // `richContext`, `customWidgets`, `skills`, or `pageSnapshot`, or to reject a
 // malformed body with an actionable error. Run `validateStudioAIRequestBody` first,
 // then the `capIncoming*` helpers, before calling `runAgenticLoop`.
+export { validateStudioAIRequestBody } from './handleAIChat';
+// The five caps are one boundary and now live in one module; see `internal/requestCaps.ts`.
 export {
-  validateStudioAIRequestBody,
+  capIncomingDashboardState,
   capIncomingRichContext,
   capIncomingCustomWidgets,
   capIncomingSkills,
   capIncomingPageSnapshot,
-} from './handleAIChat';
-export { capIncomingDashboardState } from './executeToolOnState';
+} from './internal/requestCaps';
 export { handleGenerateTitle, handleCreateWidget } from './handleGenerateInsight';
 export type {
   GenerateInsightOptions,

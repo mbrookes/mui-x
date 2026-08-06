@@ -7,7 +7,7 @@ import {
   STUDIO_AI_INSTRUCTIONS,
 } from './buildAISystemPrompt';
 import { STUDIO_AI_TOOL_NAMES } from './studioAITools';
-import { capIncomingDashboardState } from './executeToolOnState';
+import { capIncomingDashboardState } from './internal/requestCaps';
 import { createDefaultStudioState, getAllowedChartConfigKeys } from './models/studioTypes';
 import type {
   StudioDataSource,

@@ -1645,9 +1645,7 @@ describe('runAgenticLoop — tool approval', () => {
     expect(a.approvalIds).toHaveLength(1);
     expect(b.approvalIds).toHaveLength(1);
     expect(a.approvalIds[0]).not.toBe(b.approvalIds[0]);
-    expect([...approvalPending.keys()].sort()).toEqual(
-      [a.approvalIds[0], b.approvalIds[0]].sort(),
-    );
+    expect([...approvalPending.keys()].sort()).toEqual([a.approvalIds[0], b.approvalIds[0]].sort());
 
     approvalPending.get(a.approvalIds[0])!.resolve(true);
     approvalPending.get(b.approvalIds[0])!.resolve(true);

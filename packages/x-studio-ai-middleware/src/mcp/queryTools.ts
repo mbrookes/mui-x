@@ -10,7 +10,7 @@
  */
 
 import { renderChartSvg } from '../chartRenderer';
-import { capFilterValue, MAX_FILTER_STRING_LENGTH } from '../executeToolOnState';
+import { capFilterValue, MAX_FILTER_STRING_LENGTH } from '../internal/valueCaps';
 import {
   checkAllowedTable,
   errorResult,

@@ -289,7 +289,9 @@ see, and vice versa, but a deep pass run repeatedly starts paying for the same g
    is screening and page resolution rather than write logic, so this is a reasonable stopping
    point unless the class grows again.
 
-What is left is not on this list because it is not the same kind of item: `executeToolOnState.ts`
-(1,772 code lines, 76 top-level functions) is now the largest file across the four packages and
-no part of this work has examined it at the design level. It is the server-side instance of the
-shape issue 3 describes, and it deserves its own assessment rather than a line here.
+`executeToolOnState.ts` is not on this list because it is not the same kind of item, and it now
+has its own assessment:
+[x-studio-ai-middleware](../../x-studio-ai-middleware/docs/ARCHITECTURE_ASSESSMENT.md). Short
+version: it is the server-side instance of the shape issue 3 describes — four concerns in one
+file, only one of which the file is named for — but **not** of issue 2's, since every mutating
+tool plan already routes through the shared reducer.

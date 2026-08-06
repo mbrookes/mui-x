@@ -5,6 +5,8 @@ import {
   stripForeignFamilyKeys,
   validateChartConfigKeysForType,
   validateConfigKeysForKind,
+  validateConfigValueTypes,
+  SCALAR_CONFIG_VALUE_TYPES,
 } from './configKeyValidation';
 import {
   STUDIO_CHART_TYPES,
@@ -325,5 +327,73 @@ describe('isStudioFilterOperator', () => {
     expect(isStudioFilterOperator(42)).toBe(false);
     expect(isStudioFilterOperator(null)).toBe(false);
     expect(isStudioFilterOperator(undefined)).toBe(false);
+  });
+});
+
+describe('validateConfigValueTypes', () => {
+  it('passes a config whose scalar values are all well-typed', () => {
+    expect(validateConfigValueTypes({ pivotShowTotals: true, gridHeight: 400 })).toEqual([]);
+  });
+
+  it('names a string written into a boolean-declared key', () => {
+    // The original finding: a truthy string in a `boolean` field is a structurally-broken
+    // widget the client still has to render.
+    expect(validateConfigValueTypes({ pivotShowTotals: 'yes' })).toEqual([
+      'pivotShowTotals (expected a boolean)',
+    ]);
+  });
+
+  it('rejects NaN and Infinity, which are typeof number but serialize to null', () => {
+    expect(validateConfigValueTypes({ gridHeight: NaN })).toEqual([
+      'gridHeight (expected a finite number)',
+    ]);
+    expect(validateConfigValueTypes({ gridHeight: Infinity })).toEqual([
+      'gridHeight (expected a finite number)',
+    ]);
+  });
+
+  it('treats null and undefined as inert, not as violations', () => {
+    // Clearing a key goes through the dedicated unset paths; an explicit null must not be
+    // reported as a wrong-typed value or those paths become unusable.
+    expect(validateConfigValueTypes({ pivotShowTotals: null, gridHeight: undefined })).toEqual([]);
+  });
+
+  it('ignores keys it has no expectation for, and inherited ones', () => {
+    expect(validateConfigValueTypes({ chartType: 'bar', columns: [] })).toEqual([]);
+    // `Object.hasOwn`, not a bracket read: `constructor` resolves a FUNCTION off the prototype.
+    expect(validateConfigValueTypes(Object.create({ pivotShowTotals: 'yes' }))).toEqual([]);
+  });
+
+  it('reports every offender in one pass, so one retry fixes them all', () => {
+    expect(validateConfigValueTypes({ pivotShowTotals: 'yes', gridHeight: '400' })).toHaveLength(2);
+  });
+
+  it('covers the keys that were missing while the table lived in the middleware', () => {
+    // These 15 all pass `validateConfigKeysForKind` — a tool could always write them — but the
+    // hand-maintained 21-entry copy in `@mui/x-studio-ai-middleware` never listed them, so no
+    // value check ran. The mapped type makes that gap a compile error; this pins the behaviour.
+    const previouslyUnchecked = [
+      'kpiCompact',
+      'kpiSparklineArea',
+      'kpiSparklineCumulative',
+      'mapLegendZeroMin',
+      'textAiEnabled',
+      'filterWidgetMin',
+      'filterWidgetMax',
+      'filterWidgetStep',
+      'gridHeight',
+      'kpiSparklineGaugeMax',
+      'textTitleFontSize',
+      'textSubtitleFontSize',
+      'textBodyFontSize',
+      'textTitleFontWeight',
+      'titleFontSize',
+    ] as const;
+    for (const key of previouslyUnchecked) {
+      expect(SCALAR_CONFIG_VALUE_TYPES).toHaveProperty(key);
+      // An object is the wrong type whichever primitive the key expects, so one assertion
+      // covers both halves of the table.
+      expect(validateConfigValueTypes({ [key]: {} })).toHaveLength(1);
+    }
   });
 });

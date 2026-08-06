@@ -41,6 +41,7 @@ import type {
   StudioPivotConfig,
   StudioSharedWidgetConfig,
   StudioTextConfig,
+  StudioWidgetConfig,
 } from './widgetTypes';
 
 /**
@@ -551,4 +552,141 @@ export function stripForeignFamilyKeys(
     }
   }
   return next;
+}
+
+/**
+ * The primitive type a scalar config key's value must have, or `never` for a key whose declared
+ * type is not a bare `boolean`/`number` (a string union, an array, a nested object).
+ *
+ * Every conditional is written in the `[T] extends [U]` tuple form deliberately: a bare
+ * `T extends boolean` DISTRIBUTES over `boolean` (which is `true | false`) and over any union,
+ * so a `'day' | 'week'` key would resolve to a union of branches rather than a single answer.
+ * The leading `never` guard matters for the same class of reason — `never` extends everything,
+ * so a key declared `?: undefined` would otherwise be classified as a boolean.
+ */
+type ScalarConfigTypeName<T> = [NonNullable<T>] extends [never]
+  ? never
+  : [NonNullable<T>] extends [boolean]
+    ? 'boolean'
+    : [NonNullable<T>] extends [number]
+      ? 'number'
+      : never;
+
+/** The keys of {@link StudioWidgetConfig} whose declared type is a bare `boolean` or `number`. */
+type ScalarConfigKey = {
+  [K in keyof StudioWidgetConfig]-?: [ScalarConfigTypeName<StudioWidgetConfig[K]>] extends [never]
+    ? never
+    : K;
+}[keyof StudioWidgetConfig];
+
+/**
+ * Exactly the scalar config keys, each mapped to the primitive its declaration requires.
+ *
+ * Being a mapped type over `ScalarConfigKey` rather than a hand-written `Record<string, …>` is
+ * the entire point: a missing key, a stray key, and a `'number'` written against a `boolean`-
+ * declared property are all COMPILE errors. See {@link SCALAR_CONFIG_VALUE_TYPES}.
+ */
+export type ScalarConfigValueTypes = {
+  [K in ScalarConfigKey]-?: ScalarConfigTypeName<StudioWidgetConfig[K]>;
+};
+
+/**
+ * Runtime value-type expectations for every scalar config key.
+ *
+ * The counterpart to the key allow-lists above: those answer "may this writer set this key",
+ * this answers "must the value be a boolean or a number". Both questions are asked at the same
+ * untyped write boundaries — `StudioController.updateWidgetConfig` and the AI's tool-call
+ * arguments — and neither is answered by the types alone, because a `StudioWidgetConfig` that
+ * arrives over a wire has been through `JSON.parse` and is typed by assertion, not by checking.
+ *
+ * The concrete hazard, in the words of the middleware finding that produced the original table:
+ * `update_widget({ config: { pivotShowTotals: "…" } })` stores a STRING in a field declared
+ * `boolean`, which is a structurally-broken widget the client then has to render.
+ *
+ * **This lives here, beside the key lists, because it had already drifted from the type it
+ * mirrors.** It was a 21-entry hand-maintained object in `@mui/x-studio-ai-middleware`, whose
+ * comment described the set as "intentionally small (the scalar toggles the tools populate)".
+ * That was true when written; by the time it was measured, 15 of the 36 scalar keys were absent
+ * and every one of the 15 passed `validateConfigKeysForKind` — so a tool could write them and
+ * nothing checked the value. Nothing would have surfaced that: a runtime mirror of a static
+ * type, in a different package from the type, with no link between them. `ScalarConfigValueTypes`
+ * is that link, and it is the same technique `AssertKeysCovered` already applies to the key
+ * lists above.
+ */
+export const SCALAR_CONFIG_VALUE_TYPES: ScalarConfigValueTypes = {
+  // boolean toggles
+  dualYAxis: 'boolean',
+  sankeyShowValues: 'boolean',
+  pieLegendBelow: 'boolean',
+  kpiCompact: 'boolean',
+  kpiSparkline: 'boolean',
+  kpiSparklineArea: 'boolean',
+  kpiSparklineCumulative: 'boolean',
+  kpiTrend: 'boolean',
+  kpiTrendInvert: 'boolean',
+  pivotShowTotals: 'boolean',
+  mapCrossFilterEmit: 'boolean',
+  mapLegendZeroMin: 'boolean',
+  textAiEnabled: 'boolean',
+  // numeric settings — bar/axis
+  barBandLabelWrap: 'number',
+  wrapBandLabelMaxLines: 'number',
+  barCategoryGapRatio: 'number',
+  barMinBandSize: 'number',
+  barMaxCategories: 'number',
+  axisTickFontSize: 'number',
+  // numeric settings — per chart family
+  funnelGap: 'number',
+  pieArcLabelMinAngle: 'number',
+  pieMaxSlices: 'number',
+  scatterMinRadius: 'number',
+  scatterMaxRadius: 'number',
+  gaugeMin: 'number',
+  gaugeMax: 'number',
+  // numeric settings — non-chart kinds
+  filterWidgetMin: 'number',
+  filterWidgetMax: 'number',
+  filterWidgetStep: 'number',
+  gridHeight: 'number',
+  kpiSparklineGaugeMax: 'number',
+  textTitleFontSize: 'number',
+  textSubtitleFontSize: 'number',
+  textBodyFontSize: 'number',
+  textTitleFontWeight: 'number',
+  titleFontSize: 'number',
+};
+
+/**
+ * The scalar config keys whose value is present and of the wrong primitive type, as
+ * `"<key> (expected a finite number)"` / `"<key> (expected a boolean)"` fragments.
+ *
+ * Returns an empty array when every present scalar value is well-typed. A `null`/`undefined`
+ * value is INERT rather than a violation — clearing a key is handled by the dedicated unset
+ * paths, and treating an explicit `null` as an error would reject them. `number` additionally
+ * requires finiteness: `NaN`/`Infinity` are `typeof 'number'` but serialize to `null`, so a
+ * config carrying one silently loses the value on the next round-trip.
+ *
+ * Returns fragments rather than a finished sentence so each caller can address its own audience
+ * — the AI middleware owes the model an actionable retry message, a client-side writer owes its
+ * caller something else. Same division the key validators above follow.
+ */
+export function validateConfigValueTypes(config: Record<string, unknown>): string[] {
+  const offenders: string[] = [];
+  for (const [key, expected] of Object.entries(SCALAR_CONFIG_VALUE_TYPES)) {
+    if (!Object.hasOwn(config, key)) {
+      continue;
+    }
+    const value = config[key];
+    if (value === null || value === undefined) {
+      continue;
+    }
+    if (expected === 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value)) {
+        offenders.push(`${key} (expected a finite number)`);
+      }
+    } else if (typeof value !== 'boolean') {
+      offenders.push(`${key} (expected a boolean)`);
+    }
+  }
+  return offenders;
 }

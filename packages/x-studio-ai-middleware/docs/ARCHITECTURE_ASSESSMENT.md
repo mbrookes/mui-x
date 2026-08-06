@@ -41,12 +41,12 @@ ones: a stated invariant ("one place to look for what bounds request input") tha
 documented import cycle already being routed around, and knowledge about widget config split
 across four locations with no compile-time tie between them.
 
-| #   | Issue                                                                             | Severity | Shape of the fix                                     |
-| :-- | :-------------------------------------------------------------------------------- | :------- | :--------------------------------------------------- |
-| 1   | The request trust boundary is split across two files by which field it caps       | Medium   | One `requestCaps` module at the chokepoint           |
-| 2   | Four concerns in one file; 6 of 8 importers want a concern other than the name    | Medium   | Split along seams the importers already reveal       |
-| 3   | Config-key facts in four places; 15 tool-writable scalar keys have no value check | Medium   | Derive the value table from the schema, or assert it |
-| 4   | Layout validation implemented twice, kept aligned by comment                      | Low      | Share the predicate, keep the policy at each site    |
+| #   | Issue                                                                           | Severity | Shape of the fix                                    |
+| :-- | :------------------------------------------------------------------------------ | :------- | :-------------------------------------------------- |
+| 1   | The request trust boundary is split across two files by which field it caps     | Medium   | One `requestCaps` module at the chokepoint          |
+| 2   | Four concerns in one file; 6 of 8 importers want a concern other than the name  | Medium   | Split along seams the importers already reveal      |
+| 3   | ~~Config-key facts in four places; 15 tool-writable keys unchecked~~ **CLOSED** | Medium   | Mapped type over `StudioWidgetConfig` in the schema |
+| 4   | Layout validation implemented twice, kept aligned by comment                    | Low      | Share the predicate, keep the policy at each site   |
 
 Composition of `executeToolOnState.ts`, by code lines (blank and comment lines excluded):
 
@@ -213,10 +213,12 @@ hand-maintained table in this package and answers "must this key's value be a bo
 number". Half the contract shared, half local — the same shape as the AI wire budgets that
 x-studio's assessment closed.
 
-**The measurable consequence.** Across the widget config interfaces, 43 properties are declared
-`boolean` or `number`. The runtime table covers 21 of them. Of the 22 it does not cover, **15
-pass `validateConfigKeysForKind` for at least one widget kind** — verified by executing the
-validator, not by reading it:
+**The measurable consequence.** `StudioWidgetConfig` has 123 properties, 36 of them declared a
+bare `boolean` or `number` (13 and 23) — enumerated with the TypeScript compiler API rather than
+by grepping the file, which over-counts by sweeping in nested interfaces like the forecast
+config. The runtime table covered 21. **Every one of the 15 it missed passes
+`validateConfigKeysForKind` for at least one widget kind** — verified by executing the validator,
+not by reading it:
 
 ```text
 filterWidgetMax, filterWidgetMin, filterWidgetStep  -> filter
@@ -229,10 +231,9 @@ titleFontSize                                       -> every kind
 ```
 
 So `update_widget({ kind: 'kpi', config: { kpiCompact: "…" } })` stores a string in a field the
-type declares `boolean`, and the write-source backstop does not fire. There are no type
-_disagreements_ between the two tables and no orphan entries — the 21 that are covered are
-correct. The gap is coverage, and it is invisible because nothing connects the table to the type
-it mirrors.
+type declares `boolean`, and the write-source backstop does not fire. There were no type
+_disagreements_ and no orphan entries — the 21 that were covered were correct. The gap was
+coverage, and it was invisible because nothing connected the table to the type it mirrored.
 
 **Why this is a design finding rather than 15 defects.** The table's own comment says the set is
 _"intentionally small (the scalar toggles the tools populate)"_. That was true when it was
@@ -247,10 +248,22 @@ prompt boundary by `sanitizeForPrompt`, and that defense is unaffected. What the
 missing is the secondary write-source backstop, whose value is keeping a structurally-broken
 widget out of the persisted document — the client still has to render it.
 
-**The fix.** Derive the value-type expectations from the same source as the key allow-lists, or —
-if a runtime table is genuinely needed because the types are erased — add a compile-time
-assertion that every declared scalar config key appears in it. Either way the answer stops being
-maintained by memory.
+> **Status: CLOSED.**
+>
+> `SCALAR_CONFIG_VALUE_TYPES` now lives in `x-studio-schema/configKeyValidation.ts` beside the
+> key allow-lists it is the other half of, typed as a mapped type over `StudioWidgetConfig`'s
+> scalar keys. A missing key, a stray key, and a `'number'` written against a `boolean`-declared
+> property are all compile errors — the same technique `AssertKeysCovered` already applied to the
+> key lists. The compiler enumerated the 15 additions; it did not accept the table until every
+> one was present.
+>
+> `validateConfigValueTypes(config)` returns offending-key fragments rather than a sentence, so
+> the middleware keeps its own model-facing wording — screening stays with the writer, the
+> predicate is shared. `executeToolOnState.ts`'s `invalidConfigValueError` is now six lines.
+>
+> Published from the schema's index, so the client-side write boundary
+> (`StudioController.updateWidgetConfig`) that `configKeyValidation.ts`'s own doc names as
+> unguarded has an implementation to call rather than a third copy to write.
 
 ## Issue 4 — layout validation is written twice, by hand
 
@@ -319,8 +332,8 @@ room.
    true. Do this first — it is most of issue 2's fix as well as all of issue 1's.
 2. **Lift the projection and the widget factory out**, leaving `TOOL_IMPLS` plus dispatch. This
    also removes the hand-routed import cycle around `handleGenerateInsight`.
-3. **Tie `SCALAR_CONFIG_VALUE_TYPES` to the schema**, by derivation or by compile-time assertion.
-   The 15 uncovered writable keys are the symptom; the missing link is the issue.
+3. ~~**Tie `SCALAR_CONFIG_VALUE_TYPES` to the schema**, by derivation or by compile-time
+   assertion.~~ **Done** — mapped type over `StudioWidgetConfig`, all 36 scalar keys covered.
 4. **Decompose `apply_bulk_update` into its five named steps**, and share the layout predicate
    with `set_widget_layout` (issue 4) while it is open.
 

@@ -82,7 +82,13 @@ export {
   getAllowedChartConfigKeys,
   validateChartConfigKeysForType,
   stripForeignFamilyKeys,
+  // The value-type half of the same guard. Published alongside the key validators because it
+  // answers the second question every untyped config write asks, and because keeping it in a
+  // consumer let it drift 15 keys behind the type it mirrors.
+  SCALAR_CONFIG_VALUE_TYPES,
+  validateConfigValueTypes,
 } from './configKeyValidation';
+export type { ScalarConfigValueTypes } from './configKeyValidation';
 export {
   isWidgetOfKind,
   resolveChartType,

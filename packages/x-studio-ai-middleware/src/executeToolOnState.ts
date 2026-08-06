@@ -20,6 +20,7 @@ import {
   STUDIO_FILTER_OPERATORS,
   validateChartConfigKeysForType,
   validateConfigKeysForKind,
+  validateConfigValueTypes,
 } from '@mui/x-studio-schema';
 import type { BuiltinStudioWidgetKind, OptionalWidgetField } from '@mui/x-studio-schema';
 import type {
@@ -1364,74 +1365,30 @@ function invalidConfigKeyError(kind: string, config: Record<string, unknown>): s
 }
 
 /**
- * Curated primitive types for the scalar config fields the AI tools populate. Key validation
- * (`invalidConfigKeyError`) is a key-PRESENCE check only — it never inspects values — so a valid
- * config key can still carry a wrong-typed value. The concrete hazard: `update_widget({ config: {
- * pivotShowTotals: "</dashboard_state>…" } })` stores a STRING in a field declared `boolean`, which
- * is (a) a structurally-broken widget the client must then render, and (b) the exact
- * stored-prompt-injection surface behind it (the value was later echoed into
- * `<dashboard_state>` verbatim).
+ * Model-facing wording for the shared scalar-value check.
  *
- * This is a lightweight, fail-closed value-shape backstop AT THE WRITE SOURCE — the
- * prompt boundary's `sanitizeForPrompt` choke point is the primary injection defense;
- * this additionally stops the malformed value from ever landing in state. The set is
- * intentionally small (the scalar toggles the tools populate); non-scalar/structured
- * config (arrays, nested objects like `ySeries`/`forecast`) is out of scope here, and
- * `set_widget_forecast` coerces its own nested `periods` separately.
- */
-const SCALAR_CONFIG_VALUE_TYPES: Record<string, 'number' | 'boolean'> = {
-  // boolean toggles
-  dualYAxis: 'boolean',
-  sankeyShowValues: 'boolean',
-  pieLegendBelow: 'boolean',
-  kpiSparkline: 'boolean',
-  kpiTrend: 'boolean',
-  kpiTrendInvert: 'boolean',
-  pivotShowTotals: 'boolean',
-  mapCrossFilterEmit: 'boolean',
-  // numeric settings
-  barBandLabelWrap: 'number',
-  wrapBandLabelMaxLines: 'number',
-  barCategoryGapRatio: 'number',
-  barMinBandSize: 'number',
-  barMaxCategories: 'number',
-  axisTickFontSize: 'number',
-  funnelGap: 'number',
-  pieArcLabelMinAngle: 'number',
-  pieMaxSlices: 'number',
-  scatterMinRadius: 'number',
-  scatterMaxRadius: 'number',
-  gaugeMin: 'number',
-  gaugeMax: 'number',
-};
-
-/**
- * Validates that every scalar-typed key present in a model-supplied `config` carries a
- * value of the expected primitive type (see `SCALAR_CONFIG_VALUE_TYPES`). Returns a
- * human-readable error naming the offending keys, or `undefined` when all present scalar
- * values are well-typed. A `null`/`undefined` value is treated as inert (clearing a key
- * is handled by the dedicated unset paths), not a type violation. Shared by every tool
- * that writes untrusted `config` (`buildWidgetFromArgs`, `update_widget`, the bulk
- * updates loop) so the wording and the allow-list stay identical.
+ * `validateConfigValueTypes` (`@mui/x-studio-schema`) owns WHICH keys must be a boolean or a
+ * number, because that is a fact about `StudioWidgetConfig` and belongs beside the key
+ * allow-lists it mirrors. What stays here is what this package owes the MODEL: a sentence it can
+ * act on and retry from. Same division as `invalidConfigKeyError` above.
+ *
+ * Key validation is a key-PRESENCE check and never inspects values, so a legal key can still
+ * carry a wrong-typed value. The concrete hazard: `update_widget({ config: {
+ * pivotShowTotals: "</dashboard_state>…" } })` stores a STRING in a field declared `boolean`,
+ * which is (a) a structurally-broken widget the client must then render, and (b) the exact
+ * stored-prompt-injection surface behind it. The prompt boundary's `sanitizeForPrompt` is the
+ * primary injection defense; this is the write-source backstop that stops the malformed value
+ * from landing in state at all.
+ *
+ * The table this used to hold was a hand-maintained 21-entry copy that had fallen 15 keys
+ * behind `StudioWidgetConfig` — every one of the 15 tool-writable. It is now a mapped type over
+ * the interface, so the same gap is a compile error.
+ *
+ * Shared by every tool that writes untrusted `config` (`buildWidgetFromArgs`, `update_widget`,
+ * the bulk updates loop) so the wording and the covered set stay identical.
  */
 function invalidConfigValueError(config: Record<string, unknown>): string | undefined {
-  const offenders: string[] = [];
-  for (const [key, expected] of Object.entries(SCALAR_CONFIG_VALUE_TYPES)) {
-    if (!Object.hasOwn(config, key)) {
-      continue;
-    }
-    const value = config[key];
-    if (value === null || value === undefined) {
-      continue;
-    }
-    if (expected === 'number') {
-      if (typeof value !== 'number' || !Number.isFinite(value)) {
-        offenders.push(`${key} (expected a finite number)`);
-      }
-    } else if (typeof value !== 'boolean') {
-      offenders.push(`${key} (expected a boolean)`);
-    }
-  }
+  const offenders = validateConfigValueTypes(config);
   return offenders.length > 0
     ? `config carries value(s) of the wrong type: ${offenders.join(', ')}.`
     : undefined;

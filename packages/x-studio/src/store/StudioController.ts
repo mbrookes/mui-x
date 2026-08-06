@@ -22,10 +22,6 @@ import {
   type SerializedStudioSnapshot,
   type MigrationResult,
   type OptionalWidgetField,
-  validateConfigKeysForKind,
-  validateChartConfigKeysForType,
-  resolveChartType,
-  isStudioChartType,
   // The screens `updateFilter` / `updateActivePage` reuse so the writers that DON'T route
   // through the reducer are held to the same standard as the ones that do.
   isStudioFilterOperator,
@@ -61,14 +57,19 @@ import {
   type StudioChartType,
 } from '../models/index';
 
-import { inferWidgetTitles } from '../internals/widgetUtils';
 import { studioRequestCache } from '../internals/StudioRequestCache';
 import { hasConflictingRankFilter } from '../internals/rankFilterScope';
 import { hasExpressionCycle } from '../utils/expressionEvaluator';
 import { collectSelectFields } from '../internals/queryDescriptor';
 import { collectExpressionRefs } from '../internals/expressionRefs';
 import { resolveWidgetPageId as resolveWidgetPageIdInPages } from '../internals/widgetPageResolution';
-import { stripKeys, resolveEffectiveChartType } from '../internals/widgetConfigSanitization';
+import {
+  // Lifted out of this class: pure `widget -> widget` / `config -> config` helpers that never
+  // touched the store, and that belong beside the chart-type sanitizers they compose.
+  sanitizeWidgetForCreate,
+  sanitizeWidgetConfigForKind,
+  applyInferredTitles,
+} from '../internals/widgetConfigSanitization';
 // `docTransforms` moved into `@mui/x-studio-schema` alongside the reducer that now dispatches
 // it. Only `isSameManagedFilterContent` is still called directly from here, by the two
 // `applyCrossFilter`/`applyInteractiveFilter` writers that remain outside the reducer.
@@ -168,38 +169,6 @@ export class StudioController {
   constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
     this.store = Store.create(state);
-  }
-
-  private applyInferredTitles(
-    widget: StudioWidget,
-    dataSources: Record<string, StudioDataSource>,
-  ): StudioWidget {
-    const inferred = inferWidgetTitles(widget, dataSources);
-    const isAutoTitle = widget.titleMode === 'auto' || (!widget.titleMode && !widget.title);
-    const isAutoSubtitle =
-      widget.subtitleMode === 'auto' || (!widget.subtitleMode && !widget.subtitle);
-
-    const title = isAutoTitle ? inferred.title : widget.title;
-    const titleMode = isAutoTitle ? 'auto' : widget.titleMode;
-    const subtitle = isAutoSubtitle ? inferred.subtitle : widget.subtitle;
-    const subtitleMode = isAutoSubtitle ? 'auto' : widget.subtitleMode;
-
-    // Reference-stable when nothing user-visible actually changed, so a caller
-    // relying on this to detect "no real update happened" (e.g.
-    // `commitMutations`' no-op check) doesn't see a no-op re-infer as a real
-    // commit. Only the TEXT is compared — `titleMode`/`subtitleMode` are
-    // derived bookkeeping (e.g. normalizing an unset mode to `'auto'` the
-    // first time this runs on a widget that predates the auto/explicit split)
-    // and shouldn't by themselves count as a change when the displayed text is
-    // identical. `sameText` treats `undefined` and `''` as equivalent ("no
-    // title/subtitle") — inferring an empty subtitle for a widget whose
-    // `subtitle` field was simply never set is not a real change either.
-    const sameText = (a: string | undefined, b: string | undefined) => a === b || (!a && !b);
-    if (sameText(title, widget.title) && sameText(subtitle, widget.subtitle)) {
-      return widget;
-    }
-
-    return { ...widget, title, titleMode, subtitle, subtitleMode };
   }
 
   getState = () => this.store.state;
@@ -1234,70 +1203,9 @@ export class StudioController {
     return Object.hasOwn(widgets, widgetId) ? widgets[widgetId] : undefined;
   };
 
-  /**
-   * Shared write-side CHART-TYPE guard for every widget CREATION boundary
-   * (defense-in-depth companion to `getDescriptor`'s `Object.hasOwn` guard in
-   * `chartTypeRegistry.ts`): a widget can reach a create path with an
-   * invalid/hostile `chartType` (e.g. a client-built widget that skipped
-   * `createWidgetFromDescription.ts`'s own sanitization, or a future call site
-   * that doesn't sanitize). `updateWidgetConfig`/`updateWidget` already validate
-   * chart-type-appropriate keys on every UPDATE; this mirrors that
-   * "validate at every mutation boundary" convention so a widget can never be
-   * CREATED with a chart type outside the closed `StudioChartType` union.
-   *
-   * Called from ALL THREE creation entry points — {@link addWidget},
-   * {@link insertWidgetAt} (public API, reached by the compose drawer's
-   * drop-at-position path) and {@link duplicateWidget}'s clone. Previously only
-   * `addWidget` ran it, so the convention its own comment claimed to uphold had
-   * two holes: `insertWidgetAt` installed a hostile `chartType` verbatim, and
-   * `duplicateWidget` then propagated it into the copy. The shared reducer's
-   * `addWidget` handler validates record-ness and `kind`/`title` string-ness but
-   * deliberately knows nothing about chart types, so this cannot move there.
-   *
-   * Mirrors `parseStateMutation.ts`'s `hasInvalidChartTypeInConfig`: an ABSENT (or
-   * explicit `undefined`) `chartType` is sanctioned — it's the same "no discriminant
-   * yet == bar" default `resolveChartType`/the AI middleware's `buildWidgetFromArgs`
-   * apply — so only an OWN, non-undefined `chartType` that fails `isStudioChartType`
-   * is repaired here. This keeps the guard from touching the many widgets created
-   * with no `chartType` at all. Returns `widget` UNCHANGED (same reference) when
-   * there is nothing to repair, so the no-op path allocates nothing.
-   */
-  private sanitizeWidgetForCreate = (widget: StudioWidget): StudioWidget => {
-    if (widget.kind !== 'chart') {
-      return widget;
-    }
-    const configRecord = widget.config as Record<string, unknown>;
-    const hasOwnChartType =
-      Object.hasOwn(configRecord, 'chartType') && configRecord.chartType !== undefined;
-    if (!hasOwnChartType) {
-      return widget;
-    }
-    const rawChartType = configRecord.chartType;
-    if (typeof rawChartType === 'string' && isStudioChartType(rawChartType)) {
-      return widget;
-    }
-    if (process.env.NODE_ENV !== 'production') {
-      console.warn(
-        `MUI X Studio: Widget '${widget.id}' was created with an invalid chartType ` +
-          `'${String(rawChartType)}'. Falling back to 'bar'. Ensure the caller supplies a ` +
-          'valid StudioChartType (see isStudioChartType).',
-      );
-    }
-    // Repaired to 'bar', so also drop any config key that isn't valid for 'bar' —
-    // a hostile/invalid `chartType` is commonly paired with keys authored for that
-    // same bogus type.
-    const effectiveChartType: StudioChartType = 'bar';
-    const invalidChartKeys = validateChartConfigKeysForType(effectiveChartType, configRecord);
-    const stripped = stripKeys(configRecord, invalidChartKeys);
-    return {
-      ...widget,
-      config: { ...stripped, chartType: effectiveChartType } as StudioWidget['config'],
-    };
-  };
-
   addWidget = (widget: StudioWidget) => {
     const state = this.store.state;
-    const effectiveWidget = this.sanitizeWidgetForCreate(widget);
+    const effectiveWidget = sanitizeWidgetForCreate(widget);
     // Delegate the state-shape transform (new row on the target page) to the shared
     // reducer, stamping the active page explicitly (D6) so the constructed mutation
     // is self-describing rather than relying on the reducer's active-page fallback.
@@ -1349,7 +1257,7 @@ export class StudioController {
    * outside the `StudioChartType` union verbatim.
    */
   insertWidgetAt = (widget: StudioWidget, pageId: string, rows: string[][]) => {
-    const effectiveWidget = this.sanitizeWidgetForCreate(widget);
+    const effectiveWidget = sanitizeWidgetForCreate(widget);
     this.commitMutations(
       [
         { type: 'addWidget', args: { widget: effectiveWidget, pageId } },
@@ -1680,7 +1588,7 @@ export class StudioController {
           existingWidget.kind === effectiveKind
             ? (existingWidget.config as { chartType?: StudioChartType })
             : undefined;
-        definedChanges.config = this.sanitizeWidgetConfigForKind(
+        definedChanges.config = sanitizeWidgetConfigForKind(
           effectiveKind,
           definedChanges.config as Record<string, unknown>,
           widgetId,
@@ -1713,7 +1621,7 @@ export class StudioController {
       // repair, not a second one that could drift.
       const existingWidget = this.getWidget(widgetId);
       if (existingWidget) {
-        const repaired = this.sanitizeWidgetForCreate({ ...existingWidget, kind: 'chart' });
+        const repaired = sanitizeWidgetForCreate({ ...existingWidget, kind: 'chart' });
         // Same reference means nothing to repair — the overwhelmingly common case.
         // Only then add `config` to the mutation, so an ordinary kind flip keeps its
         // existing shape and cannot push a spurious undo entry.
@@ -1773,7 +1681,7 @@ export class StudioController {
                 return next;
               }
               const updated = next.doc.widgets[widgetId];
-              const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
+              const withTitles = applyInferredTitles(updated, next.runtime.dataSources);
               if (withTitles === updated) {
                 return next;
               }
@@ -1786,101 +1694,6 @@ export class StudioController {
     );
   };
 
-  /**
-   * Shared write-side kind/chart-type sanitization for a widget's `config`,
-   * factored out so both `updateWidgetConfig` (a merged config PATCH) and
-   * `updateWidget`'s `changes.config` path (a wholesale config REPLACEMENT,
-   * per `applyMutation.ts`'s `updateWidget` handler) run the identical guard
-   * before their respective config value reaches the reducer. See the two call
-   * sites for how the merge-vs-replacement distinction affects what "the
-   * incoming config" means, but the validation itself — strip config keys not
-   * valid for `kind`, then (for a chart) strip keys not valid for the
-   * effective chart type — is identical either way.
-   *
-   * Composes the same shared primitives `sanitizeWidgetConfigForChartType`
-   * (`internals/widgetConfigSanitization.ts`) is built from — `stripKeys` and
-   * `resolveEffectiveChartType` — directly, rather than calling that function,
-   * because this UPDATE path also needs to emit dev warnings naming exactly
-   * which keys were dropped and why, which a bare sanitized-config return
-   * can't carry back out.
-   */
-  private sanitizeWidgetConfigForKind = (
-    kind: StudioWidget['kind'],
-    config: Record<string, unknown>,
-    widgetId: string,
-    // The chart type to fall back to when `config` itself doesn't declare a
-    // (valid) `chartType` (i.e. the widget's CURRENT stored chart type). Only
-    // relevant when `kind === 'chart'`; omit when there's no sensible existing
-    // chart type to fall back to (e.g. `kind` is itself changing away from
-    // 'chart').
-    existingChartConfig?: { chartType?: StudioChartType },
-  ): Record<string, unknown> => {
-    // Write-side kind guard: strip any config key that isn't valid for THIS
-    // widget's kind before committing (e.g. a Chart-only key patched onto a Grid
-    // widget). TypeScript can't enforce the per-kind config shape on this generic
-    // patch at runtime, so this is the runtime backstop. Matching the controller's
-    // guard-and-continue style (never throw on bad input): warn in dev and drop
-    // the offending keys rather than persisting a wrong-kind key.
-    const invalidKindKeys = validateConfigKeysForKind(kind, config);
-    if (invalidKindKeys.length > 0 && process.env.NODE_ENV !== 'production') {
-      console.warn(
-        `MUI X Studio: Ignoring config key(s) not valid for a '${kind}' ` +
-          `widget (id '${widgetId}'): ${invalidKindKeys.join(', ')}. ` +
-          'These keys belong to a different widget kind and were dropped from the update.',
-      );
-    }
-    const kindStrippedConfig = stripKeys(config, invalidKindKeys);
-
-    if (kind !== 'chart') {
-      return kindStrippedConfig;
-    }
-
-    // Write-side CHART-TYPE guard: a finer-grained layer under the kind guard
-    // above. A key can be a legitimate Chart key (passes the kind guard) yet still
-    // be wrong for THIS chart's type (e.g. `sankeyTargetField` patched onto a
-    // 'gauge' chart). Only the incoming config is checked here, never the widget's
-    // STORED config: a chart widget deliberately retains config keys from a
-    // previously-selected chart type after switching types (bar -> gauge -> bar
-    // keeps `xField`/`ySeries` around) — that's intentional UX, not a bug, so
-    // re-validating stored keys on every unrelated patch would wrongly strip them.
-    // If the incoming config itself sets a VALID `chartType`, it's declaring a
-    // type switch, so its own keys are checked against the NEW type; otherwise
-    // fall back to the widget's CURRENT chart type (`existingChartConfig`). An
-    // explicit but INVALID `chartType` is dropped and also falls back to the
-    // existing type — warned about separately below, naming the bad value —
-    // rather than being used verbatim (which would fail closed against an empty
-    // allow-list and strip every remaining key).
-    const chartTypeFallback = resolveChartType(existingChartConfig ?? {});
-    const { chartType: effectiveChartType, wasInvalidExplicit } = resolveEffectiveChartType(
-      (kindStrippedConfig as { chartType?: unknown }).chartType,
-      chartTypeFallback,
-    );
-    if (wasInvalidExplicit && process.env.NODE_ENV !== 'production') {
-      console.warn(
-        `MUI X Studio: Ignoring an invalid chartType ` +
-          `'${String((kindStrippedConfig as { chartType?: unknown }).chartType)}' in the config ` +
-          `update for widget (id '${widgetId}'). Falling back to '${effectiveChartType}'.`,
-      );
-    }
-    const configForChartTypeCheck = wasInvalidExplicit
-      ? stripKeys(kindStrippedConfig, ['chartType'])
-      : kindStrippedConfig;
-
-    const invalidChartKeys = validateChartConfigKeysForType(
-      effectiveChartType,
-      configForChartTypeCheck,
-    );
-    if (invalidChartKeys.length > 0 && process.env.NODE_ENV !== 'production') {
-      console.warn(
-        `MUI X Studio: Ignoring config key(s) not valid for chart type '${effectiveChartType}' ` +
-          `(widget id '${widgetId}'): ${invalidChartKeys.join(', ')}. ` +
-          'These keys belong to a different chart type and were dropped from the update.',
-      );
-    }
-
-    return stripKeys(configForChartTypeCheck, invalidChartKeys);
-  };
-
   updateWidgetConfig = (
     widgetId: string,
     config: Partial<import('../models').StudioWidgetConfig>,
@@ -1888,7 +1701,7 @@ export class StudioController {
   ) => {
     const existingWidget = this.getWidget(widgetId);
     const effectiveConfig = existingWidget
-      ? (this.sanitizeWidgetConfigForKind(
+      ? (sanitizeWidgetConfigForKind(
           existingWidget.kind,
           config as Record<string, unknown>,
           widgetId,
@@ -1945,7 +1758,7 @@ export class StudioController {
             return next;
           }
           const updated = next.doc.widgets[widgetId];
-          const withTitles = this.applyInferredTitles(updated, next.runtime.dataSources);
+          const withTitles = applyInferredTitles(updated, next.runtime.dataSources);
           if (withTitles === updated) {
             return next;
           }
@@ -2038,7 +1851,7 @@ export class StudioController {
     //     would otherwise propagate both.
     //
     // Pinned by `StudioController.test.ts`, "duplicateWidget repairs an invalid chartType".
-    const clone = this.sanitizeWidgetForCreate({
+    const clone = sanitizeWidgetForCreate({
       ...existing,
       id: newId,
       title: `${existing.title} (copy)`,

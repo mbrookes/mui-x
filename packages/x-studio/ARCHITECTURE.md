@@ -131,6 +131,14 @@ evict the cache and commit with the early returns of three concerns braided toge
 transform now answers only "what is the next runtime"; the controller decides what to evict, and
 evicts only when the write actually lands.
 
+### Authoring-time widget sanitization (`internals/widgetConfigSanitization.ts`)
+
+`sanitizeWidgetForCreate`, `sanitizeWidgetConfigForKind` and `applyInferredTitles` were private
+`StudioController` members that never touched the store — pure `widget → widget` /
+`config → config` functions living in a class only because that is where their callers happened
+to be. They now sit beside `stripKeys` / `resolveEffectiveChartType` /
+`sanitizeWidgetConfigForChartType`, which they compose.
+
 ### `StudioController` (`src/store/StudioController.ts`)
 
 Wraps a `Store<StudioState>` from `@mui/x-internals/store` — a minimal observable (`state`, `subscribe`, `setState`, `getSnapshot`) built to back `useSyncExternalStore`. State is never mutated in place; every method computes a new object and passes it to a private `commitState`, which:

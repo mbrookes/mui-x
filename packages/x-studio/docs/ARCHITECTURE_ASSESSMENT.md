@@ -229,9 +229,16 @@ code lines) and in the adapter (`createBatchingAdapter.ts`, 1,472).
 > logical no-op would churn every subscriber and no controller-level test would catch it — the
 > state is value-identical either way.
 >
-> Remaining: the **widget-write cluster** (`duplicateWidget`, `updateWidget`, `commitWidgetMove`,
-> `setAdjacentWidgetColSpans` and the two `sanitizeWidget*` helpers), which is now the largest
-> thing in the file.
+> The **widget-write cluster**'s pure parts are out too: `sanitizeWidgetForCreate`,
+> `sanitizeWidgetConfigForKind` and `applyInferredTitles` were private members that never touched
+> the store — pure functions living in a class only because that is where their callers were — and
+> now sit in `internals/widgetConfigSanitization.ts` beside the chart-type sanitizers they compose.
+>
+> **1,896 → 1,572 code lines.** What is left in the biggest remaining members (`duplicateWidget`,
+> `updateWidget`, `commitWidgetMove`) is screening and page resolution, not write logic: they
+> validate, report a reason to their caller, and hand a mutation to the reducer. That is the shape
+> the issue-2 work established, and it is a reasonable place for the class to stop shrinking — the
+> next cut would be splitting a coherent authoring API across files for its own sake.
 
 **Related, smaller:** the widget registry lives in `internals/` but imports every widget
 component — 21 of the package's 56 upward layer edges. A registry belongs at the composition

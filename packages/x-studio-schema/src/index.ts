@@ -50,7 +50,6 @@ export {
   // The `dependsOn` referential-integrity cascade, published so `@mui/x-studio`'s filter-drop
   // paths — which commit through `commitDocPatch` and never reach the reducer — enforce the
   // same invariant every reducer drop path does.
-  pruneDependsOnAgainstSelf,
 } from './applyMutation';
 // The rank-filter scope helpers moved out of `applyMutation.ts` into their own
 // dependency-free module so `factories.ts` (the factory-overrides trust boundary) can reach
@@ -130,6 +129,10 @@ export type {
 // defined exactly once starts drifting. `unsafeKeys.ts`/`wireLimits.ts` stay zero-dependency,
 // so exporting them adds nothing to a consumer's import graph. (The rest of
 // `internalGuards.ts` remains unexported — those really are boundary internals.)
+export { pruneDependsOnAgainstSelf } from './dependsOnCascade';
+// The managed-filter value comparison, used by `@mui/x-studio`'s two remaining
+// controller-owned filter writers to bail before committing an equivalent rebuild.
+export { isSameManagedFilterContent } from './docTransforms';
 export { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 export { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';
 

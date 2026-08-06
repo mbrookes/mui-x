@@ -281,12 +281,36 @@ describe('parseStateMutation — valid payloads (one per variant)', () => {
  * member somewhere else.
  */
 const INTERNAL_ONLY_MUTATION_TYPES = [
+  // Filter writes
   'clearPageFilters',
   'clearCrossFilter',
   'clearAllCrossFilters',
   'clearInteractiveFilter',
   'toggleFilter',
   'updateFilter',
+  // Relationships and expression fields
+  'addRelationship',
+  'updateRelationship',
+  'removeRelationship',
+  'addExpressionField',
+  'updateExpressionField',
+  'removeExpressionField',
+  // Filter presets and managed date-range filters
+  'saveFilterPreset',
+  'applyFilterPreset',
+  'deleteFilterPreset',
+  'renameFilterPreset',
+  'setDashboardDateRange',
+  'setDashboardDateRangeAll',
+  'setWidgetDateRange',
+  // Dashboard settings, page-record writes and the two managed-filter applications
+  'setGlobalCrossFilterMode',
+  'setCrossFilterAllPages',
+  'setPageStackBreakpoint',
+  'reorderPages',
+  'updateActivePage',
+  'applyCrossFilter',
+  'applyInteractiveFilter',
 ];
 
 describe('parseStateMutation — table-sync pins', () => {

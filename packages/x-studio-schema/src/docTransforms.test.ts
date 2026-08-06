@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDefaultStudioState } from '../models';
-import type { StudioDoc, StudioFilterPreset, StudioFilterState } from '../models';
+import { createDefaultStudioState } from './factories';
+import type { StudioDoc, StudioFilterPreset, StudioFilterState } from './stateTypes';
 import * as docTransforms from './docTransforms';
 
 function makeDoc(overrides?: Partial<StudioDoc>): StudioDoc {

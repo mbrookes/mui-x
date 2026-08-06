@@ -41,6 +41,13 @@ import { hasResolvableFilterAnchors, screenOptionalWidgetScalars } from './docSc
 // `applyMutation.ts` imports `factories.ts`, so the arrow cannot run both ways. They now live
 // in a dependency-free module all four boundaries can read; see `rankFilterScope.ts`.
 import { dedupeRankFilters, hasConflictingRankFilter } from './rankFilterScope';
+// The preset/date-range transform bodies. Imported rather than inlined: they are long, well
+// documented and independently tested, and this table's job is dispatch, not implementation.
+import * as docTransforms from './docTransforms';
+// `pruneDependsOn` lives in its own module so THIS file can import `docTransforms` (for the
+// preset/date-range handlers) while `docTransforms` imports the cascade — a cycle if both
+// lived here. The helper depends on nothing but `StudioFilterState`, so the split is free.
+import { pruneDependsOnAgainstSelf } from './dependsOnCascade';
 // The three guards the wire boundary (`parseStateMutation.ts`), the load boundary
 // (`statePersistence.ts`) and this reducer all need, kept in `internalGuards.ts` as ONE
 // implementation each so the three trust boundaries cannot drift apart:
@@ -556,77 +563,6 @@ const MERGEABLE_WIDGET_CHANGE_KEYS: ReadonlySet<string> = new Set<string>(
 const REQUIRED_WIDGET_FIELD_SET: ReadonlySet<string> = new Set<string>(
   REQUIRED_STUDIO_WIDGET_FIELDS,
 );
-
-/**
- * Drop every `dependsOn` id that no longer names a surviving filter.
- *
- * `StudioFilterState.dependsOn` (`stateTypes.ts`) lists OTHER filter ids this filter
- * cascades from — "purely a UX hint" per its own doc comment, but the client's cascade
- * drawer maps over it directly, so a dangling id left pointing at a filter that is gone
- * silently gates option-narrowing on a filter that no longer exists.
- *
- * The ONE implementation of that referential-integrity invariant, so every path that drops a filter
- * enforces it — in BOTH packages. In this one: `removeFilter`, `dropWidgetScopedFilters` via
- * `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor drop, the layout handlers' rank
- * sweep, and — via `statePersistence.ts`'s import — the load boundary's filter screen and rank
- * dedup plus `serializeDoc`'s session-scope strip. In `@mui/x-studio`, whose filter drops bypass
- * this reducer entirely and commit through `commitDocPatch`: `StudioController`'s
- * `clearPageFilters`/`clearCrossFilter`/ `clearAllCrossFilters`/`clearInteractiveFilter` and
- * `docTransforms`' `applyFilterPreset`/`setDashboardDateRange`/`setDashboardDateRangeAll`/
- * `setWidgetDateRange`, which reach it through {@link pruneDependsOnAgainstSelf} on the package
- * index (before that, those eight left the LIVE doc carrying dangling ids that only `serializeDoc`
- * pruned, so the in-memory cascade and the saved one disagreed until the next reload).
- *
- * Drops the whole `dependsOn` array (rather than leaving `dependsOn: []`) when the prune
- * empties it, mirroring `docTransforms.ts`'s own `remappedDependsOn.length > 0 ? … :
- * undefined` convention for this exact field and `repairFilterDependsOn`'s "absent is the
- * canonical empty state" treatment. "Drops" means the KEY is `delete`d, not set to
- * `undefined` — see the comment at the site. Reference-stable at BOTH levels: the SAME array is
- * returned when nothing needed pruning, and a filter with no dangling reference keeps its
- * existing object identity.
- */
-export function pruneDependsOn(
-  filters: StudioFilterState[],
-  survivingIds: ReadonlySet<string>,
-): StudioFilterState[] {
-  let changed = false;
-  const next = filters.map((f) => {
-    if (!f.dependsOn?.some((id) => !survivingIds.has(id))) {
-      return f;
-    }
-    changed = true;
-    const remainingDependsOn = f.dependsOn.filter((id) => survivingIds.has(id));
-    if (remainingDependsOn.length > 0) {
-      return { ...f, dependsOn: remainingDependsOn };
-    }
-    // DELETE the key rather than writing `dependsOn: undefined`. Spreading an explicit
-    // `undefined` leaves the key present as an own property, so `Object.keys(filter)` and
-    // `'dependsOn' in filter` both still report it and the in-memory shape differs from a
-    // filter that never carried one — the same distinction `deserializeState`'s
-    // `activeThreadId` reconciliation deliberately preserves with its own `delete`. Nothing
-    // observes the difference today only because `JSON.stringify` erases it at the
-    // persistence boundary.
-    const pruned = { ...f };
-    delete pruned.dependsOn;
-    return pruned;
-  });
-  return changed ? next : filters;
-}
-
-/**
- * {@link pruneDependsOn} against the ids `filters` itself still carries — the shape every
- * "some filters were just dropped from this array" call site wants. Kept as a separate
- * tiny wrapper so the primitive keeps its explicit surviving-id-set signature (which the
- * load boundary needs, since it prunes against a set it computes itself).
- *
- * Exported (and re-exported from the package index) because `@mui/x-studio`'s eight
- * non-reducer filter-drop paths need exactly this shape — see {@link pruneDependsOn}.
- * Reference-stable: returns the SAME array when nothing dangled, so a caller's
- * identity-preservation guard is unaffected.
- */
-export function pruneDependsOnAgainstSelf(filters: StudioFilterState[]): StudioFilterState[] {
-  return pruneDependsOn(filters, new Set(filters.map((f) => f.id)));
-}
 
 /**
  * Rebuild a page with `overrides` applied and its `widgetColSpans` set to `spans` — or,
@@ -2351,6 +2287,348 @@ const MUTATION_HANDLERS: { [M in StateMutation as M['type']]: MutationHandler<M>
       };
     },
     label: (args) => `updateFilter:${args.filterId}`,
+  },
+  /*
+   * ── Relationships and expression fields ────────────────────────────────────────────────
+   *
+   * Deliberately thin. Unlike the filter drops above, these carry no cross-entity invariant for
+   * the reducer to enforce — no cascade, no scope screen, no rank conflict — so the handlers are
+   * exactly the write plus the reference-equality no-op contract every reducer path owes its
+   * caller. The value is uniformity: a doc edit goes through one function whatever reached it,
+   * which is what makes "the reducer is the one implementation of every mutation's effect" true
+   * rather than nearly true.
+   */
+  addRelationship: {
+    apply: (state, args) => {
+      const { relationship } = args;
+      if (!isPlainRecord(relationship) || typeof relationship.id !== 'string') {
+        return state;
+      }
+      // Re-delivery safe, matching `addWidget`: an id already present returns the SAME doc, so a
+      // duplicated envelope is a clean no-op rather than a second entry.
+      if (state.relationships.some((rel) => rel.id === relationship.id)) {
+        return state;
+      }
+      return { ...state, relationships: [...state.relationships, relationship] };
+    },
+    label: (args) => `addRelationship:${args.relationship?.id}`,
+  },
+  updateRelationship: {
+    apply: (state, args) => {
+      const { relationshipId, patch } = args;
+      if (typeof relationshipId !== 'string' || !isPlainRecord(patch)) {
+        return state;
+      }
+      let changed = false;
+      const next = state.relationships.map((rel) => {
+        if (rel.id !== relationshipId) {
+          return rel;
+        }
+        const keys = Object.keys(patch) as (keyof typeof patch)[];
+        if (keys.every((key) => patch[key] === rel[key])) {
+          return rel;
+        }
+        changed = true;
+        return { ...rel, ...patch };
+      });
+      return changed ? { ...state, relationships: next } : state;
+    },
+    label: (args) => `updateRelationship:${args.relationshipId}`,
+  },
+  removeRelationship: {
+    apply: (state, args) => {
+      const { relationshipId } = args;
+      if (typeof relationshipId !== 'string') {
+        return state;
+      }
+      const next = state.relationships.filter((rel) => rel.id !== relationshipId);
+      return next.length === state.relationships.length ? state : { ...state, relationships: next };
+    },
+    label: (args) => `removeRelationship:${args.relationshipId}`,
+  },
+  addExpressionField: {
+    apply: (state, args) => {
+      const { field } = args;
+      if (!isPlainRecord(field) || typeof field.id !== 'string') {
+        return state;
+      }
+      if (state.expressionFields.some((ef) => ef.id === field.id)) {
+        return state;
+      }
+      return { ...state, expressionFields: [...state.expressionFields, field] };
+    },
+    label: (args) => `addExpressionField:${args.field?.id}`,
+  },
+  updateExpressionField: {
+    apply: (state, args) => {
+      const { fieldId, updates } = args;
+      if (typeof fieldId !== 'string' || !isPlainRecord(updates)) {
+        return state;
+      }
+      let changed = false;
+      const next = state.expressionFields.map((ef) => {
+        if (ef.id !== fieldId) {
+          return ef;
+        }
+        const keys = Object.keys(updates) as (keyof typeof updates)[];
+        if (keys.every((key) => updates[key] === ef[key])) {
+          return ef;
+        }
+        changed = true;
+        // `id` is never patchable: the args type omits it, and re-asserting it here keeps that
+        // true for an untyped caller too.
+        return { ...ef, ...updates, id: ef.id };
+      });
+      return changed ? { ...state, expressionFields: next } : state;
+    },
+    label: (args) => `updateExpressionField:${args.fieldId}`,
+  },
+  removeExpressionField: {
+    apply: (state, args) => {
+      const { fieldId } = args;
+      if (typeof fieldId !== 'string') {
+        return state;
+      }
+      const next = state.expressionFields.filter((ef) => ef.id !== fieldId);
+      // Dangling references are deliberately NOT cascaded: a widget or filter naming a removed
+      // field keeps naming it, resolving to no value. The controller warns with a reference
+      // count so the author can repoint them. Silently rewriting a widget's own config to
+      // absorb a data-model deletion would be the more surprising behaviour.
+      return next.length === state.expressionFields.length
+        ? state
+        : { ...state, expressionFields: next };
+    },
+    label: (args) => `removeExpressionField:${args.fieldId}`,
+  },
+  /*
+   * ── Filter presets and managed date-range filters ──────────────────────────────────────
+   *
+   * Thin dispatchers onto `docTransforms.ts`. The bodies stay there — they are long, heavily
+   * documented, and independently tested — and this table is how they are REACHED, which is the
+   * point: before this, they were a parallel pure-transform layer the controller called
+   * directly, so a doc edit went through `applyMutation` or through `docTransforms` depending
+   * on which writer you happened to be in.
+   *
+   * Every one already honours the reference-equality no-op contract internally (returning the
+   * SAME doc when nothing changed), which is why no handler here re-checks it.
+   */
+  saveFilterPreset: {
+    apply: (state, args) =>
+      typeof args.presetId === 'string' && typeof args.name === 'string'
+        ? docTransforms.saveFilterPreset(state, args.presetId, args.name)
+        : state,
+    label: (args) => `saveFilterPreset:${args.name}`,
+  },
+  applyFilterPreset: {
+    apply: (state, args) =>
+      typeof args.presetId === 'string'
+        ? docTransforms.applyFilterPreset(state, args.presetId)
+        : state,
+    label: (args) => `applyFilterPreset:${args.presetId}`,
+  },
+  deleteFilterPreset: {
+    apply: (state, args) =>
+      typeof args.presetId === 'string'
+        ? docTransforms.deleteFilterPreset(state, args.presetId)
+        : state,
+    label: (args) => `deleteFilterPreset:${args.presetId}`,
+  },
+  renameFilterPreset: {
+    apply: (state, args) =>
+      typeof args.presetId === 'string' && typeof args.name === 'string'
+        ? docTransforms.renameFilterPreset(state, args.presetId, args.name)
+        : state,
+    label: (args) => `renameFilterPreset:${args.presetId}`,
+  },
+  setDashboardDateRange: {
+    apply: (state, args) =>
+      typeof args.pageId === 'string'
+        ? docTransforms.setDashboardDateRange(
+            state,
+            args.pageId,
+            args.fieldId,
+            args.sourceId,
+            args.fieldType,
+            args.preset,
+            args.customFrom,
+            args.customTo,
+          )
+        : state,
+    label: (args) => `setDashboardDateRange:${args.pageId}`,
+  },
+  setDashboardDateRangeAll: {
+    apply: (state, args) =>
+      typeof args.pageId === 'string' && Array.isArray(args.fields)
+        ? docTransforms.setDashboardDateRangeAll(
+            state,
+            args.pageId,
+            args.fields,
+            args.preset,
+            args.customFrom,
+            args.customTo,
+          )
+        : state,
+    label: (args) => `setDashboardDateRangeAll:${args.pageId}`,
+  },
+  setWidgetDateRange: {
+    apply: (state, args) =>
+      typeof args.widgetId === 'string'
+        ? docTransforms.setWidgetDateRange(
+            state,
+            args.widgetId,
+            args.fieldId,
+            args.sourceId,
+            args.fieldType,
+            args.preset,
+            args.customFrom,
+            args.customTo,
+          )
+        : state,
+    label: (args) => `setWidgetDateRange:${args.widgetId}`,
+  },
+  /*
+   * ── Dashboard cross-filter settings and page-record writes ─────────────────────────────
+   *
+   * The last five. Each is a plain field write with a value-equality bail; none carries a
+   * cross-entity invariant. They are here for the same reason as the relationship handlers —
+   * so that "the reducer is the one implementation of every mutation's effect" holds without a
+   * qualifier.
+   */
+  setGlobalCrossFilterMode: {
+    apply: (state, args) =>
+      state.dashboard.globalCrossFilterMode === args.mode
+        ? state
+        : { ...state, dashboard: { ...state.dashboard, globalCrossFilterMode: args.mode } },
+    label: (args) => `setGlobalCrossFilterMode:${args.mode}`,
+  },
+  setCrossFilterAllPages: {
+    apply: (state, args) =>
+      typeof args.allPages !== 'boolean' || state.dashboard.crossFilterAllPages === args.allPages
+        ? state
+        : { ...state, dashboard: { ...state.dashboard, crossFilterAllPages: args.allPages } },
+    label: (args) => `setCrossFilterAllPages:${args.allPages}`,
+  },
+  setPageStackBreakpoint: {
+    apply: (state, args) => {
+      const { pageId, breakpoint } = args;
+      if (typeof pageId !== 'string' || !Object.hasOwn(state.pages, pageId)) {
+        return state;
+      }
+      const page = state.pages[pageId];
+      if (page.stackBreakpoint === breakpoint) {
+        return state;
+      }
+      return {
+        ...state,
+        pages: { ...state.pages, [pageId]: { ...page, stackBreakpoint: breakpoint } },
+      };
+    },
+    label: (args) => `setPageStackBreakpoint:${args.pageId}`,
+  },
+  reorderPages: {
+    apply: (state, args) => {
+      const { pageIds } = args;
+      if (!Array.isArray(pageIds)) {
+        return state;
+      }
+      // Named ids first, in the given order; then every page the caller did not name, so a
+      // partial list reorders what it mentions and never drops what it omits.
+      //
+      // BOTH record indexes need `Object.hasOwn`, for two different reasons:
+      //
+      // 1. `state.pages[id]` — `pageIds` is caller-authored and reaches here from the public
+      //    `StudioHandle`. `['constructor', realPageId]` used to pass a truthiness check
+      //    (`pages.constructor` is the inherited `Object` FUNCTION) and write that function into
+      //    the result as a page, which was then committed straight into `doc.pages`: every later
+      //    `Object.values(doc.pages)` iterated a function and the page tabs rendered a bogus
+      //    entry — a prototype value persisted into the document.
+      // 2. `!reordered[id]` — `reordered` starts as a plain `{}`, so a genuine page legitimately
+      //    named `constructor`/`toString` read back as a truthy inherited function and was
+      //    silently SKIPPED by the append-omitted-pages fallback, i.e. dropped entirely.
+      const reordered: typeof state.pages = {};
+      pageIds.forEach((id) => {
+        if (typeof id === 'string' && Object.hasOwn(state.pages, id)) {
+          reordered[id] = state.pages[id];
+        }
+      });
+      Object.keys(state.pages).forEach((id) => {
+        if (!Object.hasOwn(reordered, id)) {
+          reordered[id] = state.pages[id];
+        }
+      });
+      const currentKeys = Object.keys(state.pages);
+      const nextKeys = Object.keys(reordered);
+      const unchanged =
+        currentKeys.length === nextKeys.length && currentKeys.every((k, i) => k === nextKeys[i]);
+      return unchanged ? state : { ...state, pages: reordered };
+    },
+    label: () => 'reorderPages',
+  },
+  updateActivePage: {
+    apply: (state, args) => {
+      const { pageId, changes } = args;
+      if (typeof pageId !== 'string' || !isPlainRecord(changes)) {
+        return state;
+      }
+      const page = Object.hasOwn(state.pages, pageId) ? state.pages[pageId] : undefined;
+      if (!page) {
+        return state;
+      }
+      // `id`/`widgetRows`/`widgetColSpans` are excluded by the args TYPE and re-excluded here:
+      // writing them through this path would bypass row membership, duplicate-id and per-row
+      // column-budget invariants that `setWidgetLayout`/`setAdjacentWidgetColSpans` own.
+      // Dropped by KEY rather than by destructuring, so no throwaway bindings are introduced for
+      // values that are deliberately ignored.
+      const excluded = new Set(['id', 'widgetRows', 'widgetColSpans']);
+      const safe: Record<string, unknown> = {};
+      Object.keys(changes).forEach((key) => {
+        if (!excluded.has(key)) {
+          safe[key] = (changes as Record<string, unknown>)[key];
+        }
+      });
+      const keys = Object.keys(safe);
+      if (keys.length === 0 || keys.every((key) => safe[key] === (page as never)[key])) {
+        return state;
+      }
+      return { ...state, pages: { ...state.pages, [pageId]: { ...page, ...safe } } };
+    },
+    label: (args) => `updateActivePage:${args.pageId}`,
+  },
+  /*
+   * ── The two managed-filter applications ────────────────────────────────────────────────
+   *
+   * Both replace the SOURCE WIDGET'S OWN entries rather than appending: a widget contributes at
+   * most one cross-filter and one interactive selection, so re-applying supersedes rather than
+   * accumulates. The caller has already decided this is not a no-op re-apply (it compares the
+   * candidate against the stored entry with `isSameManagedFilterContent`, which the reducer
+   * cannot do for it — the candidate's id is new by construction, so a reference guard here
+   * would never fire).
+   */
+  applyCrossFilter: {
+    apply: (state, args) => {
+      const { sourceWidgetId, filter } = args;
+      if (typeof sourceWidgetId !== 'string' || !isPlainRecord(filter)) {
+        return state;
+      }
+      const others = state.filters.filter(
+        (f) => !(f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId),
+      );
+      return { ...state, filters: [...others, filter] };
+    },
+    label: (args) => `applyCrossFilter:${args.sourceWidgetId}:${args.filter?.field}`,
+  },
+  applyInteractiveFilter: {
+    apply: (state, args) => {
+      const { sourceWidgetId, filter } = args;
+      if (typeof sourceWidgetId !== 'string' || !isPlainRecord(filter)) {
+        return state;
+      }
+      const others = state.filters.filter(
+        (f) => !(f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId),
+      );
+      return { ...state, filters: [...others, filter] };
+    },
+    label: (args) => `applyInteractiveFilter:${args.sourceWidgetId}`,
   },
   removeFilter: {
     apply: (state, args) => {

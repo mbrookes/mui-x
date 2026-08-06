@@ -38,6 +38,7 @@ import {
   // disagreed until the next reload.
 } from '@mui/x-studio-schema';
 
+import { isSameManagedFilterContent } from '@mui/x-studio-schema';
 import {
   createDefaultStudioState,
   type CreateDefaultStudioStateOverrides,
@@ -68,7 +69,9 @@ import { collectSelectFields } from '../internals/queryDescriptor';
 import { collectExpressionRefs } from '../internals/expressionRefs';
 import { resolveWidgetPageId as resolveWidgetPageIdInPages } from '../internals/widgetPageResolution';
 import { stripKeys, resolveEffectiveChartType } from '../internals/widgetConfigSanitization';
-import * as docTransforms from './docTransforms';
+// `docTransforms` moved into `@mui/x-studio-schema` alongside the reducer that now dispatches
+// it. Only `isSameManagedFilterContent` is still called directly from here, by the two
+// `applyCrossFilter`/`applyInteractiveFilter` writers that remain outside the reducer.
 import { MutationHistory, MAX_UNDO_HISTORY } from './MutationHistory';
 
 // `MIN_SPAN_COLS` (the minimum widget column span) is imported from
@@ -513,34 +516,21 @@ export class StudioController {
     );
   }
 
-  /**
-   * Commits a doc-only patch: shallow-merges `patch` onto the current `doc`, leaving
-   * `session` and `runtime` untouched. The single place the doc-writer methods below
-   * (relationships, filters, presets, page fields…) build their nested commit, so
-   * each stays a one-liner instead of hand-spreading `{ ...state, doc: { ...state.doc } }`.
+  /*
+   * `commitDocPatch` USED TO BE HERE, and its absence is the point.
+   *
+   * It shallow-merged a `Partial<StudioDoc>` straight onto the doc, and 25 of the controller's
+   * writers used it — every one of them therefore outside the `dependsOn` cascade, the
+   * filter-scope screen, the rank-conflict guard and the reference-equality no-op contract that
+   * `applyMutation` enforces. Each bypass site re-implemented whichever of those it happened to
+   * need, by hand, which is how they drifted.
+   *
+   * Every doc write now goes through `commitMutation`/`commitMutations` and the shared reducer.
+   * Removing the escape hatch is what keeps that true: there is no longer a way to write the doc
+   * without a mutation, so the next writer cannot accidentally start outside the invariants.
+   * `commitShellPatch` (session) and `commitDataSourcePatch` (runtime) remain — those partitions
+   * are deliberately outside the reducer.
    */
-  private commitDocPatch = (
-    patch: Partial<StudioDoc>,
-    options?: { undoable?: boolean; label?: string },
-  ) => {
-    const state = this.store.state;
-    // No-op guard (1.6): when every entry in `patch` is reference-equal to the
-    // current `doc` field, there is nothing to commit — skip so a logical no-op
-    // (an unknown-id / rejected write built with the identity-preserving helpers
-    // below) never pushes an undo entry or a mutation-log line. `commitState` also
-    // bails on `nextState === current`, but only once NO field changed; guarding
-    // here additionally avoids rebuilding the `doc` object (whose reference would
-    // otherwise change) for a patch that changes nothing.
-    const keys = Object.keys(patch) as (keyof StudioDoc)[];
-    // `keys.every(...)` is vacuously true for an empty patch, so `commitDocPatch({})` is
-    // guarded as a no-op too (1.6) — the previous `keys.length > 0 &&` prefix let an empty
-    // patch fall through and rebuild the `doc` object (and, if reference-equal overall, only
-    // `commitState` would catch it) for no reason.
-    if (keys.every((key) => patch[key] === state.doc[key])) {
-      return;
-    }
-    this.commitState({ ...state, doc: { ...state.doc, ...patch } }, options);
-  };
 
   /**
    * Commits a shell-only patch: shallow-merges `patch` onto `session.shell`, leaving
@@ -880,9 +870,9 @@ export class StudioController {
     if (state.doc.dashboard.globalCrossFilterMode === mode) {
       return;
     }
-    this.commitDocPatch(
-      { dashboard: { ...state.doc.dashboard, globalCrossFilterMode: mode } },
-      { undoable: false },
+    this.commitMutation(
+      { type: 'setGlobalCrossFilterMode', args: { mode } },
+      { undoable: false, label: null },
     );
   };
 
@@ -892,9 +882,9 @@ export class StudioController {
     if (state.doc.dashboard.crossFilterAllPages === allPages) {
       return;
     }
-    this.commitDocPatch(
-      { dashboard: { ...state.doc.dashboard, crossFilterAllPages: allPages } },
-      { undoable: false },
+    this.commitMutation(
+      { type: 'setCrossFilterAllPages', args: { allPages } },
+      { undoable: false, label: null },
     );
   };
 
@@ -1171,7 +1161,7 @@ export class StudioController {
     // update/remove siblings so no path through this class can leave a stale entry behind. Placed
     // AFTER the guards so a rejected add never evicts anything.
     this.invalidateSources(field.sourceId);
-    this.commitDocPatch({ expressionFields: nextFields });
+    this.commitMutation({ type: 'addExpressionField', args: { field } }, { label: null });
     return MUTATION_COMMITTED;
   };
 
@@ -1227,7 +1217,10 @@ export class StudioController {
     // edit can repoint `sourceId`, and the pre-edit source's cached rows are just as stale as the
     // new one's. See `invalidateSources` for why the `cacheKey` cannot catch this.
     this.invalidateSources(existing.sourceId, updatedField.sourceId);
-    this.commitDocPatch({ expressionFields: nextFields });
+    this.commitMutation(
+      { type: 'updateExpressionField', args: { fieldId, updates } },
+      { label: null },
+    );
     return MUTATION_COMMITTED;
   };
 
@@ -1319,10 +1312,7 @@ export class StudioController {
         state.doc.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId)?.sourceId,
       );
     }
-    this.commitDocPatch({
-      expressionFields:
-        next.length === state.doc.expressionFields.length ? state.doc.expressionFields : next,
-    });
+    this.commitMutation({ type: 'removeExpressionField', args: { fieldId } }, { label: null });
     return referenceCount;
   };
 
@@ -1572,7 +1562,6 @@ export class StudioController {
    * Pass `0` to disable stacking for this page regardless of the global setting.
    */
   setPageStackBreakpoint = (breakpoint: number | undefined): void => {
-    const state = this.store.state;
     const activePage = this.getActivePage();
     if (!activePage) {
       return;
@@ -1585,12 +1574,10 @@ export class StudioController {
     if (activePage.stackBreakpoint === breakpoint) {
       return;
     }
-    this.commitDocPatch({
-      pages: {
-        ...state.doc.pages,
-        [activePage.id]: { ...activePage, stackBreakpoint: breakpoint },
-      },
-    });
+    this.commitMutation(
+      { type: 'setPageStackBreakpoint', args: { pageId: activePage.id, breakpoint } },
+      { label: null },
+    );
   };
 
   /**
@@ -2329,7 +2316,7 @@ export class StudioController {
     // relationship makes a JOIN available that the previous responses were computed without, and
     // nothing about relationships feeds the request `cacheKey`. See `invalidateSources`.
     this.invalidateSources(...StudioController.relationshipSourceIds(relationship));
-    this.commitDocPatch({ relationships: [...state.doc.relationships, relationship] });
+    this.commitMutation({ type: 'addRelationship', args: { relationship } }, { label: null });
     return MUTATION_COMMITTED;
   };
 
@@ -2371,13 +2358,13 @@ export class StudioController {
       ...StudioController.relationshipSourceIds(existing),
       ...StudioController.relationshipSourceIds({ ...existing, ...patch }),
     );
-    // `mapPreservingIdentity` is retained for the (host-authored initial doc) case where two
-    // entries share an id: only the ones that actually differ are rebuilt.
-    this.commitDocPatch({
-      relationships: mapPreservingIdentity(state.doc.relationships, (rel: StudioRelationship) =>
-        rel.id === id ? { ...rel, ...patch } : rel,
-      ),
-    });
+    // The reducer's handler keeps the per-entry identity preservation this used to do with
+    // `mapPreservingIdentity`: it rebuilds only entries that actually differ, which matters for a
+    // host-authored initial doc where two entries can share an id.
+    this.commitMutation(
+      { type: 'updateRelationship', args: { relationshipId: id, patch } },
+      { label: null },
+    );
     return MUTATION_COMMITTED;
   };
 
@@ -2391,10 +2378,10 @@ export class StudioController {
       // unknown id must stay a clean no-op. See `invalidateSources`.
       this.invalidateSources(...StudioController.relationshipSourceIds(existing));
     }
-    this.commitDocPatch({
-      relationships:
-        next.length === state.doc.relationships.length ? state.doc.relationships : next,
-    });
+    this.commitMutation(
+      { type: 'removeRelationship', args: { relationshipId: id } },
+      { label: null },
+    );
   };
 
   /**
@@ -2586,7 +2573,7 @@ export class StudioController {
    *
    * The filter is stored as a page-level `StudioFilterState` with
    * `scope.kind === 'dashboard-date-range'` so the filters drawer and quick-filter bar can hide it.
-   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to the shared reducer.
    */
   setDashboardDateRange = (
     pageId: string,
@@ -2597,17 +2584,12 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    this.commitDocPatch(
-      docTransforms.setDashboardDateRange(
-        this.store.state.doc,
-        pageId,
-        fieldId,
-        sourceId,
-        fieldType,
-        preset,
-        customFrom,
-        customTo,
-      ),
+    this.commitMutation(
+      {
+        type: 'setDashboardDateRange',
+        args: { pageId, fieldId, sourceId, fieldType, preset, customFrom, customTo },
+      },
+      { label: null },
     );
   };
 
@@ -2616,7 +2598,7 @@ export class StudioController {
    * Creates one `scope.kind === 'dashboard-date-range'` filter per source so each widget is
    * filtered by its own source's date field — not by a field from another source.
    * Replaces any previously active dashboard date-range filters for the page.
-   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to the shared reducer.
    */
   setDashboardDateRangeAll = (
     pageId: string,
@@ -2626,16 +2608,15 @@ export class StudioController {
     customTo?: string,
     options?: { undoable?: boolean },
   ) => {
-    this.commitDocPatch(
-      docTransforms.setDashboardDateRangeAll(
-        this.store.state.doc,
-        pageId,
-        fields,
-        preset,
-        customFrom,
-        customTo,
-      ),
-      options,
+    // `options` carries the `{ undoable: false }` a system-initiated self-repair uses
+    // (`StudioDateRangeBar` expanding a persisted preset to cover late-injected sources), so it
+    // is forwarded rather than dropped.
+    this.commitMutation(
+      {
+        type: 'setDashboardDateRangeAll',
+        args: { pageId, fields, preset, customFrom, customTo },
+      },
+      { ...options, label: null },
     );
   };
 
@@ -2648,7 +2629,7 @@ export class StudioController {
    * The filter is stored as a widget-scoped `StudioFilterState` with
    * `scope.kind === 'widget'` so the filters drawer hides it (it is managed
    * exclusively via the KPI setup panel).
-   * Delegates the pure `StudioDoc → StudioDoc` transform to `./docTransforms`.
+   * Delegates the pure `StudioDoc → StudioDoc` transform to the shared reducer.
    */
   setWidgetDateRange = (
     widgetId: string,
@@ -2659,17 +2640,12 @@ export class StudioController {
     customFrom?: string,
     customTo?: string,
   ) => {
-    this.commitDocPatch(
-      docTransforms.setWidgetDateRange(
-        this.store.state.doc,
-        widgetId,
-        fieldId,
-        sourceId,
-        fieldType,
-        preset,
-        customFrom,
-        customTo,
-      ),
+    this.commitMutation(
+      {
+        type: 'setWidgetDateRange',
+        args: { widgetId, fieldId, sourceId, fieldType, preset, customFrom, customTo },
+      },
+      { label: null },
     );
   };
 
@@ -2724,9 +2700,6 @@ export class StudioController {
     }
     const isOwnInteractiveFilter = (f: StudioFilterState) =>
       f.scope.kind === 'interactive' && f.scope.sourceWidgetId === sourceWidgetId;
-    const existingFilters = state.doc.filters.filter(
-      (f: StudioFilterState) => !isOwnInteractiveFilter(f),
-    );
     const existingOwn = state.doc.filters.filter(isOwnInteractiveFilter);
 
     const interactiveFilter: StudioFilterState = {
@@ -2760,14 +2733,17 @@ export class StudioController {
     if (
       existingOwn.length === 1 &&
       !existingOwn[0].disabled &&
-      docTransforms.isSameManagedFilterContent(existingOwn[0], interactiveFilter, {
+      isSameManagedFilterContent(existingOwn[0], interactiveFilter, {
         ignoreId: true,
       })
     ) {
       return;
     }
 
-    this.commitDocPatch({ filters: [...existingFilters, interactiveFilter] }, { undoable: false });
+    this.commitMutation(
+      { type: 'applyInteractiveFilter', args: { sourceWidgetId, filter: interactiveFilter } },
+      { undoable: false, label: null },
+    );
   };
 
   /**
@@ -2824,9 +2800,6 @@ export class StudioController {
     const isOwnCrossFilter = (f: StudioFilterState) =>
       f.scope.kind === 'cross-filter' && f.scope.sourceWidgetId === sourceWidgetId;
     // Remove any existing cross-filter from the same source widget
-    const existingFilters = state.doc.filters.filter(
-      (f: StudioFilterState) => !isOwnCrossFilter(f),
-    );
     const existingOwn = state.doc.filters.filter(isOwnCrossFilter);
 
     const crossFilter: StudioFilterState = {
@@ -2845,7 +2818,7 @@ export class StudioController {
 
     // Value-equality no-op guard, closing the last gap in a class every other doc writer
     // already covers (`setGlobalCrossFilterMode`, `setCrossFilterAllPages`, `updateActivePage`,
-    // `updateExpressionField`, `docTransforms.renameFilterPreset`, the three date-range setters…).
+    // `updateExpressionField`, `renameFilterPreset`, the three date-range setters…).
     // `commitDocPatch`'s guard is REFERENCE equality, and a freshly minted `createFilterId()`
     // makes the rebuilt `filters` array differ even when the cross-filter is semantically
     // identical — so re-applying the same source widget + field + value + operator would push an
@@ -2867,15 +2840,15 @@ export class StudioController {
     if (
       existingOwn.length === 1 &&
       !existingOwn[0].disabled &&
-      docTransforms.isSameManagedFilterContent(existingOwn[0], crossFilter, { ignoreId: true })
+      isSameManagedFilterContent(existingOwn[0], crossFilter, { ignoreId: true })
     ) {
       return;
     }
 
-    this.commitDocPatch(
-      { filters: [...existingFilters, crossFilter] },
-      { label: `applyCrossFilter:${sourceWidgetId}:${field}` },
-    );
+    this.commitMutation({
+      type: 'applyCrossFilter',
+      args: { sourceWidgetId, filter: crossFilter },
+    });
   };
 
   /**
@@ -2894,7 +2867,10 @@ export class StudioController {
     // is collision-resistant (timestamp + per-process counter + random suffix),
     // unlike the previous millisecond-resolution `preset-${Date.now()}`.
     const id = createPresetId();
-    this.commitDocPatch(docTransforms.saveFilterPreset(this.store.state.doc, id, name));
+    this.commitMutation(
+      { type: 'saveFilterPreset', args: { presetId: id, name } },
+      { label: null },
+    );
     return id;
   };
 
@@ -2910,14 +2886,14 @@ export class StudioController {
    * Applies a saved filter preset by replacing all page-level filters with the preset's filters.
    */
   applyFilterPreset = (presetId: string) => {
-    this.commitDocPatch(docTransforms.applyFilterPreset(this.store.state.doc, presetId));
+    this.commitMutation({ type: 'applyFilterPreset', args: { presetId } }, { label: null });
   };
 
   /**
    * Deletes a saved filter preset by ID.
    */
   deleteFilterPreset = (presetId: string) => {
-    this.commitDocPatch(docTransforms.deleteFilterPreset(this.store.state.doc, presetId));
+    this.commitMutation({ type: 'deleteFilterPreset', args: { presetId } }, { label: null });
   };
 
   /**
@@ -2926,7 +2902,7 @@ export class StudioController {
   renameFilterPreset = (presetId: string, name: string) => {
     // The pure transform preserves the original `filterPresets` array reference on an
     // unknown `presetId` (via `mapPreservingIdentity`), so `commitDocPatch` no-ops it.
-    this.commitDocPatch(docTransforms.renameFilterPreset(this.store.state.doc, presetId, name));
+    this.commitMutation({ type: 'renameFilterPreset', args: { presetId, name } }, { label: null });
   };
 
   /**
@@ -3010,12 +2986,13 @@ export class StudioController {
     if (changeKeys.every((key) => safeChanges[key] === page[key])) {
       return MUTATION_NOOP;
     }
-    this.commitDocPatch({
-      pages: {
-        ...state.doc.pages,
-        [pageId]: { ...page, ...safeChanges },
-      },
-    });
+    // `safeChanges` (not `changes`): the excluded keys are dropped HERE so the dev warning above
+    // can name them. The reducer re-excludes them anyway, for callers that never came through
+    // this method.
+    this.commitMutation(
+      { type: 'updateActivePage', args: { pageId, changes: safeChanges } },
+      { label: null },
+    );
     return MUTATION_COMMITTED;
   };
 
@@ -3096,38 +3073,7 @@ export class StudioController {
    * The active page is not changed.
    */
   reorderPages = (pageIds: string[]) => {
-    const state = this.store.state;
-    const reordered: Record<string, StudioPage> = {};
-    // BOTH record indexes below need `Object.hasOwn` (see `getPage`), for two different reasons:
-    //
-    // 1. `state.doc.pages[id]` — `pageIds` is caller-authored and `reorderPages` is on the public
-    //    `StudioHandle`. `reorderPages(['constructor', realPageId])` used to pass the truthiness
-    //    check (`pages.constructor` is the `Object` FUNCTION, inherited) and WRITE that function
-    //    into `reordered` as a page. The result was committed straight into `doc.pages`, so every
-    //    later `Object.values(doc.pages)` iterated a function and the page tabs rendered a bogus
-    //    entry — a prototype value persisted into the document.
-    // 2. `!reordered[id]` — `reordered` starts as a plain `{}`, so a genuine page legitimately
-    //    named `constructor`/`toString` read back as a truthy inherited function and was silently
-    //    SKIPPED by the "append omitted pages" fallback, i.e. dropped from the dashboard.
-    pageIds.forEach((id) => {
-      if (Object.hasOwn(state.doc.pages, id)) {
-        reordered[id] = state.doc.pages[id];
-      }
-    });
-    // Append any pages omitted from the list (safety fallback)
-    Object.keys(state.doc.pages).forEach((id) => {
-      if (!Object.hasOwn(reordered, id)) {
-        reordered[id] = state.doc.pages[id];
-      }
-    });
-    // Identity-preserving no-op (1.6): when the resulting key order matches the
-    // current one, pass the original `pages` object so `commitDocPatch` no-ops it
-    // rather than committing a fresh-but-identically-ordered map as an undoable step.
-    const currentKeys = Object.keys(state.doc.pages);
-    const nextKeys = Object.keys(reordered);
-    const orderUnchanged =
-      currentKeys.length === nextKeys.length && currentKeys.every((k, i) => k === nextKeys[i]);
-    this.commitDocPatch({ pages: orderUnchanged ? state.doc.pages : reordered });
+    this.commitMutation({ type: 'reorderPages', args: { pageIds } }, { label: null });
   };
 
   /**

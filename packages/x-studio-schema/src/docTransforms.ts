@@ -1,13 +1,14 @@
-import { createFilterId, pruneDependsOnAgainstSelf } from '@mui/x-studio-schema';
+import { createFilterId } from './factories';
+import { pruneDependsOnAgainstSelf } from './dependsOnCascade';
 import type {
   StudioDoc,
-  StudioDataField,
-  StudioDateRangePreset,
   StudioFilterPreset,
   StudioFilterScope,
   StudioFilterState,
-} from '../models';
-import { hasConflictingRankFilter } from '../internals/rankFilterScope';
+  StudioDateRangePreset,
+} from './stateTypes';
+import type { StudioDataField } from './dataTypes';
+import { hasConflictingRankFilter } from './rankFilterScope';
 
 /**
  * Pure `StudioDoc → StudioDoc` transforms extracted out of `StudioController`, so the

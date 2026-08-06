@@ -1,5 +1,6 @@
 import { createDefaultStudioState, normalizeGridColumn, normalizeChartSeries } from './factories';
-import { normalizePersistedPages, pruneDependsOn } from './applyMutation';
+import { normalizePersistedPages } from './applyMutation';
+import { pruneDependsOn } from './dependsOnCascade';
 // The rank-uniqueness sweep is shared with the reducer's layout handlers AND with
 // `factories.ts` — see `rankFilterScope.ts` for why it lives in its own dependency-free
 // module rather than in `applyMutation.ts` where it started.

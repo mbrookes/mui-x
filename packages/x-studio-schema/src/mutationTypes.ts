@@ -11,8 +11,11 @@
  * `SkillExecuteResult`, `StudioAIDataConfig`, rate-limit/usage types) live in
  * `@mui/x-studio-ai-middleware` — they are not part of the shared schema.
  */
-import type { StudioFilterState } from './stateTypes';
-import type { StudioWidget } from './widgetTypes';
+import type { StudioFilterState, StudioDateRangePreset } from './stateTypes';
+import type { StudioCrossFilterMode } from './baseTypes';
+import type { StudioRelationship, StudioDataField } from './dataTypes';
+import type { StudioWidget, StudioPage } from './widgetTypes';
+import type { StudioExpressionField } from './expressionTypes';
 
 /**
  * Serializable skill metadata forwarded to the server in every AI request.
@@ -248,6 +251,98 @@ export type InternalStateMutation =
   | {
       type: 'updateFilter';
       args: { filterId: string; changes: Partial<StudioFilterState> };
+    }
+  /*
+   * Relationships and expression fields.
+   *
+   * The controller keeps the SCREENING for these — duplicate ids, unknown ids, value-equal
+   * no-ops, expression cycles — because each answers its caller with a reason the reducer's
+   * "returns the same doc when it declines" contract cannot express. What moves here is the
+   * WRITE, so a doc edit is a doc edit however it was reached.
+   */
+  | { type: 'addRelationship'; args: { relationship: StudioRelationship } }
+  | {
+      type: 'updateRelationship';
+      args: { relationshipId: string; patch: Partial<StudioRelationship> };
+    }
+  | { type: 'removeRelationship'; args: { relationshipId: string } }
+  | { type: 'addExpressionField'; args: { field: StudioExpressionField } }
+  | {
+      type: 'updateExpressionField';
+      args: { fieldId: string; updates: Partial<Omit<StudioExpressionField, 'id'>> };
+    }
+  | { type: 'removeExpressionField'; args: { fieldId: string } }
+  /*
+   * Filter presets and managed date-range filters.
+   *
+   * The transforms behind these already existed as pure `StudioDoc -> StudioDoc` functions in
+   * `docTransforms.ts` — a SECOND pure-transform layer running alongside the reducer, with the
+   * same signature, the same purity and none of the reducer's uniformity. These variants make it
+   * one layer: `docTransforms` is now where the bodies live and `applyMutation` is how they are
+   * reached, so every doc edit still goes through one function.
+   */
+  | { type: 'saveFilterPreset'; args: { presetId: string; name: string } }
+  | { type: 'applyFilterPreset'; args: { presetId: string } }
+  | { type: 'deleteFilterPreset'; args: { presetId: string } }
+  | { type: 'renameFilterPreset'; args: { presetId: string; name: string } }
+  | {
+      type: 'setDashboardDateRange';
+      args: {
+        pageId: string;
+        fieldId: string | null;
+        sourceId: string | null;
+        fieldType: StudioDataField['type'] | null;
+        preset: StudioDateRangePreset | null;
+        customFrom?: string;
+        customTo?: string;
+      };
+    }
+  | {
+      type: 'setDashboardDateRangeAll';
+      args: {
+        pageId: string;
+        fields: Array<{ fieldId: string; sourceId: string; fieldType: 'date' | 'datetime' }>;
+        preset: StudioDateRangePreset;
+        customFrom?: string;
+        customTo?: string;
+      };
+    }
+  | {
+      type: 'setWidgetDateRange';
+      args: {
+        widgetId: string;
+        fieldId: string | null;
+        sourceId: string | null;
+        fieldType: StudioDataField['type'] | null;
+        preset: StudioDateRangePreset | null;
+        customFrom?: string;
+        customTo?: string;
+      };
+    }
+  /* Dashboard-level cross-filter settings and page-record writes. */
+  | { type: 'setGlobalCrossFilterMode'; args: { mode: StudioCrossFilterMode | null } }
+  | { type: 'setCrossFilterAllPages'; args: { allPages: boolean } }
+  | { type: 'setPageStackBreakpoint'; args: { pageId: string; breakpoint: number | undefined } }
+  | { type: 'reorderPages'; args: { pageIds: string[] } }
+  | {
+      type: 'updateActivePage';
+      args: {
+        pageId: string;
+        changes: Partial<Omit<StudioPage, 'id' | 'widgetRows' | 'widgetColSpans'>>;
+      };
+    }
+  /*
+   * The two managed-filter applications.
+   *
+   * The FILTER is built by the caller, not by the reducer, and that is not laziness: it carries a
+   * freshly minted `createFilterId()`, and the reducer must stay a pure function of
+   * `(doc, args)`. Same division `addWidget`/`addPage` already use — the caller mints the id, the
+   * reducer decides where it goes. What moves here is the replace-my-own-entries semantics.
+   */
+  | { type: 'applyCrossFilter'; args: { sourceWidgetId: string; filter: StudioFilterState } }
+  | {
+      type: 'applyInteractiveFilter';
+      args: { sourceWidgetId: string; filter: StudioFilterState };
     };
 
 /**

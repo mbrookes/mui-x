@@ -113,17 +113,18 @@ export function capMaybeText(value: unknown, maxChars: number): unknown {
  * value instead of a bare literal, so the "must match" invariant is enforced by the
  * type system/import rather than by convention alone.
  *
- * Lives here — in this neutral, leaf `internal/promptCaps.ts` module — specifically to
- * avoid a two-node import cycle: a prior consolidation defined this constant in
- * `handleGenerateInsight.ts` and had `executeToolOnState.ts` import it from there,
- * while `handleGenerateInsight.ts` separately imports `buildWidgetFromArgs`/
- * `MAX_FILTER_STRING_LENGTH` FROM `executeToolOnState.ts` — a genuine `A imports B
- * imports A` cycle. It worked only because both bindings were read inside deferred
- * function bodies rather than at module-evaluation time, but it inverted this
- * package's documented dependency direction (`ARCHITECTURE.md` describes
- * `executeToolOnState.ts` as the shared core both transports build on, and
- * `handleGenerateInsight.ts` as a one-shot handler that depends on it, not the
- * reverse). Both call sites now import this constant from a shared module with no
- * back-reference to either of them, restoring the one-directional dependency.
+ * Lives here — in this neutral, leaf module — because it once had to. A prior
+ * consolidation defined it in `handleGenerateInsight.ts` and had
+ * `executeToolOnState.ts` import it from there, while `handleGenerateInsight.ts`
+ * separately imported `buildWidgetFromArgs` FROM `executeToolOnState.ts`: a genuine
+ * `A imports B imports A` cycle, working only because both bindings were read inside
+ * deferred function bodies rather than at module-evaluation time.
+ *
+ * The cycle is gone at its cause rather than routed around — `buildWidgetFromArgs`
+ * now lives in its own `internal/widgetFromArgs.ts`, so `handleGenerateInsight.ts`
+ * no longer reaches into the tool executor at all. This constant stays here anyway:
+ * a leaf is still the right home for a value two unrelated handlers must agree on,
+ * and the history is worth keeping because a cycle that only survives on deferred
+ * evaluation is the kind that reappears.
  */
 export const MAX_GENERATED_TITLE_LENGTH = 40;

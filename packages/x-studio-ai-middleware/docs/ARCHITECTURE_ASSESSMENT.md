@@ -44,7 +44,7 @@ across four locations with no compile-time tie between them.
 | #   | Issue                                                                               | Severity | Shape of the fix                                    |
 | :-- | :---------------------------------------------------------------------------------- | :------- | :-------------------------------------------------- |
 | 1   | ~~Request trust boundary split across two files by which field it caps~~ **CLOSED** | Medium   | One `internal/requestCaps.ts` at the chokepoint     |
-| 2   | Four concerns in one file; 6 of 8 importers want a concern other than the name      | Medium   | Split along seams the importers already reveal      |
+| 2   | ~~Four concerns in one file; 6 of 8 importers want another concern~~ **CLOSED**     | Medium   | Split into four leaf modules the importers named    |
 | 3   | ~~Config-key facts in four places; 15 tool-writable keys unchecked~~ **CLOSED**     | Medium   | Mapped type over `StudioWidgetConfig` in the schema |
 | 4   | ~~Layout validation implemented twice, kept aligned by comment~~ **CLOSED**         | Low      | Shared predicate; policy stayed at each site        |
 
@@ -226,6 +226,30 @@ probably not by handler. The table's compile-time exhaustiveness over `StudioAIT
 real guarantee, and 21 one-tool files would trade it for import bookkeeping. The 571-line
 `apply_bulk_update` is the exception — see below.
 
+> **Status: CLOSED.** Four leaf modules, each named by an importer that wanted it:
+>
+> | Module                        | Code lines | Wanted by                                                       |
+> | :---------------------------- | ---------: | :-------------------------------------------------------------- |
+> | `internal/requestCaps.ts`     |        406 | `handleAIChat`, `index`                                         |
+> | `internal/valueCaps.ts`       |        103 | everything above, `generateFieldDescriptions`, `mcp/queryTools` |
+> | `internal/widgetFromArgs.ts`  |        141 | `handleGenerateInsight`                                         |
+> | `internal/toolArgs.ts`        |         62 | `widgetFromArgs`, the executor                                  |
+> | `internal/stateProjection.ts` |         61 | `mcp/resources`                                                 |
+>
+> `executeToolOnState.ts` is **3,282 → 1,877 raw lines** (1,772 → 1,238 code), and **every
+> remaining importer wants tool execution**: `toolPolicy.ts` calls the function, `mcp.ts` takes
+> its result type, and the two test files exercise it. The metric that defined this issue reads
+> 5 of 5 rather than 2 of 8.
+>
+> The hand-routed cycle is gone at its cause rather than routed around. `handleGenerateInsight.ts`
+> imported `buildWidgetFromArgs` from the executor while the executor imported a constant back
+> from a module that could not be `handleGenerateInsight.ts` — a cycle surviving only because
+> both bindings were read inside deferred function bodies. With the widget factory in its own
+> module, `handleGenerateInsight.ts` no longer reaches into the tool executor at all, and
+> `promptCaps.ts`'s note now records the history instead of the workaround.
+>
+> `TOOL_IMPLS` was not split by handler, for the reason stated above.
+
 ## Issue 3 — widget-config knowledge is split four ways and only half of it is checkable
 
 **The finding.** Four locations know facts about widget config keys:
@@ -392,12 +416,11 @@ room.
 
 ## Recommended order of work
 
-1. **Move `capIncomingDashboardState` and its constants into a request-caps module** beside the
-   other four `capIncoming*` functions. Mechanical, removes 370 lines and two importers from
-   `executeToolOnState.ts`, and makes the invariant `handleAIChat.ts` already claims actually
-   true. Do this first — it is most of issue 2's fix as well as all of issue 1's.
-2. **Lift the projection and the widget factory out**, leaving `TOOL_IMPLS` plus dispatch. This
-   also removes the hand-routed import cycle around `handleGenerateInsight`.
+1. ~~**Move `capIncomingDashboardState` and its constants into a request-caps module** beside the
+   other four `capIncoming*` functions.~~ **Done** — `internal/requestCaps.ts`, plus
+   `internal/valueCaps.ts` for the caps that were never request-shaped.
+2. ~~**Lift the projection and the widget factory out**, leaving `TOOL_IMPLS` plus dispatch.~~
+   **Done** — plus `internal/toolArgs.ts`, which the factory needed. Cycle gone at its cause.
 3. ~~**Tie `SCALAR_CONFIG_VALUE_TYPES` to the schema**, by derivation or by compile-time
    assertion.~~ **Done** — mapped type over `StudioWidgetConfig`, all 36 scalar keys covered.
 4. ~~**Decompose `apply_bulk_update` into its five named steps**, and share the layout predicate

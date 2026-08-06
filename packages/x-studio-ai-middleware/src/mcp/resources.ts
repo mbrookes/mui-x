@@ -17,7 +17,7 @@ import {
 } from '@modelcontextprotocol/sdk/types.js';
 import { buildAISystemPrompt, serializeFieldForAI } from '../buildAISystemPrompt';
 import { buildPageLayoutContext } from '../buildPageLayoutContext';
-import { projectStateForAI } from '../executeToolOnState';
+import { projectStateForAI } from '../internal/stateProjection';
 import type { StudioCustomWidgetDef } from '../models/studioTypes';
 import type { StudioAIEnrichedContext } from '../models/aiTypes';
 import { CONTEXT_ENRICHER_TIMEOUT_MS } from '../handleAIChat';

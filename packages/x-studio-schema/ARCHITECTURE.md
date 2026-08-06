@@ -80,7 +80,8 @@ src/
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
   docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
   rankFilterScope.ts      Rank-filter page-scope resolution + the uniqueness sweep, shared by all three producers
-  applyMutation.ts        The single mutation reducer; GRID_COLS/MIN_SPAN; two load-boundary internals
+  applyMutation.ts        The reducer entry points + the assembled MUTATION_HANDLERS table
+  mutationHandlers/       One module per mutation domain, plus layout arithmetic and shared bits
   parseStateMutation.ts   The runtime validation gate for wire-sourced mutations
   widgetTypeGuards.ts     Runtime narrowing + the three closed-union membership lists
   configKeyValidation.ts  Write-side config-key allow-lists, kind level and chart-type level
@@ -991,6 +992,40 @@ answered without also answering "a remote party may perform this write". The sec
 governed, and 25 client writers stayed outside the reducer as a result.
 
 ### `applyMutation.ts` — the single mutation reducer
+
+#### Where the handlers live
+
+The 40 handlers are in `mutationHandlers/`, one module per domain; `applyMutation.ts` keeps only
+the entry points, `normalizePersistedPages`, and the table assembled from them.
+
+They were a single 3,355-line table here until the client's 25 bypass writers were migrated onto
+the reducer. That was the right destination — it is what made this the one implementation — and
+it left this the largest file in the package. The split is by DOMAIN because the domains turned
+out to be almost fully separable: of 24 private helpers, 17 belonged to widgets alone and only
+four crossed a boundary.
+
+```text
+  mutationHandlers/
+    dashboard.ts   5 handlers   title, date range, cross-filter mode flags
+    page.ts        7 handlers   add / rename / remove / reorder / active-page pointer
+    widget.ts      7 handlers   + 15 private helpers; applyBulkUpdate is most of it
+    filter.ts     10 handlers   + cross-filter and interactive-filter entries
+    preset.ts      4 handlers   thin — each delegates to a docTransforms function
+    model.ts       6 handlers   relationships and expression fields
+    ai.ts          1 handler    conversation threads
+    layout.ts      the 24-column grid arithmetic, shared by widget/page/the load boundary
+    shared.ts      the four cross-domain helpers, MutationHandler, HandlersFor
+```
+
+**The exhaustiveness guarantee survived the split, at two levels.** Each domain annotates its
+table with `HandlersFor<'a' | 'b' | …>`, so omitting a handler it claimed is a compile error in
+that file, naming the property. `applyMutation.ts` annotates the MERGED table with the full
+`{ [M in StateMutation as M['type']]: MutationHandler<M> }`, so the domains together must still
+cover the union — dropping a claim as well as its handler just moves the error here. Both were
+verified by deleting a handler and compiling, not by inspection.
+
+What the split cost: roughly 130 code lines of module headers and import blocks across ten files.
+It is a navigability change, not a reduction.
 
 #### The two layers
 

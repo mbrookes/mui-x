@@ -11,6 +11,15 @@
 > inside the design and are recorded in each package's `ARCHITECTURE.md`. This document
 > examines the design itself. Every claim below is a measurement; the command that produced it
 > is stated so it can be re-run and the number challenged.
+>
+> **Scope correction, added after the fact.** This is a review of **code structure** — module
+> cohesion, contract sharing, layer direction, duplication. Everything in it is a question an
+> experienced developer would raise, answered inside an architecture that is taken as given. It
+> does not ask whether the system's shape is right: whether the package boundaries serve the
+> product's requirements, where computation should live, what the structure commits the product
+> to. Those questions are in
+> [`SYSTEM_ARCHITECTURE_REVIEW.md`](./SYSTEM_ARCHITECTURE_REVIEW.md), and they are the ones that
+> turned out to matter more.
 
 ## Contents
 

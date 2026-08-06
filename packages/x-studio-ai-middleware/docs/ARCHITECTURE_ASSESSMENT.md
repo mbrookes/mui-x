@@ -46,7 +46,7 @@ across four locations with no compile-time tie between them.
 | 1   | The request trust boundary is split across two files by which field it caps     | Medium   | One `requestCaps` module at the chokepoint          |
 | 2   | Four concerns in one file; 6 of 8 importers want a concern other than the name  | Medium   | Split along seams the importers already reveal      |
 | 3   | ~~Config-key facts in four places; 15 tool-writable keys unchecked~~ **CLOSED** | Medium   | Mapped type over `StudioWidgetConfig` in the schema |
-| 4   | Layout validation implemented twice, kept aligned by comment                    | Low      | Share the predicate, keep the policy at each site   |
+| 4   | ~~Layout validation implemented twice, kept aligned by comment~~ **CLOSED**     | Low      | Shared predicate; policy stayed at each site        |
 
 Composition of `executeToolOnState.ts`, by code lines (blank and comment lines excluded):
 
@@ -282,8 +282,29 @@ Two implementations kept aligned by a comment asserting they are aligned.
 nothing; the bulk op pushes to `skipped` and applies the rest of the batch. That difference is
 correct and should survive — it is the same rule x-studio's issue 2 settled, that **screening
 stays with the writer when it owes its caller a reason**. But the reason is the caller's; the
-_check_ is not. A shared `validateLayoutRows(rows, liveIds) → LayoutProblem[]` with each site
-turning problems into its own outcome keeps the policy split and retires the duplicate.
+_check_ is not.
+
+> **Status: CLOSED.**
+>
+> Two shared functions, because the callers normalize differently and the split has to fall
+> between those steps: `parseLayoutRows(raw)` does shape and row-count and returns narrowed rows,
+> then `apply_bulk_update` resolves added-widget title refs to minted ids and drops emptied rows,
+> then `findLayoutIdProblem(rows, ctx)` returns the first of duplicate / unknown / foreign-page.
+>
+> `isLive` is a callback rather than a widget map because the two callers mean different things
+> by "exists": `set_widget_layout` asks about `state.doc.widgets`, the bulk op asks about the ids
+> that survive its OWN removals and additions, which are not in `state` yet.
+>
+> Each site still writes its own sentence — `layoutProblemMessage` for the tool (including its
+> `privateMode` variant, which drops the id list because which ids live elsewhere is a
+> state-derived fact private mode withholds), inline `skipped` entries for the bulk op. The
+> bulk-only "every added widget must appear in the layout" check also stayed local, ranked after
+> the shared problems.
+>
+> One behavior was unified rather than preserved: the bulk op used to flag an id present on both
+> the active page AND another page, where `set_widget_layout` exempted active-page ids. The
+> exemption won — an id can legitimately appear in the layout it is being re-sent from, and a doc
+> with one id on two pages is already the corruption the check exists to prevent.
 
 ## On `apply_bulk_update`
 
@@ -299,11 +320,26 @@ approves it once. Splitting the tool would break both properties, and the delta 
 than a whole-`widgets` snapshot) is a deliberate lost-update fix so a concurrent client-side edit
 during an agentic turn is not reverted.
 
-What it is, is one function that should be six: five `(ops, acc) → acc` steps over an explicit
+What it is, is one function that should be six: five `(args, batch, ctx)` steps over an explicit
 accumulator, plus assembly. The bookkeeping that makes it one transaction is exactly what an
-explicit accumulator makes legible, and each section already validates its own shape, applies its
-own `MAX_BULK_UPDATE_OPS` cap and crafts its own `skipped` messages — they are functions that
-have not been given names.
+explicit accumulator makes legible, and each section already validated its own shape, applied its
+own `MAX_BULK_UPDATE_OPS` cap and crafted its own `skipped` messages — they were functions that
+had not been given names.
+
+> **Status: DONE.** The member is **571 → 72 raw lines**: it builds a `BulkUpdateBatch`, calls
+> `applyBulkRemovals` → `applyBulkAdditions` → `applyBulkUpdates` → `applyBulkLayout` →
+> `applyBulkColSpans` in that order, and assembles the mutation through `bulkLayoutFields`.
+>
+> Naming the accumulator is what made the coupling statable, so the handler now says it: removals
+> shrink `liveWidgetIds` and `widgetRows`; additions extend both and mint the ids layout and
+> colSpans resolve titles to; updates validate against what survives; layout replaces the rows
+> those three produced; colSpans is checked against the rows layout left. The order is the reason
+> this is one tool, and it is now a five-line comment instead of a 571-line reading exercise.
+>
+> `collectBulkOps` absorbed the shape-check-then-cap preamble the removals, additions and updates
+> ops each carried their own copy of. The file's code-line count is roughly flat — the interface
+> declarations and shared predicate cost about what the duplication returned. That is the honest
+> result: this was never a line-count exercise.
 
 ## Why the earlier work did not reach this
 
@@ -334,8 +370,8 @@ room.
    also removes the hand-routed import cycle around `handleGenerateInsight`.
 3. ~~**Tie `SCALAR_CONFIG_VALUE_TYPES` to the schema**, by derivation or by compile-time
    assertion.~~ **Done** — mapped type over `StudioWidgetConfig`, all 36 scalar keys covered.
-4. **Decompose `apply_bulk_update` into its five named steps**, and share the layout predicate
-   with `set_widget_layout` (issue 4) while it is open.
+4. ~~**Decompose `apply_bulk_update` into its five named steps**, and share the layout predicate
+   with `set_widget_layout` (issue 4).~~ **Done** — 571 → 72 lines, six named functions.
 
 Nothing here blocks anything. The package's load-bearing decision — that the server plans
 mutations and the shared reducer applies them — is correct and uniformly kept, which is why this

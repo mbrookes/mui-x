@@ -1320,6 +1320,154 @@ function hasOwnEntity(map: object, id: string): boolean {
 }
 
 /**
+ * A reason a model-supplied layout is unusable, as data rather than as a sentence.
+ *
+ * Two tools validate a `string[][]` layout — `set_widget_layout` and `apply_bulk_update`'s
+ * layout op — and they agreed on WHAT makes one invalid while disagreeing on what to do about
+ * it: the first returns an error and applies nothing, the second records a `skipped` entry and
+ * still applies the rest of the batch. That difference is correct and stays at the call sites.
+ * What was duplicated was the predicate, kept aligned by a pair of comments each asserting it
+ * matched "the SAME rigor" as the other — which is not a mechanism.
+ *
+ * The callers turn these into their own wording because an error string here is addressed to
+ * the model, and the two tools owe it different remedies (one says "resend a layout", the other
+ * "added-widget titles are resolved to their new IDs"). Same division the config validators
+ * follow: shared predicate, local sentence.
+ */
+type LayoutProblem =
+  | { kind: 'duplicate'; ids: string[] }
+  | { kind: 'unknown'; ids: string[] }
+  | { kind: 'foreign-page'; ids: string[] };
+
+/**
+ * Shape- and size-check a raw `rows` argument, returning the narrowed rows or the reason it is
+ * unusable.
+ *
+ * The shape check is not `Array.isArray` alone: a flat `["w1","w2"]` — the exact mistake the
+ * system prompt warns about — is a valid array that corrupts `widgetRows`, after which every
+ * downstream `row.map`/`row.filter` throws on a string and kills the next turn's
+ * `buildDashboardState`.
+ *
+ * Over-cap is rejected rather than truncated by both callers, because a layout REPLACES the
+ * active page's rows wholesale: keeping the first `MAX_LAYOUT_ROWS` would silently orphan every
+ * widget beyond them.
+ */
+function parseLayoutRows(
+  raw: unknown,
+): { rows: string[][] } | { problem: 'shape' | 'too-many-rows'; count: number } {
+  if (
+    !Array.isArray(raw) ||
+    !raw.every((row) => Array.isArray(row) && row.every((id) => typeof id === 'string'))
+  ) {
+    return { problem: 'shape', count: 0 };
+  }
+  if (raw.length > MAX_LAYOUT_ROWS) {
+    return { problem: 'too-many-rows', count: raw.length };
+  }
+  return { rows: raw as string[][] };
+}
+
+/**
+ * The first id-level problem with an already-shape-checked layout, or `undefined` when it is
+ * placeable.
+ *
+ * Ordered, and both callers depend on the order: duplicates first (an id in two cells would
+ * place one widget twice — the reducer's `dedupeLayoutRows` silently keeps the first, so
+ * committing one would diverge from what the tool reports as applied), then membership (an
+ * unknown id persists as a phantom layout entry — a blank card), then active-page ownership.
+ *
+ * `isLive` rather than a widget map because the two callers mean different things by "exists":
+ * `set_widget_layout` asks about `state.doc.widgets`, while `apply_bulk_update` asks about the
+ * ids that survive ITS OWN removals and additions, which are not in `state` yet.
+ *
+ * The ownership check exists because the emitted mutations target the ACTIVE page and neither
+ * reducer path does cross-page cleanup, so placing an id that currently lives on another page
+ * leaves that widget referenced by both pages' `widgetRows` — one widget, one config, two pages.
+ */
+function findLayoutIdProblem(
+  rows: string[][],
+  ctx: { isLive: (id: string) => boolean; state: StudioState; activePageId: string },
+): LayoutProblem | undefined {
+  const flat = rows.flat();
+  const seen = new Set<string>();
+  const duplicates = [
+    ...new Set(
+      flat.filter((id) => {
+        if (seen.has(id)) {
+          return true;
+        }
+        seen.add(id);
+        return false;
+      }),
+    ),
+  ];
+  if (duplicates.length > 0) {
+    return { kind: 'duplicate', ids: duplicates };
+  }
+  const distinct = [...new Set(flat)];
+  const unknown = distinct.filter((id) => !ctx.isLive(id));
+  if (unknown.length > 0) {
+    return { kind: 'unknown', ids: unknown };
+  }
+  // Ids already on the active page are exempt: an id can legitimately appear in the layout it
+  // is being re-sent from, and a doc where one id sits on two pages at once is already the
+  // corruption this check exists to prevent rather than one to report here.
+  const activeIds = new Set(
+    (ctx.state.doc.pages[ctx.activePageId]?.widgetRows ?? []).flat() as string[],
+  );
+  const foreign = distinct.filter(
+    (id) =>
+      !activeIds.has(id) &&
+      Object.values(ctx.state.doc.pages).some(
+        (page) =>
+          page.id !== ctx.activePageId && (page.widgetRows ?? []).some((row) => row.includes(id)),
+      ),
+  );
+  return foreign.length > 0 ? { kind: 'foreign-page', ids: foreign } : undefined;
+}
+
+/**
+ * `set_widget_layout`'s wording for a {@link LayoutProblem}. `apply_bulk_update` writes its own,
+ * because its layout op is one of five and its remedies mention batch-specific machinery.
+ *
+ * The unknown-id remediation states the CONSTRAINT and names no discovery tool on purpose: the
+ * obvious hint — "call `get_dashboard_state`" — is wrong under `privateMode`, where that tool is
+ * `privateModeExcluded` and never advertised while this one still is, so the model would spend a
+ * turn on an `Unknown tool` error before it could retry. The same applies whenever a host narrows
+ * `allowedTools`. What is true in every mode is where a valid id comes from, so it says that.
+ *
+ * Under `privateMode` the foreign-page branch drops the id list. WHICH submitted ids live
+ * elsewhere is a state-derived fact rather than something the caller told us, so naming them
+ * partitions the model's ids by page — exactly the structure private mode withholds — and this
+ * string is re-sent to the provider on every remaining turn. The constraint and the remedy are
+ * unchanged; only the list goes.
+ */
+function layoutProblemMessage(problem: LayoutProblem, privateMode: boolean | undefined): string {
+  if (problem.kind === 'duplicate') {
+    return (
+      `set_widget_layout received duplicate widget IDs: ${joinIdsForError(problem.ids)}. ` +
+      'Each widget must appear exactly once across all rows.'
+    );
+  }
+  if (problem.kind === 'unknown') {
+    return (
+      `set_widget_layout received unknown widget IDs: ${joinIdsForError(problem.ids)}. ` +
+      'A layout only arranges widgets that already exist — it cannot create one, so an ' +
+      'ID that names no widget would be stored as a blank card. Use the IDs that ' +
+      'add_widget returned earlier in this conversation, or the ones already present in ' +
+      'the layout you were given.'
+    );
+  }
+  return privateMode
+    ? 'set_widget_layout received widget IDs that are not on the active page. A layout ' +
+        'call only arranges the active page; call set_active_page for the page that holds ' +
+        'them before rearranging them, or submit only IDs already in the layout you were given.'
+    : `set_widget_layout received widget IDs that live on another page: ${joinIdsForError(problem.ids)}. ` +
+        'A layout call only arranges the active page; call set_active_page for the page that ' +
+        'contains them before rearranging them.';
+}
+
+/**
  * `Object.hasOwn`-guarded read of one widget's column span from a page's
  * `widgetColSpans` map, returning `null` for "no span set".
  *
@@ -1665,6 +1813,511 @@ function planRemoveFilter(
  * therefore cannot supply a `plan` function), so it structurally cannot enter
  * the execute-then-gate dry-run path in `toolPolicy.ts`.
  */
+/**
+ * The running result of one `apply_bulk_update` call, threaded through its five ops.
+ *
+ * The handler is ONE tool on purpose — it emits a single `applyBulkUpdate` mutation carrying
+ * deltas, so the client applies it atomically and the human approves it once — but it was also
+ * one 571-line closure, and the coupling that makes it a single transaction was invisible inside
+ * it. Removals mutate {@link widgetRows} and {@link liveWidgetIds}, which additions and updates
+ * then read, which the layout op then validates against. Naming that state is what lets each op
+ * be a function instead of a labelled paragraph.
+ *
+ * Every field is mutated in place by the ops except {@link widgetRows}, which the layout op
+ * REPLACES wholesale.
+ */
+interface BulkUpdateBatch {
+  /** Per-op rejection messages, count-bounded by `truncateSkipped` at the end. */
+  readonly skipped: string[];
+  /** What actually landed — the numbers the tool reports back to the model. */
+  readonly applied: {
+    updated: number;
+    added: number;
+    removed: number;
+    layout: boolean;
+    colSpans: number;
+  };
+  /** The active page's rows as this batch has them so far. Replaced outright by a layout op. */
+  widgetRows: string[][];
+  /**
+   * Every widget's span, seeded from the page. Shipped whole only when rows actually changed —
+   * see the assembly step for why a spans-only batch must not send this.
+   */
+  readonly colSpans: Record<string, number>;
+  /** Only the spans THIS batch accepted, for the spans-only payload. */
+  readonly changedSpans: Record<string, number>;
+  readonly removedWidgetIds: string[];
+  readonly addedWidgets: StudioWidget[];
+  readonly updatedWidgets: Array<{
+    widgetId: string;
+    title?: string;
+    sourceId?: string;
+    config?: StudioWidget['config'];
+  }>;
+  /** Ids that exist after each delta step, so later ops validate against the batch, not `state`. */
+  readonly liveWidgetIds: Set<string>;
+  /**
+   * Title → minted id for widgets added this batch, so `layout`/`colSpans` can reference an
+   * addition the model only knows by title (its id is server-minted).
+   *
+   * A `Map`, not a plain object: the key is a model-chosen `title`, and `"constructor"` /
+   * `"__proto__"` would resolve an inherited value off a literal. `.get()` returns `undefined`
+   * for an unmatched ref, so every `?? ref` fallthrough reaches the raw model string and skip
+   * messages read back the exact ref. Both siblings below are `Map`s for the same reason.
+   */
+  readonly addedTitleToId: Map<string, string>;
+  /** Kind of each widget added this batch, so the updates op can validate its config keys. */
+  readonly addedWidgetKinds: Map<string, string>;
+  /**
+   * Running — NOT snapshot — chartType per widget. Seeded lazily from existing chart widgets and
+   * eagerly from same-batch chart additions, then updated after each accepted chartType change,
+   * so a later update in the SAME batch validates against the type an earlier one just set.
+   * Without it, changing a chartType and setting a key valid only for the NEW type in one call
+   * would be falsely rejected (and the reverse falsely accepted).
+   */
+  readonly currentChartTypes: Map<string, string | undefined>;
+}
+
+/** Read-only surroundings every bulk op needs. */
+interface BulkUpdateContext {
+  state: StudioState;
+  activePageId: string;
+  activePage: StudioPage;
+  customWidgets?: StudioCustomWidgetDef[];
+}
+
+/**
+ * Narrow and cap one of the three array-shaped op lists, recording its own rejection.
+ *
+ * Shape-validating BEFORE iterating is the point: a bare `as string[]` cast trusts the model
+ * verbatim, so `widgetRemovals: "w1"` would `for…of` over CHARACTERS (removing widgets `"w"`,
+ * `"1"`, …) and report success, while `{}` / `42` / `[null]` would throw a raw `TypeError`
+ * instead of the schema-shaped errors this handler crafts.
+ *
+ * Over-cap TRUNCATES rather than rejecting, unlike the layout op: these lists are independent
+ * entries, so applying the first `MAX_BULK_UPDATE_OPS` and naming the remainder is useful, where
+ * a partial layout would orphan every widget past the cut.
+ */
+function collectBulkOps<T>(
+  raw: unknown,
+  spec: {
+    name: string;
+    isEntry: (value: unknown) => boolean;
+    shapeHelp: string;
+  },
+  batch: BulkUpdateBatch,
+): T[] {
+  if (raw === undefined) {
+    return [];
+  }
+  if (!Array.isArray(raw) || !raw.every(spec.isEntry)) {
+    batch.skipped.push(`${spec.name}: ${spec.shapeHelp}`);
+    return [];
+  }
+  if (raw.length > MAX_BULK_UPDATE_OPS) {
+    batch.skipped.push(
+      `${spec.name}: received ${raw.length} entries; only the first ` +
+        `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
+        'apply_bulk_update call.',
+    );
+    return raw.slice(0, MAX_BULK_UPDATE_OPS) as T[];
+  }
+  return raw as T[];
+}
+
+/** True for a plain (non-array, non-null) record — the shape both op-entry checks start from. */
+function isOpRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/**
+ * Op 1 — removals.
+ *
+ * This handler only rewrites the ACTIVE page's `widgetRows`. Removing a widget that lives on
+ * another page would delete it from `widgets` while leaving a dangling id in that page's rows
+ * (a blank card), so only active-page widgets are removed and the rest are reported as skipped,
+ * mirroring the not-found handling.
+ */
+function applyBulkRemovals(
+  args: Record<string, unknown>,
+  batch: BulkUpdateBatch,
+  ctx: BulkUpdateContext,
+): void {
+  const activePageWidgetIds = new Set((ctx.activePage.widgetRows ?? []).flat());
+  const removals = collectBulkOps<string>(
+    args.widgetRemovals,
+    {
+      name: 'widgetRemovals',
+      isEntry: (id) => typeof id === 'string',
+      shapeHelp: 'must be an array of widget-ID strings (e.g. ["w1","w2"]).',
+    },
+    batch,
+  );
+  for (const wid of removals) {
+    // Length-cap the id used in the ECHO only, never the one used for lookups: `skipped`
+    // entries are count-bounded by `truncateSkipped` but each entry was itself unbounded, so a
+    // batch of over-long ids echoed megabytes back into the conversation. A live id can never
+    // exceed `MAX_ENTITY_ID_LENGTH` (every incoming id is `capEntityId`-capped), so a capped
+    // label never hides a match. Every op below echoes on the same rule.
+    const widLabel = capEntityId(wid);
+    if (!batch.liveWidgetIds.has(wid)) {
+      batch.skipped.push(`remove ${widLabel}: not found`);
+      continue;
+    }
+    if (!activePageWidgetIds.has(wid)) {
+      batch.skipped.push(`remove ${widLabel}: not on the active page`);
+      continue;
+    }
+    batch.removedWidgetIds.push(wid);
+    batch.liveWidgetIds.delete(wid);
+    batch.widgetRows = batch.widgetRows
+      .map((row) => row.filter((id) => id !== wid))
+      .filter((row) => row.length > 0);
+    batch.applied.removed += 1;
+  }
+}
+
+/**
+ * Op 2 — additions.
+ *
+ * Each accepted widget is appended as its own one-widget row; an explicit `layout` op later
+ * replaces those placements, which is why that op insists every addition appears in it.
+ */
+function applyBulkAdditions(
+  args: Record<string, unknown>,
+  batch: BulkUpdateBatch,
+  ctx: BulkUpdateContext,
+): void {
+  const additions = collectBulkOps<{
+    kind: string;
+    title: string;
+    sourceId?: string;
+    config?: Record<string, unknown>;
+  }>(
+    args.widgetAdditions,
+    {
+      name: 'widgetAdditions',
+      isEntry: (a) => isOpRecord(a) && typeof a.kind === 'string' && typeof a.title === 'string',
+      shapeHelp:
+        'must be an array of objects each with a string `kind` and string `title` ' +
+        '(e.g. [{ "kind": "chart", "title": "Revenue" }]).',
+    },
+    batch,
+  );
+  // Whether this batch carries a layout or colSpans op that resolves added-widget refs BY TITLE.
+  // When it does, two additions with the SAME title are ambiguous: `addedTitleToId` is
+  // last-write-wins, so the ref would resolve to only one of them and the other would land in
+  // `doc.widgets` referenced by no page — an invisible orphan that still persists, serializes,
+  // and survives undo, all reported as `applied.added` success. So when a title ref could be
+  // consulted, the SECOND (and later) addition sharing a title is skipped with an actionable
+  // message rather than silently orphaned.
+  const batchHasTitleRefs =
+    args.layout !== undefined ||
+    (isOpRecord(args.colSpans) && Object.keys(args.colSpans).length > 0);
+
+  for (const addition of additions) {
+    const built = buildWidgetFromArgs(addition, ctx.customWidgets);
+    if ('error' in built) {
+      batch.skipped.push(`add "${capTitle(asString(addition.title))}": ${built.error}`);
+      continue;
+    }
+    const { widget } = built;
+    if (batchHasTitleRefs && batch.addedTitleToId.has(widget.title)) {
+      batch.skipped.push(
+        `add "${widget.title}": duplicate addition title is ambiguous for a layout or ` +
+          'colSpans title reference; give each widget added in this batch a unique title.',
+      );
+      continue;
+    }
+    batch.addedWidgets.push(widget);
+    batch.liveWidgetIds.add(widget.id);
+    batch.addedTitleToId.set(widget.title, widget.id);
+    batch.addedWidgetKinds.set(widget.id, widget.kind);
+    if (isWidgetOfKind(widget, 'chart')) {
+      batch.currentChartTypes.set(widget.id, widget.config.chartType);
+    }
+    batch.widgetRows.push([widget.id]);
+    batch.applied.added += 1;
+  }
+}
+
+/**
+ * Op 3 — updates.
+ *
+ * Each update is emitted as a PARTIAL patch, never the merged widget snapshot: the reducer
+ * merges it onto the live widget, so a concurrent edit to a different key on that widget
+ * survives this turn.
+ */
+function applyBulkUpdates(
+  args: Record<string, unknown>,
+  batch: BulkUpdateBatch,
+  ctx: BulkUpdateContext,
+): void {
+  const updates = collectBulkOps<{
+    widgetId: string;
+    title?: string;
+    sourceId?: string;
+    config?: Record<string, unknown>;
+  }>(
+    args.widgetUpdates,
+    {
+      name: 'widgetUpdates',
+      isEntry: (u) => isOpRecord(u) && typeof u.widgetId === 'string',
+      shapeHelp:
+        'must be an array of objects each with a string `widgetId` ' +
+        '(e.g. [{ "widgetId": "w1", "title": "New" }]).',
+    },
+    batch,
+  );
+  const resolveChartTypeForUpdate = (
+    wid: string,
+    existingWidget: StudioWidget | undefined,
+  ): string | undefined => {
+    if (batch.currentChartTypes.has(wid)) {
+      return batch.currentChartTypes.get(wid);
+    }
+    const seed =
+      existingWidget && isWidgetOfKind(existingWidget, 'chart')
+        ? existingWidget.config.chartType
+        : undefined;
+    batch.currentChartTypes.set(wid, seed);
+    return seed;
+  };
+
+  for (const update of updates) {
+    const wid = asString(update.widgetId ?? '');
+    const widLabel = capEntityId(wid);
+    if (!batch.liveWidgetIds.has(wid)) {
+      batch.skipped.push(`update ${widLabel}: not found`);
+      continue;
+    }
+    // `widgetId` was shape-checked as a string above, but `title`/`sourceId` were not: a
+    // `{"toString":1}` in either threw a raw `TypeError` out of the whole bulk call, discarding
+    // every op the batch had already accepted. Report it as a `skipped` entry instead, matching
+    // every other rejected op, so the rest of the batch still applies.
+    const updateArgError = invalidStringArgsError(update as Record<string, unknown>, [
+      'title',
+      'sourceId',
+    ]);
+    if (updateArgError) {
+      batch.skipped.push(`update ${widLabel}: ${updateArgError}`);
+      continue;
+    }
+    // Cap every model-supplied string-typed config value BEFORE validation, so an oversized
+    // `xField`/`yField`/… never lands in state.
+    const configArg = update.config
+      ? (capConfigStringValues(update.config) as Record<string, unknown>)
+      : undefined;
+    if (configArg) {
+      const existingWidget = getWidget(ctx.state, wid);
+      // `?? ''` is unreachable in practice (`liveWidgetIds` membership was checked above, and it
+      // only ever holds existing or same-batch-added ids) but keeps the type honest now that the
+      // lookup is a `Map`; an empty kind is treated as an unknown kind by
+      // `validateConfigKeysForKind`, exactly as before.
+      const kind = existingWidget?.kind ?? batch.addedWidgetKinds.get(wid) ?? '';
+      const error = invalidConfigKeyError(kind, configArg);
+      if (error) {
+        batch.skipped.push(`update ${widLabel}: ${error}`);
+        continue;
+      }
+      const valueError = invalidConfigValueError(configArg);
+      if (valueError) {
+        batch.skipped.push(`update ${widLabel}: ${valueError}`);
+        continue;
+      }
+      if (kind === 'chart') {
+        const existingChartType = resolveChartTypeForUpdate(wid, existingWidget);
+        const chartError = invalidChartConfigKeyError(configArg, existingChartType);
+        if (chartError) {
+          batch.skipped.push(`update ${widLabel}: ${chartError}`);
+          continue;
+        }
+        // Accepted: if this update sets a new chartType, record it so later same-batch updates
+        // targeting this widget validate against it.
+        if (Object.hasOwn(configArg, 'chartType')) {
+          batch.currentChartTypes.set(wid, configArg.chartType as string | undefined);
+        }
+      }
+    }
+    batch.updatedWidgets.push({
+      widgetId: wid,
+      ...(update.title !== undefined ? { title: capTitle(asString(update.title)) } : {}),
+      ...(update.sourceId !== undefined
+        ? { sourceId: capSourceId(asString(update.sourceId)) }
+        : {}),
+      ...(configArg ? { config: configArg as StudioWidget['config'] } : {}),
+    });
+    batch.applied.updated += 1;
+  }
+}
+
+/**
+ * Op 4 — layout.
+ *
+ * Shares its predicate with `set_widget_layout` (see {@link findLayoutIdProblem}) and differs
+ * only in policy: a problem here skips the layout op and lets the rest of the batch apply.
+ */
+function applyBulkLayout(
+  args: Record<string, unknown>,
+  batch: BulkUpdateBatch,
+  ctx: BulkUpdateContext,
+): void {
+  if (args.layout === undefined) {
+    return;
+  }
+  const parsed = parseLayoutRows(args.layout);
+  if ('problem' in parsed) {
+    batch.skipped.push(
+      parsed.problem === 'shape'
+        ? 'layout: must be an array of rows, where each row is an array of widget-ID ' +
+            '(or added-widget-title) strings (e.g. [["w1","w2"],["w3"]]).'
+        : `layout: received ${parsed.count} rows, more than the ${MAX_LAYOUT_ROWS} allowed. ` +
+            'Layout not applied — send a layout with fewer rows.',
+    );
+    return;
+  }
+  // Resolve added-widget TITLE refs to the ids minted above, and drop rows the mapping emptied.
+  // Both are bulk-only normalization, which is why they sit here rather than in the parser.
+  const mappedRows = parsed.rows
+    .map((row) => row.map((ref) => batch.addedTitleToId.get(ref) ?? ref))
+    .filter((row) => row.length > 0);
+  const problem = findLayoutIdProblem(mappedRows, {
+    // "Exists" means live after THIS batch's removals and additions — none of which are in
+    // `state` yet — not present in `state.doc.widgets`.
+    isLive: (id) => batch.liveWidgetIds.has(id),
+    state: ctx.state,
+    activePageId: ctx.activePageId,
+  });
+  // An explicit layout op REPLACES the active page's rows wholesale (including the
+  // one-widget-per-row entries the additions op pushed). So every widget added in this batch
+  // MUST appear in it — an added-but-unplaced widget would land in `doc.widgets` referenced by
+  // no page: an invisible orphan that still persists, serializes and survives undo, reported as
+  // `applied.added` + `layout: true` success. Bulk-only, so it ranks after the shared problems.
+  const layoutIdSet = new Set(mappedRows.flat());
+  const unplacedAddedIds = batch.addedWidgets.map((w) => w.id).filter((id) => !layoutIdSet.has(id));
+
+  if (problem?.kind === 'duplicate') {
+    batch.skipped.push(
+      `layout: duplicate widget IDs: ${joinIdsForError(problem.ids)}. ` +
+        'Each widget must appear exactly once across all rows.',
+    );
+  } else if (problem?.kind === 'unknown') {
+    batch.skipped.push(
+      `layout: unknown or removed widget IDs: ${joinIdsForError(problem.ids)}. ` +
+        'Reference only widgets that exist after this update (added-widget titles ' +
+        'are resolved to their new IDs).',
+    );
+  } else if (problem?.kind === 'foreign-page') {
+    batch.skipped.push(
+      `layout: widget IDs that live on another page: ${joinIdsForError(problem.ids)}. ` +
+        'A layout op only arranges the active page; switch to the page that contains ' +
+        'them first.',
+    );
+  } else if (unplacedAddedIds.length > 0) {
+    batch.skipped.push(
+      `layout: widgets added in this batch are not placed in the layout: ${joinIdsForError(
+        unplacedAddedIds,
+      )}. A layout op replaces the active page, so every added widget must appear in ` +
+        'it (reference an added widget by its title). Layout not applied.',
+    );
+  } else {
+    batch.widgetRows = mappedRows;
+    batch.applied.layout = true;
+  }
+}
+
+/**
+ * Op 5 — column spans, in the 24-column unit system the canvas renders (matching
+ * `canvasGridConstants.GRID_COLS` = 24 / `MIN_SPAN` = 6 in `@mui/x-studio` and the
+ * `setWidgetColSpan` reducer's clamp).
+ *
+ * An out-of-range or non-numeric span is REJECTED and reported, not clamped: this handler
+ * reports `applied.colSpans` as a per-op COUNT rather than the per-widget applied value (unlike
+ * `set_widget_width`, which echoes the reducer-clamped value for its one widget), so clamping
+ * would leave the model no way to learn which width it actually got.
+ *
+ * MEMBERSHIP is enforced as well as range. The reducer writes spans to the ACTIVE page only and
+ * `enforceLayoutColSpans` prunes any span whose widget is not in that page's post-batch rows, so
+ * a span keyed to a phantom widget, one on another page, or one removed earlier in this batch is
+ * silently discarded on apply — counting it would overstate what landed. `batch.widgetRows`
+ * already reflects this batch's removals, additions and layout, so it is the authoritative set.
+ */
+function applyBulkColSpans(
+  args: Record<string, unknown>,
+  batch: BulkUpdateBatch,
+  _ctx: BulkUpdateContext,
+): void {
+  const activePageWidgetIdsAfterBatch = new Set(batch.widgetRows.flat());
+  const colSpanPatch = (args.colSpans as Record<string, unknown> | undefined) ?? {};
+  let colSpanEntries = Object.entries(colSpanPatch);
+  if (colSpanEntries.length > MAX_BULK_UPDATE_OPS) {
+    batch.skipped.push(
+      `colSpans: received ${colSpanEntries.length} entries; only the first ` +
+        `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
+        'apply_bulk_update call.',
+    );
+    colSpanEntries = colSpanEntries.slice(0, MAX_BULK_UPDATE_OPS);
+  }
+  for (const [ref, span] of colSpanEntries) {
+    // Resolve added-widget TITLE refs to their minted ids, mirroring the layout op: a widget
+    // added earlier in this same batch is known to the model only by title, so keying strictly
+    // by id would silently drop a same-batch add-then-resize.
+    const wid = batch.addedTitleToId.get(ref) ?? ref;
+    // `ref` is a raw model-supplied object KEY, so it is unbounded in length — echo-capped.
+    const refLabel = capEntityId(ref);
+    if (!batch.liveWidgetIds.has(wid)) {
+      batch.skipped.push(`colSpan ${refLabel}: widget not found.`);
+      continue;
+    }
+    if (!activePageWidgetIdsAfterBatch.has(wid)) {
+      batch.skipped.push(`colSpan ${refLabel}: not on the active page.`);
+      continue;
+    }
+    if (typeof span === 'number' && span >= 6 && span <= 24) {
+      batch.colSpans[wid] = span;
+      batch.changedSpans[wid] = span;
+      batch.applied.colSpans += 1;
+    } else {
+      batch.skipped.push(
+        `colSpan ${refLabel}: ${describeArgValue(span)} is out of range (must be a number 6-24).`,
+      );
+    }
+  }
+}
+
+/**
+ * Which layout fields the emitted mutation carries — the one piece of this handler that is a
+ * decision rather than an op.
+ *
+ * `widgetRows`/`widgetColSpans` are a plan-time snapshot of the active page's layout. Attaching
+ * them unconditionally means a batch containing only `widgetUpdates` still ships that stale
+ * snapshot, silently reverting a concurrent client-side layout edit (a drag-reorder) made while
+ * this turn was running. So they are attached only when this batch actually changed layout —
+ * keyed off `applied`, since a requested op that was skipped never touched either.
+ *
+ * Two change shapes attach DIFFERENT fields:
+ *
+ * - A removal / addition / explicit `layout` op genuinely re-places rows, so the full snapshot
+ *   IS the intended new placement and ships alongside `widgetColSpans`.
+ * - A colSpans-ONLY batch changes widths and never row placement. Shipping `widgetRows` would
+ *   revert a concurrent drag-reorder — the same lost-update class, one case narrower — so it
+ *   sends only the spans this batch CHANGED, relying on the reducer to reconcile a spans-only
+ *   payload against the page's existing rows instead of wiping them.
+ *
+ * The reducer treats true absence of both fields as "layout unchanged" and skips its
+ * layout-replacement block, so an updates-only or all-skipped batch leaves the client alone.
+ */
+function bulkLayoutFields(batch: BulkUpdateBatch): Record<string, unknown> {
+  const rowsChanged = batch.applied.removed > 0 || batch.applied.added > 0 || batch.applied.layout;
+  if (rowsChanged) {
+    return { widgetRows: batch.widgetRows, widgetColSpans: batch.colSpans };
+  }
+  if (batch.applied.colSpans > 0) {
+    return { widgetColSpans: batch.changedSpans };
+  }
+  return {};
+}
+
 const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } = {
   get_dashboard_state: {
     effect: 'pure',
@@ -1928,129 +2581,34 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
   set_widget_layout: {
     effect: 'pure',
     plan: (args, { state, privateMode }) => {
-      const rawRows = args.rows;
-      // Validate the SHAPE, not just `Array.isArray`: a flat `["w1","w2"]` (the
-      // exact mistake the system prompt warns about) is a valid array but corrupts
-      // `widgetRows` — every downstream `row.map`/`row.filter` then throws on a
-      // string, killing the next turn's `buildDashboardState`.
-      if (
-        !Array.isArray(rawRows) ||
-        !rawRows.every((row) => Array.isArray(row) && row.every((id) => typeof id === 'string'))
-      ) {
+      const parsed = parseLayoutRows(args.rows);
+      if ('problem' in parsed) {
         return {
           output: JSON.stringify({
             error:
-              'set_widget_layout requires "rows" to be an array of rows, where each row is an ' +
-              'array of widget-ID strings (e.g. [["w1","w2"],["w3"]]).',
+              parsed.problem === 'shape'
+                ? 'set_widget_layout requires "rows" to be an array of rows, where each row is ' +
+                  'an array of widget-ID strings (e.g. [["w1","w2"],["w3"]]).'
+                : `set_widget_layout received ${parsed.count} rows, more than the ` +
+                  `${MAX_LAYOUT_ROWS} allowed. Send a layout with fewer rows.`,
           }),
           nextState: state,
         };
       }
-      const rows = rawRows as string[][];
-      // Cap the row COUNT: an unbounded row array is re-flattened and
-      // re-validated on every call and, once committed, re-described on every future
-      // request. Reject rather than truncate — a truncated layout would silently orphan
-      // every widget beyond the cap.
-      if (rows.length > MAX_LAYOUT_ROWS) {
-        return {
-          output: JSON.stringify({
-            error:
-              `set_widget_layout received ${rows.length} rows, more than the ${MAX_LAYOUT_ROWS} ` +
-              'allowed. Send a layout with fewer rows.',
-          }),
-          nextState: state,
-        };
-      }
+      const { rows } = parsed;
       const activePageId = state.doc.dashboard.activePageId;
-      const activePage = getPage(state, activePageId);
-      if (!activePage) {
+      if (!getPage(state, activePageId)) {
         return { output: JSON.stringify({ error: 'No active page.' }), nextState: state };
       }
-      // Reject DUPLICATE ids (RC5): a widget id appearing in more than one cell would
-      // place the same widget twice, corrupting the layout (the reducer and canvas
-      // assume each widget occupies exactly one slot). Catch it here — before the
-      // membership check and the mutation — with an actionable error so the model can
-      // resend a clean layout, rather than committing a self-overlapping arrangement.
-      const flatLayoutIds = rows.flat();
-      const seenLayoutIds = new Set<string>();
-      const duplicateIds = [
-        ...new Set(
-          flatLayoutIds.filter((id) => {
-            if (seenLayoutIds.has(id)) {
-              return true;
-            }
-            seenLayoutIds.add(id);
-            return false;
-          }),
-        ),
-      ];
-      if (duplicateIds.length > 0) {
+      const problem = findLayoutIdProblem(rows, {
+        // Widgets added earlier this turn are already threaded into `state.doc.widgets`.
+        isLive: (id) => hasOwnEntity(state.doc.widgets, id),
+        state,
+        activePageId,
+      });
+      if (problem) {
         return {
-          output: JSON.stringify({
-            error:
-              `set_widget_layout received duplicate widget IDs: ${joinIdsForError(duplicateIds)}. ` +
-              'Each widget must appear exactly once across all rows.',
-          }),
-          nextState: state,
-        };
-      }
-      // Validate MEMBERSHIP: every id must be a known widget (widgets added earlier
-      // this turn are already threaded into `state.doc.widgets`). Unknown ids would
-      // otherwise be stored as phantom layout entries (blank cards).
-      const unknownIds = [...new Set(rows.flat())].filter(
-        (id) => !hasOwnEntity(state.doc.widgets, id),
-      );
-      if (unknownIds.length > 0) {
-        // The remediation states the CONSTRAINT and names no discovery tool. The
-        // obvious hint here — "call get_dashboard_state" — is wrong in private mode:
-        // `get_dashboard_state` is `privateModeExcluded` (see `STUDIO_AI_TOOL_REGISTRY`)
-        // and so is never advertised there, while `set_widget_layout` still is, so the
-        // model would spend a turn on an `Unknown tool` error before it could retry.
-        // The same applies whenever a host narrows `allowedTools`. What is true in
-        // EVERY mode is where a valid id comes from, so say that instead.
-        return {
-          output: JSON.stringify({
-            error:
-              `set_widget_layout received unknown widget IDs: ${joinIdsForError(unknownIds)}. ` +
-              'A layout only arranges widgets that already exist — it cannot create one, so an ' +
-              'ID that names no widget would be stored as a blank card. Use the IDs that ' +
-              'add_widget returned earlier in this conversation, or the ones already present in ' +
-              'the layout you were given.',
-          }),
-          nextState: state,
-        };
-      }
-      // Active-page OWNERSHIP: the emitted `setWidgetLayout` mutation targets the ACTIVE page and
-      // the `setWidgetLayout` reducer does NO cross-page cleanup, so placing an id that currently
-      // lives on ANOTHER page here would leave that widget referenced by BOTH pages' `widgetRows` —
-      // one widget (sharing one config) duplicated across two pages. Mirror `set_widget_width`'s
-      // ownership guard: membership is restricted to widgets on the active page or not yet placed
-      // anywhere; reject ids owned by a non-active page.
-      const activeLayoutIds = new Set((activePage.widgetRows ?? []).flat());
-      const foreignPageIds = [...new Set(rows.flat())].filter(
-        (id) =>
-          !activeLayoutIds.has(id) &&
-          Object.values(state.doc.pages).some(
-            (page) =>
-              page.id !== activePageId && (page.widgetRows ?? []).some((row) => row.includes(id)),
-          ),
-      );
-      if (foreignPageIds.length > 0) {
-        return {
-          output: JSON.stringify({
-            // WHICH of the submitted ids live elsewhere is a state-derived
-            // fact, not something the caller told us: naming the subset partitions the
-            // model's ids by page, which is exactly the structure private mode withholds
-            // (and this string is re-sent to the provider every remaining turn). The
-            // constraint and its remediation are unchanged; only the id list is dropped.
-            error: privateMode
-              ? 'set_widget_layout received widget IDs that are not on the active page. A layout ' +
-                'call only arranges the active page; call set_active_page for the page that holds ' +
-                'them before rearranging them, or submit only IDs already in the layout you were given.'
-              : `set_widget_layout received widget IDs that live on another page: ${joinIdsForError(foreignPageIds)}. ` +
-                'A layout call only arranges the active page; call set_active_page for the page that ' +
-                'contains them before rearranging them.',
-          }),
+          output: JSON.stringify({ error: layoutProblemMessage(problem, privateMode) }),
           nextState: state,
         };
       }
@@ -2461,561 +3019,62 @@ const TOOL_IMPLS: { [K in StudioAIToolName]: PureToolImpl | ExternalToolImpl } =
         return { output: JSON.stringify({ error: 'No active page found.' }), nextState: state };
       }
 
-      const skipped: string[] = [];
-      const applied = { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 };
-
-      let widgetRows = (activePage.widgetRows ?? []).map((row) => [...row]);
-      // `Object.assign(Object.create(null), …)`, not a `{ … }` spread:
-      // both span maps are keyed by a MODEL-supplied widget id (or an id that came in
-      // on the request body — `state.doc.widgets` is client JSON), and `colSpans['__proto__']
-      // = 12` on a normal object literal is silently discarded (assigning a primitive to
-      // `__proto__` is a no-op) while `applied.colSpans += 1` still counts it. That is a
-      // dropped mutation reported as `{ success: true }` — the exact executor/reducer
-      // desync class the `Object.hasOwn` id hardening exists to prevent, on the write
-      // side. A null-prototype map has no `__proto__` accessor, so every key lands as an
-      // ordinary own property and ships in the mutation.
-      const colSpans: Record<string, number> = Object.assign(
-        Object.create(null),
-        activePage.widgetColSpans ?? {},
-      );
-      // `colSpans` is a plan-time snapshot of EVERY widget's
-      // span. The `rowsChanged` branch legitimately ships that whole snapshot (rows were
-      // re-placed, so the snapshot IS the intended full map), but the colSpans-ONLY branch
-      // must ship ONLY the entries this batch actually accepted — otherwise the reducer's
-      // merge re-asserts the stale snapshot spans of widgets this batch never touched,
-      // reverting a concurrent client-side resize of a DIFFERENT widget. Track accepted
-      // entries separately so the colSpans-only payload carries just the real changes.
-      // Null-prototype for the same reason as `colSpans` above.
-      const changedSpans: Record<string, number> = Object.create(null);
-
-      // The mutation carries only DELTAS (remove/add/update), applied by the reducer
-      // against the receiver's CURRENT `state.doc.widgets` — never a snapshot of the
-      // whole `widgets` record. This is the lost-update fix: a widget the user edits
-      // on any page while this agentic turn is running is no longer reverted, because
-      // only the ids named below are touched.
-      const removedWidgetIds: string[] = [];
-      const addedWidgets: StudioWidget[] = [];
-      const updatedWidgets: Array<{
-        widgetId: string;
-        title?: string;
-        sourceId?: string;
-        config?: StudioWidget['config'];
-      }> = [];
-
-      // 1. Removals
-      // This handler only rewrites the ACTIVE page's `widgetRows`. Removing a widget
-      // that lives on another page would delete it from `widgets` while leaving a
-      // dangling id in that other page's rows (blank card). Only remove widgets that
-      // are on the active page; report the rest as `skipped`, mirroring the not-found
-      // handling. `liveWidgetIds` tracks the ids that exist after each delta step so
-      // later update/validation checks match the pre-delta-refactor behavior.
-      const activePageWidgetIds = new Set((activePage.widgetRows ?? []).flat());
-      const liveWidgetIds = new Set(Object.keys(state.doc.widgets));
-      // SHAPE-validate before iterating, mirroring the `layout` op below:
-      // a bare `as string[]` cast trusts the model verbatim, so `widgetRemovals: "w1"`
-      // would `for…of` over CHARACTERS (removing widgets "w", "1", …) and report
-      // `success`, while `{}` / `42` / `[null]` would throw a raw TypeError instead of
-      // the schema-shaped errors this handler crafts. Reject a mis-shaped array with a
-      // descriptive `skipped` entry and treat it as empty.
-      const rawRemovals = args.widgetRemovals;
-      let removals: string[] = [];
-      if (rawRemovals !== undefined) {
-        if (!Array.isArray(rawRemovals) || !rawRemovals.every((id) => typeof id === 'string')) {
-          skipped.push('widgetRemovals: must be an array of widget-ID strings (e.g. ["w1","w2"]).');
-        } else if (rawRemovals.length > MAX_BULK_UPDATE_OPS) {
-          skipped.push(
-            `widgetRemovals: received ${rawRemovals.length} entries; only the first ` +
-              `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
-              'apply_bulk_update call.',
-          );
-          removals = (rawRemovals as string[]).slice(0, MAX_BULK_UPDATE_OPS);
-        } else {
-          removals = rawRemovals as string[];
-        }
-      }
-      for (const wid of removals) {
-        // Length-cap the id used in the ECHO only, never the one used for lookups:
-        // `skipped` entries are count-bounded by `truncateSkipped` but each entry was
-        // itself unbounded, so a batch of over-long ids echoed megabytes back into the
-        // conversation. A live id can never exceed `MAX_ENTITY_ID_LENGTH` (every
-        // incoming id is `capEntityId`-capped), so a capped label never hides a match.
-        const widLabel = capEntityId(wid);
-        if (!liveWidgetIds.has(wid)) {
-          skipped.push(`remove ${widLabel}: not found`);
-          continue;
-        }
-        if (!activePageWidgetIds.has(wid)) {
-          skipped.push(`remove ${widLabel}: not on the active page`);
-          continue;
-        }
-        removedWidgetIds.push(wid);
-        liveWidgetIds.delete(wid);
-        widgetRows = widgetRows
-          .map((row) => row.filter((id) => id !== wid))
-          .filter((row) => row.length > 0);
-        applied.removed += 1;
-      }
-
-      // 2. Additions
-      // A `Map` (not a plain object) so a model-chosen widget `title` that is an
-      // `Object.prototype` member ("constructor", "toString", "__proto__", …)
-      // can't resolve a title ref to an inherited value: `.get(ref)` returns
-      // `undefined` for an unmatched ref, so the `?? ref` fallthrough always
-      // reaches the raw model string and skip messages read back the exact ref.
-      const addedTitleToId = new Map<string, string>();
-      // Kind of each widget added THIS batch, keyed by id — so the updates loop below
-      // can resolve the kind of a same-batch addition (not yet present in
-      // `state.doc.widgets`) for its own config-key validation.
-      //
-      // A `Map`, matching its two immediate siblings: the lookup key is a
-      // MODEL-supplied `update.widgetId`, so a plain object literal resolved
-      // `addedWidgetKinds['toString']` through the prototype chain to an inherited
-      // FUNCTION. That function then flowed into `invalidConfigKeyError` as the widget
-      // `kind`, and `validateConfigKeysForKind` returns `[]` (unrestricted) for any
-      // unknown kind — so the whole config-key / chart-key / value-shape gate was
-      // skipped for that update. `.get()` returns `undefined` for an unmatched key, so
-      // the `?? ` fallthroughs behave exactly as they do for a genuinely absent id.
-      const addedWidgetKinds = new Map<string, string>();
-      // Running (NOT snapshot) map of every chart widget's CURRENT chartType, keyed by
-      // id. Seeded lazily with existing chart widgets and eagerly with same-batch chart
-      // additions, then UPDATED after each accepted update that changes a widget's
-      // chartType — so a later update in the SAME batch validates its config keys
-      // against the chartType an earlier update in this batch just set, not the
-      // pre-batch value. Without this, changing a widget's chartType and then setting a
-      // key valid only for the NEW type in one bulk call would be falsely rejected
-      // (and the reverse — a key valid only for the OLD type — falsely accepted).
-      const currentChartTypes = new Map<string, string | undefined>();
-      const resolveChartTypeForUpdate = (
-        wid: string,
-        existingWidget: StudioWidget | undefined,
-      ): string | undefined => {
-        if (currentChartTypes.has(wid)) {
-          return currentChartTypes.get(wid);
-        }
-        const seed =
-          existingWidget && isWidgetOfKind(existingWidget, 'chart')
-            ? existingWidget.config.chartType
-            : undefined;
-        currentChartTypes.set(wid, seed);
-        return seed;
+      const batch: BulkUpdateBatch = {
+        skipped: [],
+        applied: { updated: 0, added: 0, removed: 0, layout: false, colSpans: 0 },
+        widgetRows: (activePage.widgetRows ?? []).map((row) => [...row]),
+        // `Object.assign(Object.create(null), …)`, not a `{ … }` spread: both span maps are
+        // keyed by a MODEL-supplied widget id (or an id that came in on the request body —
+        // `state.doc.widgets` is client JSON), and `colSpans['__proto__'] = 12` on a normal
+        // object literal is silently discarded (assigning a primitive to `__proto__` is a
+        // no-op) while `applied.colSpans += 1` still counts it. That is a dropped mutation
+        // reported as `{ success: true }` — the exact executor/reducer desync class the
+        // `Object.hasOwn` id hardening exists to prevent, on the write side. A null-prototype
+        // map has no `__proto__` accessor, so every key lands as an ordinary own property and
+        // ships in the mutation.
+        colSpans: Object.assign(Object.create(null), activePage.widgetColSpans ?? {}),
+        changedSpans: Object.create(null),
+        // The mutation carries only DELTAS (remove/add/update), applied by the reducer against
+        // the receiver's CURRENT `state.doc.widgets` — never a snapshot of the whole `widgets`
+        // record. This is the lost-update fix: a widget the user edits on any page while this
+        // agentic turn is running is no longer reverted, because only the ids named here are
+        // touched.
+        removedWidgetIds: [],
+        addedWidgets: [],
+        updatedWidgets: [],
+        liveWidgetIds: new Set(Object.keys(state.doc.widgets)),
+        addedTitleToId: new Map(),
+        addedWidgetKinds: new Map(),
+        currentChartTypes: new Map(),
       };
-      // SHAPE-validate before iterating: each addition must be a plain
-      // record carrying at least a string `kind` and string `title`. A non-array, or an
-      // element that is a string / null / array / missing those keys, would throw or
-      // silently mis-build. Reject with a descriptive `skipped` entry and treat as empty.
-      const rawAdditions = args.widgetAdditions;
-      let additions: Array<{
-        kind: string;
-        title: string;
-        sourceId?: string;
-        config?: Record<string, unknown>;
-      }> = [];
-      if (rawAdditions !== undefined) {
-        if (
-          !Array.isArray(rawAdditions) ||
-          !rawAdditions.every(
-            (a) =>
-              a !== null &&
-              typeof a === 'object' &&
-              !Array.isArray(a) &&
-              typeof (a as { kind?: unknown }).kind === 'string' &&
-              typeof (a as { title?: unknown }).title === 'string',
-          )
-        ) {
-          skipped.push(
-            'widgetAdditions: must be an array of objects each with a string `kind` and ' +
-              'string `title` (e.g. [{ "kind": "chart", "title": "Revenue" }]).',
-          );
-        } else if (rawAdditions.length > MAX_BULK_UPDATE_OPS) {
-          skipped.push(
-            `widgetAdditions: received ${rawAdditions.length} entries; only the first ` +
-              `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
-              'apply_bulk_update call.',
-          );
-          additions = (rawAdditions as typeof additions).slice(0, MAX_BULK_UPDATE_OPS);
-        } else {
-          additions = rawAdditions as typeof additions;
-        }
-      }
-      // Whether this batch carries a layout or colSpans op that resolves added-widget
-      // refs BY TITLE. When it does, two additions with the SAME title are
-      // ambiguous: `addedTitleToId` is last-write-wins, so the layout/colSpans ref would
-      // resolve to only one of them and the other would land in `doc.widgets` referenced
-      // by no page — an invisible orphan that still persists, serializes, and survives
-      // undo, all reported as `applied.added` success. So when a title ref could be
-      // consulted, the SECOND (and later) addition sharing a title is skipped with an
-      // actionable message rather than silently orphaned.
-      const batchHasTitleRefs =
-        args.layout !== undefined ||
-        (args.colSpans !== null &&
-          typeof args.colSpans === 'object' &&
-          !Array.isArray(args.colSpans) &&
-          Object.keys(args.colSpans as Record<string, unknown>).length > 0);
-      for (const addition of additions) {
-        const built = buildWidgetFromArgs(addition, customWidgets);
-        if ('error' in built) {
-          // Echo-only cap on the raw model-supplied title, same rationale as the
-          // removals loop above.
-          skipped.push(`add "${capTitle(asString(addition.title))}": ${built.error}`);
-          continue;
-        }
-        const { widget } = built;
-        if (batchHasTitleRefs && addedTitleToId.has(widget.title)) {
-          skipped.push(
-            `add "${widget.title}": duplicate addition title is ambiguous for a layout or ` +
-              'colSpans title reference; give each widget added in this batch a unique title.',
-          );
-          continue;
-        }
-        addedWidgets.push(widget);
-        liveWidgetIds.add(widget.id);
-        addedTitleToId.set(widget.title, widget.id);
-        addedWidgetKinds.set(widget.id, widget.kind);
-        if (isWidgetOfKind(widget, 'chart')) {
-          currentChartTypes.set(widget.id, widget.config.chartType);
-        }
-        widgetRows.push([widget.id]);
-        applied.added += 1;
-      }
+      const ctx: BulkUpdateContext = { state, activePageId, activePage, customWidgets };
 
-      // 3. Updates
-      // Emit each update as a partial patch (never the merged widget snapshot). The
-      // reducer merges it onto the LIVE widget, so a concurrent edit to a different
-      // key on that widget survives too.
-      // SHAPE-validate before iterating: each update must be a plain
-      // record carrying a string `widgetId`. A non-array, or an element that is a
-      // string / null / array / missing `widgetId`, would throw or mis-resolve. Reject
-      // with a descriptive `skipped` entry and treat as empty.
-      const rawUpdates = args.widgetUpdates;
-      let updates: Array<{
-        widgetId: string;
-        title?: string;
-        sourceId?: string;
-        config?: Record<string, unknown>;
-      }> = [];
-      if (rawUpdates !== undefined) {
-        if (
-          !Array.isArray(rawUpdates) ||
-          !rawUpdates.every(
-            (u) =>
-              u !== null &&
-              typeof u === 'object' &&
-              !Array.isArray(u) &&
-              typeof (u as { widgetId?: unknown }).widgetId === 'string',
-          )
-        ) {
-          skipped.push(
-            'widgetUpdates: must be an array of objects each with a string `widgetId` ' +
-              '(e.g. [{ "widgetId": "w1", "title": "New" }]).',
-          );
-        } else if (rawUpdates.length > MAX_BULK_UPDATE_OPS) {
-          skipped.push(
-            `widgetUpdates: received ${rawUpdates.length} entries; only the first ` +
-              `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
-              'apply_bulk_update call.',
-          );
-          updates = (rawUpdates as typeof updates).slice(0, MAX_BULK_UPDATE_OPS);
-        } else {
-          updates = rawUpdates as typeof updates;
-        }
-      }
-      for (const update of updates) {
-        const wid = asString(update.widgetId ?? '');
-        // Echo-only cap, same rationale as the removals loop above.
-        const widLabel = capEntityId(wid);
-        if (!liveWidgetIds.has(wid)) {
-          skipped.push(`update ${widLabel}: not found`);
-          continue;
-        }
-        // `widgetId` was already shape-checked as a string above, but
-        // `title`/`sourceId` were not: a `{"toString":1}` in either threw a raw
-        // `TypeError` out of the whole bulk call, discarding every op the batch had
-        // already accepted. Report it as a `skipped` entry, matching every other
-        // rejected op in this handler, so the rest of the batch still applies.
-        const updateArgError = invalidStringArgsError(update as Record<string, unknown>, [
-          'title',
-          'sourceId',
-        ]);
-        if (updateArgError) {
-          skipped.push(`update ${widLabel}: ${updateArgError}`);
-          continue;
-        }
-        // Cap every model-supplied string-typed config value BEFORE validation, so an oversized
-        // `xField`/`yField`/… never lands in state.
-        const configArg = update.config
-          ? (capConfigStringValues(update.config) as Record<string, unknown>)
-          : undefined;
-        if (configArg) {
-          // Resolve the target's kind from either the CURRENT state or a widget
-          // added earlier in this same batch (not yet in `state.doc.widgets`).
-          const existingWidget = getWidget(state, wid);
-          // `?? ''` is unreachable in practice (`liveWidgetIds` membership was checked
-          // above, and it only ever holds existing or same-batch-added ids) but keeps
-          // the type honest now that the lookup is a `Map`; an empty kind is treated as
-          // an unknown kind by `validateConfigKeysForKind`, exactly as before.
-          const kind = existingWidget?.kind ?? addedWidgetKinds.get(wid) ?? '';
-          const error = invalidConfigKeyError(kind, configArg);
-          if (error) {
-            skipped.push(`update ${widLabel}: ${error}`);
-            continue;
-          }
-          const valueError = invalidConfigValueError(configArg);
-          if (valueError) {
-            skipped.push(`update ${widLabel}: ${valueError}`);
-            continue;
-          }
-          if (kind === 'chart') {
-            // Resolve against the RUNNING chartType map (seeded from existing state
-            // and same-batch additions, updated after each accepted same-batch
-            // chartType change) — never a pre-batch snapshot — so a chartType changed
-            // earlier in this same batch is honored here.
-            const existingChartType = resolveChartTypeForUpdate(wid, existingWidget);
-            const chartError = invalidChartConfigKeyError(configArg, existingChartType);
-            if (chartError) {
-              skipped.push(`update ${widLabel}: ${chartError}`);
-              continue;
-            }
-            // Accepted: if this update sets a new chartType, record it so later
-            // same-batch updates targeting this widget validate against it.
-            if (Object.hasOwn(configArg, 'chartType')) {
-              currentChartTypes.set(wid, configArg.chartType as string | undefined);
-            }
-          }
-        }
-        updatedWidgets.push({
-          widgetId: wid,
-          ...(update.title !== undefined ? { title: capTitle(asString(update.title)) } : {}),
-          ...(update.sourceId !== undefined
-            ? { sourceId: capSourceId(asString(update.sourceId)) }
-            : {}),
-          ...(configArg ? { config: configArg as StudioWidget['config'] } : {}),
-        });
-        applied.updated += 1;
-      }
-
-      // 4. Layout
-      // Validate the layout with the SAME rigor as the single-widget `set_widget_layout`
-      // handler (shape + membership), rather than trusting the model's array verbatim:
-      // (a) SHAPE — an array of rows, each an array of strings; a flat `["w1","w2"]`
-      //     would corrupt `widgetRows` and make every downstream `row.map`/`row.filter`
-      //     throw. (b) MEMBERSHIP — after mapping added-widget TITLE refs to their minted
-      //     ids, every id must resolve to a widget that is live after this batch's
-      //     removals/additions (`liveWidgetIds`); an unknown id would persist as a
-      //     phantom layout entry (blank card) or reference a widget removed earlier in
-      //     this same batch. On any failure the layout op is skipped with a clear
-      //     message (the rest of the bulk update still applies) — never applied partially
-      //     and never thrown.
-      const rawLayout = args.layout;
-      if (rawLayout !== undefined) {
-        if (
-          !Array.isArray(rawLayout) ||
-          !rawLayout.every(
-            (row) => Array.isArray(row) && row.every((ref) => typeof ref === 'string'),
-          )
-        ) {
-          skipped.push(
-            'layout: must be an array of rows, where each row is an array of widget-ID ' +
-              '(or added-widget-title) strings (e.g. [["w1","w2"],["w3"]]).',
-          );
-        } else if (rawLayout.length > MAX_LAYOUT_ROWS) {
-          // A layout op REPLACES the active page's rows wholesale, so a truncated layout
-          // would orphan every widget beyond the cap. Reject the whole op with guidance
-          // rather than applying a partial arrangement.
-          skipped.push(
-            `layout: received ${rawLayout.length} rows, more than the ${MAX_LAYOUT_ROWS} allowed. ` +
-              'Layout not applied — send a layout with fewer rows.',
-          );
-        } else {
-          const mappedRows = (rawLayout as string[][])
-            .map((row) => row.map((ref) => addedTitleToId.get(ref) ?? ref))
-            .filter((row) => row.length > 0);
-          // Reject DUPLICATE ids with the SAME rigor as `set_widget_layout`: an id
-          // appearing in more than one cell would place one widget twice. The reducer's
-          // `dedupeLayoutRows` silently keeps the first occurrence, so committing a layout
-          // with duplicates would diverge from what `applied.layout: true` reports. Skip
-          // with an actionable message instead so the model can resend a clean layout.
-          const seenLayoutIds = new Set<string>();
-          const duplicateLayoutIds = [
-            ...new Set(
-              mappedRows.flat().filter((id) => {
-                if (seenLayoutIds.has(id)) {
-                  return true;
-                }
-                seenLayoutIds.add(id);
-                return false;
-              }),
-            ),
-          ];
-          const unknownLayoutIds = [...new Set(mappedRows.flat())].filter(
-            (id) => !liveWidgetIds.has(id),
-          );
-          // Active-page OWNERSHIP: like `set_widget_layout`, the `applyBulkUpdate` mutation
-          // rewrites the ACTIVE page's rows and the reducer does NO cross-page cleanup, so an id
-          // currently on another page would end up referenced by both pages — one widget duplicated
-          // across two. Active-page ids and widgets added this batch (fresh, unplaced ids) are
-          // never on `state.doc.pages`'s OTHER pages, so this rejects exactly the ids owned by a
-          // non-active page, reported alongside `unknownLayoutIds` for consistency.
-          const foreignPageLayoutIds = [...new Set(mappedRows.flat())].filter((id) =>
-            Object.values(state.doc.pages).some(
-              (page) =>
-                page.id !== activePageId && (page.widgetRows ?? []).some((row) => row.includes(id)),
-            ),
-          );
-          // An explicit layout op REPLACES the active page's rows wholesale (including the
-          // one-widget-per-row entries the additions loop pushed for this batch's new
-          // widgets). So every widget added in this batch MUST appear in the layout — a
-          // widget added-but-not-placed would land in `doc.widgets` referenced by no page
-          // (invisible orphan that still persists/serializes/survives undo), reported as
-          // `applied.added` + `layout:true` success. Reject the layout op if
-          // any addition is unplaced so the model resends a layout that includes them.
-          const layoutIdSet = new Set(mappedRows.flat());
-          const unplacedAddedIds = addedWidgets
-            .map((w) => w.id)
-            .filter((id) => !layoutIdSet.has(id));
-          if (duplicateLayoutIds.length > 0) {
-            skipped.push(
-              `layout: duplicate widget IDs: ${joinIdsForError(duplicateLayoutIds)}. ` +
-                'Each widget must appear exactly once across all rows.',
-            );
-          } else if (unknownLayoutIds.length > 0) {
-            skipped.push(
-              `layout: unknown or removed widget IDs: ${joinIdsForError(unknownLayoutIds)}. ` +
-                'Reference only widgets that exist after this update (added-widget titles ' +
-                'are resolved to their new IDs).',
-            );
-          } else if (foreignPageLayoutIds.length > 0) {
-            skipped.push(
-              `layout: widget IDs that live on another page: ${joinIdsForError(foreignPageLayoutIds)}. ` +
-                'A layout op only arranges the active page; switch to the page that contains ' +
-                'them first.',
-            );
-          } else if (unplacedAddedIds.length > 0) {
-            skipped.push(
-              `layout: widgets added in this batch are not placed in the layout: ${joinIdsForError(
-                unplacedAddedIds,
-              )}. A layout op replaces the active page, so every added widget must appear in ` +
-                'it (reference an added widget by its title). Layout not applied.',
-            );
-          } else {
-            widgetRows = mappedRows;
-            applied.layout = true;
-          }
-        }
-      }
-
-      // 5. Column spans
-      // Accept spans in the 24-column unit system the canvas renders (matches
-      // `canvasGridConstants.GRID_COLS` = 24 / `MIN_SPAN` = 6 in `@mui/x-studio`
-      // and the `setWidgetColSpan` reducer's clamp).
-      //
-      // An out-of-range (or non-numeric) span is REJECTED and reported via `skipped`,
-      // rather than silently dropped: this handler's output reports `applied.colSpans`
-      // as a per-op COUNT, not the per-widget applied value (unlike `set_widget_width`,
-      // which echoes back the reducer-clamped value for its single widget), so clamping
-      // here instead would give the model no way to learn which width it actually got.
-      // A `skipped` entry matches every other rejected op in this handler (removals,
-      // additions, updates, layout) and gives the model an actionable signal to retry
-      // with a value in range.
-      //
-      // MEMBERSHIP is also enforced (not just range): the reducer writes col-spans to the
-      // ACTIVE page only and `enforceLayoutColSpans` prunes any span whose widget isn't in
-      // the active page's post-batch rows. So a span keyed to a phantom widget, a widget
-      // living on ANOTHER page, or one removed earlier in THIS batch is silently discarded
-      // on apply — counting it in `applied.colSpans` would overstate what actually landed.
-      // `activePageWidgetIdsAfterBatch` is the authoritative membership set: `widgetRows`
-      // here already reflects this batch's removals, additions, and (if provided) layout.
-      const activePageWidgetIdsAfterBatch = new Set(widgetRows.flat());
-      const colSpanPatch = (args.colSpans as Record<string, unknown> | undefined) ?? {};
-      let colSpanEntries = Object.entries(colSpanPatch);
-      if (colSpanEntries.length > MAX_BULK_UPDATE_OPS) {
-        skipped.push(
-          `colSpans: received ${colSpanEntries.length} entries; only the first ` +
-            `${MAX_BULK_UPDATE_OPS} were processed. Split the rest into a separate ` +
-            'apply_bulk_update call.',
-        );
-        colSpanEntries = colSpanEntries.slice(0, MAX_BULK_UPDATE_OPS);
-      }
-      for (const [ref, span] of colSpanEntries) {
-        // Resolve added-widget TITLE refs to their minted ids, mirroring the `layout` op
-        // above: a widget added earlier in this same batch is only known to the model by
-        // title (its id is server-minted), so keying `colSpans` strictly by id would
-        // silently drop a same-batch add-then-resize.
-        const wid = addedTitleToId.get(ref) ?? ref;
-        // Echo-only cap, same rationale as the removals loop above — `ref` is a raw
-        // model-supplied object KEY, so it is unbounded in length.
-        const refLabel = capEntityId(ref);
-        if (!liveWidgetIds.has(wid)) {
-          skipped.push(`colSpan ${refLabel}: widget not found.`);
-          continue;
-        }
-        if (!activePageWidgetIdsAfterBatch.has(wid)) {
-          skipped.push(`colSpan ${refLabel}: not on the active page.`);
-          continue;
-        }
-        if (typeof span === 'number' && span >= 6 && span <= 24) {
-          colSpans[wid] = span;
-          changedSpans[wid] = span;
-          applied.colSpans += 1;
-        } else {
-          skipped.push(
-            `colSpan ${refLabel}: ${describeArgValue(span)} is out of range (must be a number 6-24).`,
-          );
-        }
-      }
-
-      // `widgetRows`/`widgetColSpans` are a plan-time snapshot
-      // of the active page's layout — attaching them unconditionally means a batch that only
-      // contains `widgetUpdates` (no removals/additions/layout/colSpans) still ships that
-      // stale snapshot, silently reverting any concurrent client-side layout edit (e.g. a
-      // drag-reorder) that happened while this turn was running. So the layout fields are
-      // attached only when this batch actually changed layout — mirrored by `applied`, since
-      // a requested op that was skipped (not found / invalid / out of range) never touched
-      // `widgetRows` or `colSpans` and must not be sent either.
-      //
-      // Two distinct layout-change shapes attach DIFFERENT fields:
-      //  - A removal / addition / explicit `layout` op genuinely reorders or re-places rows,
-      //    so the full turn-start `widgetRows` snapshot IS the intended new placement and
-      //    must ship alongside `widgetColSpans`.
-      //  - A colSpans-ONLY batch (`applied.colSpans > 0` but no removal/addition/layout op)
-      //    changes only widths, never row placement. Shipping `widgetRows` here would revert
-      //    a concurrent client-side drag-reorder/row-reassignment — the exact lost-update
-      //    class closed above, one case narrower. So we omit `widgetRows` and send ONLY
-      //    `widgetColSpans`, relying on the reducer (`applyMutation.ts`'s
-      //    `applyBulkUpdate.apply`, fixed in the same round) to reconcile a spans-only
-      //    payload against the page's EXISTING rows instead of wiping them.
-      // The reducer treats true absence of BOTH fields as "layout unchanged" and skips the
-      // layout-replacement block entirely, so an updates-only or all-skipped batch leaves the
-      // client's current layout untouched.
-      const rowsChanged = applied.removed > 0 || applied.added > 0 || applied.layout;
-      const colSpansOnly = !rowsChanged && applied.colSpans > 0;
-
-      let layoutFields: Record<string, unknown>;
-      if (rowsChanged) {
-        layoutFields = { widgetRows, widgetColSpans: colSpans };
-      } else if (colSpansOnly) {
-        // Ship ONLY the spans this batch changed, not the full turn-start snapshot.
-        // The reducer merges these onto the receiver's current spans, so a concurrent
-        // client-side resize of an untouched widget survives.
-        layoutFields = { widgetColSpans: changedSpans };
-      } else {
-        layoutFields = {};
-      }
+      // ORDER IS LOAD-BEARING, and it is the whole reason this is one tool rather than five.
+      // Removals shrink `liveWidgetIds` and `widgetRows`; additions extend both and mint the
+      // ids that `layout`/`colSpans` resolve titles to; updates validate against the widgets
+      // that survive both; layout replaces the rows those three produced; colSpans is checked
+      // against the rows layout left behind.
+      applyBulkRemovals(args, batch, ctx);
+      applyBulkAdditions(args, batch, ctx);
+      applyBulkUpdates(args, batch, ctx);
+      applyBulkLayout(args, batch, ctx);
+      applyBulkColSpans(args, batch, ctx);
 
       const mutation: StateMutation = {
         type: 'applyBulkUpdate',
         args: {
-          removedWidgetIds,
-          addedWidgets,
-          updatedWidgets,
-          ...layoutFields,
+          removedWidgetIds: batch.removedWidgetIds,
+          addedWidgets: batch.addedWidgets,
+          updatedWidgets: batch.updatedWidgets,
+          ...bulkLayoutFields(batch),
           activePageId,
         },
       } as StateMutation;
       return {
         output: JSON.stringify({
           success: true,
-          applied,
-          ...(skipped.length > 0 ? { skipped: truncateSkipped(skipped) } : {}),
+          applied: batch.applied,
+          ...(batch.skipped.length > 0 ? { skipped: truncateSkipped(batch.skipped) } : {}),
         }),
         mutation,
         nextState: applyMutation(state, mutation),

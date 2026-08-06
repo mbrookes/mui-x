@@ -264,7 +264,13 @@ function resolveVegaViewSize(
   },
   fallbackWidth: number | undefined,
   fallbackHeight: number | undefined,
-): { width: number | undefined; height: number | undefined } {
+): {
+  width: number | undefined;
+  height: number | undefined;
+  /** The Vega view size — the plot, before any axis allowance is added on. */
+  plotWidth: number | undefined;
+  plotHeight: number | undefined;
+} {
   // Dodged (grouped) bars split each category band into one sub-band per
   // `xOffset`/`yOffset` group, so the discrete axis needs `subgroupCount ×` the
   // room a single series would take (Vega sizes each leaf bar to a step). The
@@ -387,6 +393,8 @@ function resolveVegaViewSize(
   // pushed every pie and donut to 1.12x.
   const budgetsBareMargins = compiled.chartKind !== 'polar';
   return {
+    plotWidth: width,
+    plotHeight: height,
     width:
       width === undefined
         ? width
@@ -1234,6 +1242,29 @@ function SingleViewChart(props: VegaLiteChartProps) {
     }
     return stripped as T;
   };
+  // Vega-Lite defaults a continuous axis' tick count to `ceil(size / 40)`,
+  // where `size` is that axis' own length — the plot width for x, the plot
+  // height for y. x-charts picks its own count from the space available, and on
+  // a short axis it comes out sparser: `interactive_concat_layer`'s 120px-tall
+  // genre axis drew ticks at 0 and 50 where Vega draws 0/20/40/60/80. A
+  // discrete axis is left alone (every band gets its own tick), as is an axis
+  // whose spec asked for a `tickCount` of its own.
+  const withVegaTickCount = <T extends Record<string, unknown>>(
+    config: T,
+    axisLength: number | undefined,
+  ): T => {
+    const scaleType = (config as { scaleType?: string }).scaleType;
+    if (
+      axisLength === undefined ||
+      config.tickNumber !== undefined ||
+      scaleType === 'band' ||
+      scaleType === 'point' ||
+      (config as { position?: string }).position === 'none'
+    ) {
+      return config;
+    }
+    return { ...config, tickNumber: Math.max(2, Math.ceil(axisLength / 40)) };
+  };
   // Pin the bottom axis to exactly the thickness the surface budgeted for it,
   // the same determinism `pinStandaloneYAxisWidth` gives the y axis below. Left
   // on `height: 'auto'` x-charts measures the rotated labels itself, and where
@@ -1247,7 +1278,12 @@ function SingleViewChart(props: VegaLiteChartProps) {
   const xAxis = compiled.xAxis
     ? [
         rotateXLabelsIfCramped(
-          pinXAxisHeight(dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom)),
+          pinXAxisHeight(
+            withVegaTickCount(
+              dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom),
+              vegaSize.plotWidth,
+            ),
+          ),
           resolvedWidth,
           Boolean(compiled.yAxis),
         ),
@@ -1281,7 +1317,14 @@ function SingleViewChart(props: VegaLiteChartProps) {
     };
   };
   const yAxis = compiled.yAxis
-    ? [pinStandaloneYAxisWidth(dropAutoSize(compiled.yAxis.config, cell?.margin?.left))]
+    ? [
+        pinStandaloneYAxisWidth(
+          withVegaTickCount(
+            dropAutoSize(compiled.yAxis.config, cell?.margin?.left),
+            vegaSize.plotHeight,
+          ),
+        ),
+      ]
     : undefined;
 
   // x-charts subtracts the axis's own width/height from the drawing area ON TOP

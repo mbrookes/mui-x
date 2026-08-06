@@ -12,18 +12,18 @@ import { hasConflictingRankFilter } from './rankFilterScope';
 
 /**
  * Pure `StudioDoc → StudioDoc` transforms extracted out of `StudioController`, so the
- * controller's date-range and filter-preset methods become thin
- * `this.commitDocPatch(docTransforms.xxx(this.getState().doc, ...args))` wrappers.
+ * controller's date-range and filter-preset methods become thin wrappers. They are reached
+ * through the reducer now — `applyMutation` calls them — rather than committed directly.
  *
  * Each function returns a NEW doc (with only the changed top-level field replaced,
  * leaving every other field reference-equal), or the SAME `doc` reference for a
- * logical no-op — so `commitDocPatch`'s reference-equality no-op guard behaves exactly
+ * logical no-op — so the commit choke point's reference-equality no-op guard behaves exactly
  * as it did when these bodies lived inline in the controller.
  *
  * Every transform here that DROPS a filter cascades the drop into the survivors'
  * `dependsOn` via the shared `pruneDependsOnAgainstSelf`, exactly as the reducer's own
- * drop paths do. These transforms commit through `commitDocPatch` and never reach
- * `applyMutation`, so before that the LIVE doc kept dangling `dependsOn` ids that only
+ * drop paths do. These transforms used to commit outside the reducer, so
+ * before that the LIVE doc kept dangling `dependsOn` ids that only
  * `serializeDoc` pruned — the in-memory cascade and the saved one disagreed until the next
  * reload, which is precisely the asymmetry `serializeDoc`'s own prune exists to prevent.
  * `pruneDependsOnAgainstSelf` returns the SAME array when nothing dangled, so every
@@ -33,7 +33,7 @@ import { hasConflictingRankFilter } from './rankFilterScope';
 /**
  * `Array.prototype.map` that returns the ORIGINAL array when no element's reference
  * changed. Mirrors the controller-local helper of the same name so an unknown-id
- * update reaches `commitDocPatch`'s no-op guard with an unchanged array reference.
+ * update reaches the commit choke point's no-op guard with an unchanged array reference.
  */
 function mapPreservingIdentity<T>(array: T[], mapFn: (item: T) => T): T[] {
   let changed = false;
@@ -53,7 +53,7 @@ function mapPreservingIdentity<T>(array: T[], mapFn: (item: T) => T): T[] {
  * below and by `StudioController.applyCrossFilter` to detect a rebuild that produced a filter
  * identical to the one already stored, so the caller can return the ORIGINAL `doc` reference
  * (identity preservation) / bail out entirely, instead of allocating a fresh-but-equivalent
- * `filters` array — which would otherwise pass `commitDocPatch`'s reference-equality guard and
+ * `filters` array — which would otherwise pass `commitMutation`'s reference-equality guard and
  * commit a phantom undoable no-op that clears the redo stack. `value` (`{ from, to }` or `null`)
  * and `scope` are the only structured fields; `JSON.stringify` compares them safely for these
  * fixed-shape managed filters.
@@ -252,7 +252,7 @@ export function setDashboardDateRange(
 
   // Identity preservation (2.3): return the ORIGINAL doc when nothing logically changed —
   // clearing when there was nothing to clear, or rebuilding a filter content-identical to the
-  // one already stored — so `commitDocPatch` skips a phantom redo-clearing commit.
+  // one already stored — so the commit choke point skips a phantom redo-clearing commit.
   if (!newFilter) {
     return existingForPage.length === 0
       ? doc
@@ -350,7 +350,7 @@ export function setDashboardDateRangeAll(
 
   // Identity preservation (2.3): return the ORIGINAL doc when the rebuilt set is content-equal
   // to the existing dashboard-date-range filters for the page (same count, each new filter
-  // matches an existing one) — including the both-empty case — so `commitDocPatch` skips a
+  // matches an existing one) — including the both-empty case — so the commit choke point skips a
   // phantom redo-clearing commit.
   if (
     existingForPage.length === newFilters.length &&
@@ -400,7 +400,7 @@ export function setWidgetDateRange(
 
   // Identity preservation (2.3): return the ORIGINAL doc when nothing logically changed —
   // clearing when there was nothing to clear, or rebuilding a filter content-identical to the
-  // one already stored — so `commitDocPatch` skips a phantom redo-clearing commit.
+  // one already stored — so the commit choke point skips a phantom redo-clearing commit.
   if (!newFilter) {
     return existing.length === 0
       ? doc
@@ -557,7 +557,7 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
   }
   // Identity preservation, the bail every sibling in this file already has. This function ALWAYS
   // rebuilt `{ ...doc, filters: [...] }`, and the fresh `createFilterId()`s above guarantee the new
-  // array is never reference-equal to the old one — so `commitDocPatch`'s reference-equality guard
+  // array is never reference-equal to the old one — so `commitMutation`'s reference-equality guard
   // could never fire and a value-equal RE-apply committed a phantom undoable step that also wiped
   // the redo stack. Re-applying the preset a page already shows is exactly what a user does when
   // they click the chip they are already on. The compensation used to live in the UI
@@ -579,7 +579,7 @@ export function applyFilterPreset(doc: StudioDoc, presetId: string): StudioDoc {
  * there was nothing to remove (3.2): if the doc never had a `filterPresets` key it
  * is left as `undefined` (never manufactured into an empty array), and an unknown
  * `presetId` is a no-op. Only a real removal produces a new doc. This keeps a
- * logical no-op reference-equal so `commitDocPatch` skips it (no phantom undo entry).
+ * logical no-op reference-equal so the commit choke point skips it (no phantom undo entry).
  *
  * The "never manufactured into an empty array" clause describes a FACTORY-built doc.
  * A doc that came through `deserializeState` already carries `filterPresets: []` — the load
@@ -602,7 +602,7 @@ export function deleteFilterPreset(doc: StudioDoc, presetId: string): StudioDoc 
  * nothing to rename (3.2): a doc with no `filterPresets` key is left as `undefined`
  * (never manufactured into an empty array), and an unknown `presetId` is a no-op via
  * `mapPreservingIdentity`. Only a real rename produces a new doc — so a logical no-op
- * stays reference-equal and `commitDocPatch` skips it (no phantom undo entry).
+ * stays reference-equal and the commit choke point skips it (no phantom undo entry).
  *
  * As in `deleteFilterPreset`, the "never manufactured into an empty array" clause describes a
  * FACTORY-built doc; a loaded one already carries `[]`. No behaviour differs.
@@ -614,7 +614,7 @@ export function renameFilterPreset(doc: StudioDoc, presetId: string, name: strin
   }
   // Value-equality no-op guard (2.6): `{ ...p, name }` always builds a fresh preset object, so a
   // rename to the SAME name would defeat `mapPreservingIdentity` (fresh array) and
-  // `commitDocPatch`'s reference-equality guard, pushing a phantom redo-clearing undo entry. Only
+  // `commitMutation`'s reference-equality guard, pushing a phantom redo-clearing undo entry. Only
   // rebuild when the name actually differs, matching the sibling value-equality writers.
   const next = mapPreservingIdentity(presets, (p: StudioFilterPreset) =>
     p.id === presetId && p.name !== name ? { ...p, name } : p,

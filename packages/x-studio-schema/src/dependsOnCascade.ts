@@ -25,8 +25,8 @@ import type { StudioFilterState } from './stateTypes';
  * enforces it — in BOTH packages. In this one: `removeFilter`, `dropWidgetScopedFilters` via
  * `removeWidget`/`applyBulkUpdate`, `removePage`'s page-anchor drop, the layout handlers' rank
  * sweep, and — via `statePersistence.ts`'s import — the load boundary's filter screen and rank
- * dedup plus `serializeDoc`'s session-scope strip. In `@mui/x-studio`, whose filter drops bypass
- * this reducer entirely and commit through `commitDocPatch`: `StudioController`'s
+ * dedup plus `serializeDoc`'s session-scope strip. In `@mui/x-studio`, whose filter drops used to
+ * bypass this reducer entirely: `StudioController`'s
  * `clearPageFilters`/`clearCrossFilter`/ `clearAllCrossFilters`/`clearInteractiveFilter` and
  * `docTransforms`' `applyFilterPreset`/`setDashboardDateRange`/`setDashboardDateRangeAll`/
  * `setWidgetDateRange`, which reach it through {@link pruneDependsOnAgainstSelf} on the package

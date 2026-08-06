@@ -28,10 +28,10 @@ import {
   isValidFilterScope,
   hasResolvableFilterAnchors,
   // The `dependsOn` referential-integrity cascade the reducer runs on every one of ITS
-  // filter-drop paths. The four clear methods below drop filters through `commitDocPatch`
-  // and so never reach the reducer; without this they left dangling `dependsOn` ids in the
-  // LIVE doc that only `serializeDoc` pruned, so the in-memory cascade and the saved one
-  // disagreed until the next reload.
+  // filter-drop paths. Imported when the four clear methods below bypassed the reducer and left
+  // dangling `dependsOn` ids in the LIVE doc that only `serializeDoc` pruned — the in-memory
+  // cascade and the saved one disagreeing until the next reload. They route through the reducer
+  // now; this stays for the transforms that still compose a doc directly.
 } from '@mui/x-studio-schema';
 
 import { isSameManagedFilterContent } from '@mui/x-studio-schema';
@@ -497,7 +497,7 @@ export class StudioController {
    */
   private commitShellPatch = (patch: Partial<StudioSession['shell']>) => {
     const state = this.store.state;
-    // Key-wise reference no-op guard, mirroring `commitDocPatch` (1.6) and `updateState` (2.4):
+    // Key-wise reference no-op guard, mirroring the commit choke point and `updateState` (2.4):
     // when every entry in `patch` is already reference-equal to the current `shell` field there
     // is nothing to commit — skip so a redundant shell write (e.g. `clearSelection()` when
     // nothing is selected) never rebuilds `session.shell` and notifies every subscriber for no
@@ -748,7 +748,7 @@ export class StudioController {
   }) => {
     const state = this.store.state;
 
-    // Key-wise reference no-op guard, mirroring `commitDocPatch` (2.4): if every key in every
+    // Key-wise reference no-op guard, mirroring the commit choke point: if every key in every
     // supplied partition patch is already reference-equal to the current partition's value,
     // there is nothing to commit — skip so a content-identical update never pushes a
     // redo-clearing undo entry or rebuilds a partition object.
@@ -1043,7 +1043,7 @@ export class StudioController {
       return MUTATION_NOT_FOUND;
     }
     // Value-equality no-op guard (2.6): `{ ...existing, ...updates }` always allocates a fresh
-    // field object (and a fresh array below), so `commitDocPatch`'s reference-equality guard can
+    // field object (and a fresh array below), so `commitMutation`'s reference-equality guard can
     // never fire even for a value-identical write — re-saving the expression dialog with no edits
     // (open, glance, hit Save) would push a dead undo entry and wipe the redo stack. Bail when
     // every patched key already holds its incoming value, matching the sibling value-equality
@@ -1152,7 +1152,7 @@ export class StudioController {
     // Identity-preserving no-op (1.6): `.filter` always builds a new array, so an
     // unknown id would otherwise commit a fresh-but-identical `expressionFields`
     // as an undoable, logged step. Pass the ORIGINAL array when nothing was removed
-    // so `commitDocPatch`'s reference-equality guard turns it into a clean no-op.
+    // so `commitMutation`'s reference-equality guard turns it into a clean no-op.
     const next = state.doc.expressionFields.filter(
       (ef: StudioExpressionField) => ef.id !== fieldId,
     );
@@ -1359,7 +1359,7 @@ export class StudioController {
       return;
     }
     // Value-equality no-op guard (2.10): `{ ...activePage, ...changes }` always allocates a
-    // fresh page object, so `commitDocPatch`'s reference-equality guard can never fire even for
+    // fresh page object, so `commitMutation`'s reference-equality guard can never fire even for
     // a value-identical write — re-confirming the breakpoint the page already has would clear a
     // pending redo stack and insert a no-op undo entry. Bail when the value is unchanged,
     // matching the sibling writers (`setAdjacentWidgetColSpans`, `reorderPages`).
@@ -1377,7 +1377,7 @@ export class StudioController {
    * Used by the between-widget resize handle to commit a drag that affects both sides.
    *
    * Commits through the SHARED REDUCER (`applyBulkUpdate`, spans-only, targeting the active
-   * page) rather than writing `widgetColSpans` straight to the doc via `commitDocPatch`.
+   * page) rather than writing `widgetColSpans` straight to the doc outside the reducer.
    * That routing is the whole point: it is what makes `rebalanceRowSpans` +
    * `enforceLayoutColSpans` — the single authority for the col-span invariants, shared with
    * the AI `set_widget_width`/`apply_bulk_update` paths and with `setWidgetLayout` — run on a
@@ -2041,7 +2041,7 @@ export class StudioController {
     }
     // Value-equality no-op guard (2.10): `{ ...rel, ...patch }` always builds a fresh
     // relationship object, so a value-identical patch would defeat `mapPreservingIdentity`
-    // (fresh array) and `commitDocPatch` (fresh `relationships`), committing a phantom
+    // (fresh array) and a fresh `relationships` array, committing a phantom
     // redo-clearing undo entry.
     const patchKeys = Object.keys(patch) as (keyof StudioRelationship)[];
     if (patchKeys.every((key) => patch[key] === existing[key])) {
@@ -2089,7 +2089,7 @@ export class StudioController {
   updateFilter = (
     filterId: string,
     changes: Partial<import('../models').StudioFilterState>,
-    // `undoable` defaults to `true` (via `commitDocPatch`/`commitState`), so existing callers are
+    // `undoable` defaults to `true` (via `commitMutation`), so existing callers are
     // unaffected. A `{ undoable: false }` write lets a UI-driven self-repair (e.g. a filters-drawer
     // row rewriting a stored operator that is invalid for the field type) reconcile the doc without
     // pushing an unauthored undo entry, mirroring `updateWidgetConfig`'s option used by
@@ -2104,9 +2104,10 @@ export class StudioController {
     if (!target) {
       return MUTATION_NOT_FOUND;
     }
-    // Payload screen. Unlike its sibling `addFilter`, this writer commits through
-    // `commitDocPatch` and so never reaches the shared reducer — it therefore applied NONE of
-    // the validation `applyMutation`'s `addFilter` applies, and every value it accepted that
+    // Payload screen. This writer used to bypass the shared reducer entirely and so applied
+    // NONE of the validation `applyMutation`'s `addFilter` applies; it routes through the reducer
+    // now, and the screen stays here because it owes its caller a typed reason.
+    // Before that, and every value it accepted that
     // the reducer would have refused was silently dropped or rewritten by `deserializeState`'s
     // filter screen on the next load. Concretely, before this: `updateFilter('f1', { scope: {
     // kind: 'widget', widgetId: 'nope' } })` returned `{ ok: true }` while `addFilter` with the
@@ -2184,7 +2185,7 @@ export class StudioController {
     }
 
     // `mapPreservingIdentity` (1.6): a value-identical `changes` payload yields the ORIGINAL
-    // array, so `commitDocPatch` no-ops it — no fresh-but-identical `filters` array committed
+    // array, so the commit choke point no-ops it — no fresh-but-identical `filters` array committed
     // as an undoable, logged step. The per-element (rather than hoisted) value-equality check
     // is deliberate: a host-authored doc can carry two filters sharing an id, and only the
     // ones that actually differ should be rebuilt — the same reason `updateRelationship`
@@ -2196,7 +2197,7 @@ export class StudioController {
       // Value-equality no-op guard (2.6): `{ ...filter, ...changes }` always builds a fresh
       // filter object, so a value-identical `changes` payload (a drawer control re-committing
       // its current value on blur) would defeat `mapPreservingIdentity` (fresh array) and
-      // `commitDocPatch` (fresh `filters`), pushing a phantom redo-clearing undo entry. Return
+      // a fresh `filters` array, pushing a phantom redo-clearing undo entry. Return
       // the SAME `filter` when every changed key already holds its incoming value, matching the
       // sibling value-equality writers (`updateRelationship`).
       const changeKeys = Object.keys(changes) as (keyof StudioFilterState)[];
@@ -2528,7 +2529,7 @@ export class StudioController {
     // Value-equality no-op guard, closing the last gap in a class every other doc writer
     // already covers (`setGlobalCrossFilterMode`, `setCrossFilterAllPages`, `updateActivePage`,
     // `updateExpressionField`, `renameFilterPreset`, the three date-range setters…).
-    // `commitDocPatch`'s guard is REFERENCE equality, and a freshly minted `createFilterId()`
+    // the commit choke point's guard is REFERENCE equality, and a freshly minted `createFilterId()`
     // makes the rebuilt `filters` array differ even when the cross-filter is semantically
     // identical — so re-applying the same source widget + field + value + operator would push an
     // undo entry, write a mutation-log line, and CLEAR THE REDO STACK for nothing.
@@ -2607,7 +2608,7 @@ export class StudioController {
    */
   renameFilterPreset = (presetId: string, name: string) => {
     // The pure transform preserves the original `filterPresets` array reference on an
-    // unknown `presetId` (via `mapPreservingIdentity`), so `commitDocPatch` no-ops it.
+    // unknown `presetId` (via `mapPreservingIdentity`), so the commit choke point no-ops it.
     this.commitMutation({ type: 'renameFilterPreset', args: { presetId, name } });
   };
 
@@ -2683,10 +2684,10 @@ export class StudioController {
       return MUTATION_INVALID;
     }
     // Value-equality no-op guard (2.10): `{ ...page, ...changes }` always allocates a fresh
-    // page object, so `commitDocPatch`'s reference-equality guard can never fire even for a
+    // page object, so `commitMutation`'s reference-equality guard can never fire even for a
     // value-identical write — re-confirming the theme the page already has would clear a pending
     // redo stack and insert a no-op undo entry. Bail when every patched key already holds its
-    // incoming value, mirroring `commitDocPatch`/`updateState`'s key-wise no-op detection.
+    // incoming value, mirroring the commit choke point's key-wise no-op detection.
     // Keyed on the STRIPPED payload, so a call carrying only excluded keys is a clean no-op.
     const changeKeys = Object.keys(safeChanges) as (keyof typeof safeChanges)[];
     if (changeKeys.every((key) => safeChanges[key] === page[key])) {

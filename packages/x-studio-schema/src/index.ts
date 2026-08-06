@@ -47,9 +47,6 @@ export {
   GRID_COLS,
   MIN_SPAN,
   MUTATION_TYPES,
-  // The `dependsOn` referential-integrity cascade, published so `@mui/x-studio`'s filter-drop
-  // paths — which commit through `commitDocPatch` and never reach the reducer — enforce the
-  // same invariant every reducer drop path does.
 } from './applyMutation';
 // The rank-filter scope helpers moved out of `applyMutation.ts` into their own
 // dependency-free module so `factories.ts` (the factory-overrides trust boundary) can reach
@@ -66,11 +63,12 @@ export {
 export type { RankFilterWidgetPageIndex } from './rankFilterScope';
 export { parseStateMutation, PARSEABLE_MUTATION_TYPES } from './parseStateMutation';
 export type { ParseStateMutationResult } from './parseStateMutation';
-// The two halves of filter-scope screening, published so a client-side writer that installs a
-// scope WITHOUT going through `applyMutation` (`StudioController.updateFilter` commits via
-// `commitDocPatch`, never the reducer) is held to the same standard as its reducer-routed
-// sibling `addFilter` — rather than accepting a scope live that the load boundary then
-// silently drops on the next reload. `isValidFilterScope` is stage 1 (WELLFORMEDNESS:
+// The two halves of filter-scope screening, published so a writer that installs a scope can be
+// held to the same standard as the reducer's own `addFilter` — rather than accepting a scope
+// live that the load boundary then silently drops on the next reload. `StudioController`'s
+// `updateFilter` is the caller: it routes through the reducer now, but screening stays with the
+// writer because it owes its caller a typed reason the reducer cannot express.
+// `isValidFilterScope` is stage 1 (WELLFORMEDNESS:
 // kind membership, required id fields, prototype-hazard keys, size bounds — a payload judged
 // in isolation); `hasResolvableFilterAnchors` is stage 2 (EXISTENCE: every id the scope names
 // resolves against a doc). The reducer's `addFilter` runs exactly these two, in this order.
@@ -135,6 +133,10 @@ export type {
 // defined exactly once starts drifting. `unsafeKeys.ts`/`wireLimits.ts` stay zero-dependency,
 // so exporting them adds nothing to a consumer's import graph. (The rest of
 // `internalGuards.ts` remains unexported — those really are boundary internals.)
+// The `dependsOn` referential-integrity cascade. Published when `@mui/x-studio`'s filter-drop
+// paths still bypassed the reducer and had to enforce the invariant themselves; they route
+// through it now, but the cascade stays exported for the load boundary and for any host
+// building a doc outside the reducer.
 export { pruneDependsOnAgainstSelf } from './dependsOnCascade';
 // The managed-filter value comparison, used by `@mui/x-studio`'s two remaining
 // controller-owned filter writers to bail before committing an equivalent rebuild.

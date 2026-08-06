@@ -76,6 +76,7 @@ src/
   unsafeKeys.ts           The single shared prototype-hazard key denylist
   wireLimits.ts           MAX_ARRAY_LENGTH/MAX_STRING_LENGTH — shared wire trust-boundary size caps
   aiWireLimits.ts         The AI-chat wire BUDGETS — the server enforces them, the client mirrors them
+  dependsOnCascade.ts     pruneDependsOn/-AgainstSelf — the filter `dependsOn` referential cascade
   dataWireTypes.ts        The batch-query WIRE PROTOCOL — the one definition, for both implementers
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
   docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
@@ -103,6 +104,15 @@ screens are exercised through both of their callers — `statePersistence.test.t
 `factories.test.ts` — since what matters is that the two boundaries agree on a payload, which only
 a per-caller test can assert), and `rankFilterScope.ts` (same reasoning, across its three callers'
 suites). The pure type modules have no runtime behavior to test.
+
+`mutationHandlers/` is the deliberate exception to the co-location rule, and the reason is worth
+stating rather than leaving as an apparent gap. Its nine modules are covered by
+`applyMutation.test.ts`, which drives them through `applyDocMutation` — the only way any of them
+is ever reached. Splitting that suite to match the new file layout would test each handler through
+a table it does not dispatch from, and would lose the property the single suite actually asserts:
+that a mutation applied through the public entry point behaves the same regardless of which
+domain module happens to own it. Same reasoning as `docScreening.ts` above — the test follows the
+caller, not the file.
 
 ## Type modules
 
@@ -1869,7 +1879,7 @@ silently un-screen a field with nothing to compile against.
 `widget.config` after narrowing. Neither `StudioController.updateWidgetConfig` nor an AI tool call
 is type-checked against a specific widget at runtime, so a wrong-kind or wrong-chart-type key can
 still be WRITTEN over those boundaries. This file closes that gap with two parallel layers, one
-per union.
+per union — plus a third that checks VALUES rather than keys.
 
 - **`getAllowedConfigKeys(kind)` / `validateConfigKeysForKind(kind, config)`** — the widget-KIND
   layer. Returns `null` (no restriction) for a custom kind; otherwise a `Set` of the shared config
@@ -1911,6 +1921,35 @@ boundaries now preserve. It stays exported for the opposite intent: a host or to
 wants a config REDUCED to one family (a "reset to this chart type's keys" affordance, an export that
 should not carry dormant keys) gets one implementation to call rather than hand-rolling one that
 drifts from `getAllowedChartConfigKeys` — whose `Object.hasOwn` fail-closed guard it inherits.
+
+#### The value-type layer
+
+The two layers above are key-PRESENCE checks; neither inspects a value. So a legal key can carry
+an illegal value — `update_widget({ config: { pivotShowTotals: "…" } })` stores a string in a
+field declared `boolean`, which is a structurally-broken widget the client then has to render.
+
+`SCALAR_CONFIG_VALUE_TYPES` maps every scalar config key to the primitive its declaration
+requires, and `validateConfigValueTypes(config)` returns the offending keys as fragments — not a
+sentence, so each caller writes wording for its own audience (the AI middleware owes the model an
+actionable retry message; a client-side writer owes its caller something else). Same division the
+key validators follow.
+
+**It is a mapped type, not a hand-written record**, and that is the whole point:
+
+```ts
+export type ScalarConfigValueTypes = {
+  [K in ScalarConfigKey]-?: ScalarConfigTypeName<StudioWidgetConfig[K]>;
+};
+```
+
+A missing key, a stray key, and a `'number'` written against a `boolean`-declared property are all
+compile errors — the same technique `AssertKeysCovered` applies to the key lists. This exists
+because the table was previously a 21-entry hand-maintained object in
+`@mui/x-studio-ai-middleware`, describing itself as "intentionally small". That was true when
+written; by the time it was measured, `StudioWidgetConfig` declared 36 scalar properties and every
+one of the 15 the table missed passed `validateConfigKeysForKind` — so a tool could write them and
+nothing checked the value. A runtime mirror of a static type, in a different package from the
+type, with no link between them, has no way to announce that it has fallen behind.
 
 ### `statePersistence.ts` — the persistence boundary
 

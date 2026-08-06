@@ -40,7 +40,7 @@ packages/x-studio-schema/src/     Dependency-free shared types + pure functions
 packages/x-studio/src/
   store/                          StudioController + docTransforms (persistence re-exported from the schema pkg)
   context/                        StudioProvider, useStudioSelector, selectors.ts
-  internals/                      Data pipeline, caches, chart aggregation, widget/chart-type registries, i18n plumbing
+  internals/                      Data pipeline, caches, chart aggregation, chart-type registry, geography/country data, i18n plumbing
   components/
     Studio/                       Studio, StudioDashboard, StudioContent, sidebar chrome
     StudioCanvas/                 Drag-and-drop grid layout engine
@@ -52,7 +52,8 @@ packages/x-studio/src/
     StudioWidgetEditDialog/       Modal widget editor (filters, formatting)
     StudioExpressionFieldDialog/  Calculated-field / measure editor
     widgets/                      The 7 built-in widget kind implementations
-  models/                         Re-exports of @mui/x-studio-schema + React-only custom-widget/feature-flag types
+  models/                         Re-exports of @mui/x-studio-schema + the React-only and host-facing
+                                  types: custom widgets, feature flags, aiConfig.ts (StudioAIConfig)
   utils/                          expressionEvaluator, gridGrouping, gridSummary, fieldCapabilities
   locales/                        Translation bundles (enUS, fr, de, es, ptBR)
   server/                         createBatchingAdapter, createSimpleAdapter
@@ -1100,7 +1101,7 @@ Three smaller invariants:
 
 Most of these fail closed at compile time; the pattern is `satisfies Record<Union, …>` on a registry so a missed entry is a type error rather than a runtime fallback.
 
-- **New built-in widget kind** — add the string to `StudioWidgetKind` (schema pkg), create `components/widgets/Studio<Kind>Widget/`, add a `BUILTIN_WIDGET_DEFAULTS` entry in `createDefaultWidget` (schema pkg `factories.ts`), and a `BUILTIN_WIDGET_DEFS` entry (`internals/builtinWidgetDefs.ts`). Both tables are exhaustive-checked.
+- **New built-in widget kind** — add the string to `StudioWidgetKind` (schema pkg), create `components/widgets/Studio<Kind>Widget/`, add a `BUILTIN_WIDGET_DEFAULTS` entry in `createDefaultWidget` (schema pkg `factories.ts`), and a `BUILTIN_WIDGET_DEFS` entry (`components/widgets/builtinWidgetDefs.ts`). Both tables are exhaustive-checked.
 - **New chart type** — add the schema-side plumbing described in the schema package's `ARCHITECTURE.md` (new `StudioChartType` literal, family interface, `StudioChartConfigByType`/`CHART_TYPE_CONFIG_KEYS` entries), then a `render*` function and `CHART_TYPE_DEFS` entry in `StudioChartWidget/chartTypeDefs.tsx`, and a `chartTypeRegistry` entry in `internals/chartTypeRegistry.ts`. Also decide whether it re-ranks post-aggregation — if so, add it to `POST_AGGREGATION_RANK_CHART_TYPES` in `internals/StudioPipeline.ts`; if not, L3 applies its widget rank automatically.
 - **Custom widget kind** (app-level, no fork) — register a `StudioCustomWidgetDef` via `customWidgets`; folded into the same registry `useWidgetDefMap()` returns.
 - **New data source backend** — implement `StudioDataSourceAdapter`, or use `createSimpleAdapter`/`createBatchingAdapter` (the latter also generating cross-source JOINs when given `dataSources`/`relationships`).

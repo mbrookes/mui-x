@@ -41,7 +41,6 @@ Additional MUI developer reference documentation in this package:
 | Architecture                                                              |
 | [ARCHITECTURE.md](./ARCHITECTURE.md)                                      | **Canonical.** State management, data pipeline, widgets, canvas, filters, persistence, AI integration |
 | [docs/ARCHITECTURE_ASSESSMENT.md](./docs/ARCHITECTURE_ASSESSMENT.md)      | Design-level review of all four x-studio packages: what is sound, three structural issues, work order |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)                            | Superseded — kept for its pipeline/cache walkthroughs; see the canonical doc above for current state  |
 | AI Assistant                                                              |
 | [AI_ASSISTANT_OVERVIEW.md](./docs/AI_ASSISTANT_OVERVIEW.md)               | AI agent reference: all 12 tools, SSE pipeline, insight generation, and data isolation                |
 | [AI_ASSISTANT_RESEARCH.md](./docs/AI_ASSISTANT_RESEARCH.md)               | Market research, gap analysis, and roadmap for AI assistant features                                  |

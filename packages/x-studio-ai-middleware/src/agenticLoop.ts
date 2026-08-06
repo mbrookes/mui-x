@@ -9,7 +9,11 @@
  */
 import { randomUUID } from 'node:crypto';
 import type { ChatMessage } from '@mui/x-chat-headless';
-import { STUDIO_AI_TOOL_REGISTRY, type StudioAIToolFacts } from '@mui/x-studio-schema';
+import {
+  STUDIO_AI_TOOL_REGISTRY,
+  MAX_CONVERSATION_CHARS,
+  type StudioAIToolFacts,
+} from '@mui/x-studio-schema';
 import type { StudioState, StudioCustomWidgetDef } from './models/studioTypes';
 import type {
   SerializableSkill,
@@ -132,14 +136,15 @@ export const MAX_TURN_TEXT_BUFFER_CHARS = 2_000_000;
  * wrong follow-up work; a stop is self-announcing, which is how every other budget in
  * this loop behaves.
  *
- * Sized at 2,000,000 chars — roughly 500K tokens at ~4 chars/token, already beyond most
- * models' context windows, so a conversation this large has failed regardless. It is
- * twice `MAX_SYSTEM_PROMPT_CHARS` because the conversation legitimately carries the
- * whole system prompt plus history.
+ * Defined in `@mui/x-studio-schema` (with its sizing rationale) because it has a second
+ * implementer: `@mui/x-studio`'s SSE adapter sizes `MAX_TURN_TOOL_OUTPUT_SIZE` — how much tool
+ * output it will store for one response — against this ceiling. It had been set to 600,000 from
+ * a local argument while this cap said 2,000,000, so a data-heavy turn this loop was willing to
+ * send got clipped in the browser, and the clipped text is what `toOpenAIMessages` replays.
  *
- * Exported (mirroring the constants above) so tests can assert against the exact cap.
+ * Re-exported (mirroring the constants above) so tests can assert against the exact cap.
  */
-export const MAX_CONVERSATION_CHARS = 2_000_000;
+export { MAX_CONVERSATION_CHARS };
 
 /**
  * State-reading tools whose output would defeat `privateMode`. In private

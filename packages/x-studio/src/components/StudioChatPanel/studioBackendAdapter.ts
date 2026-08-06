@@ -13,7 +13,13 @@ import type { ChatAdapter, ChatMessageChunk } from '@mui/x-chat/headless';
 // Hand-rolling either here — a literal `key === '__proto__' || …`, a local `10_000` — is how
 // two boundaries that must agree start disagreeing, which is the whole reason these live in
 // exactly one place.
-import { isSafeKey, MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from '@mui/x-studio-schema';
+import {
+  isSafeKey,
+  MAX_ARRAY_LENGTH,
+  MAX_STRING_LENGTH,
+  MAX_TOOL_OUTPUT_CHARS,
+  MAX_CONVERSATION_CHARS,
+} from '@mui/x-studio-schema';
 import type { StudioController } from '../../store/StudioController';
 import type { StudioCustomWidgetDef, SerializableSkill } from '../../models';
 import { applyStateMutation } from './applyStateMutation';
@@ -412,9 +418,9 @@ export const MAX_TURN_TOOL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
  * Largest `output` one `tool-activity` `complete` may carry, with
  * MAX_TURN_TOOL_OUTPUT_SIZE the turn-wide total.
  *
- * `20 * MAX_STRING_LENGTH` = 200 000, deliberately EQUAL to the reference server's own
- * per-call `MAX_TOOL_OUTPUT_CHARS`, so a legitimate result the server already capped and
- * marked passes untouched. The turn total is three at-server-cap results.
+ * Deliberately EQUAL to the reference server's own per-call cap — the shared
+ * `MAX_TOOL_OUTPUT_CHARS`, imported rather than restated, so a legitimate result the server
+ * already capped and marked passes untouched.
  *
  * Unlike every other over-cap payload here, an over-cap `output` is TRUNCATED and MARKED
  * rather than dropped. Dropping it would drop the `tool-output-available` chunk, and
@@ -423,10 +429,28 @@ export const MAX_TURN_TOOL_INPUT_SIZE = 16 * MAX_STRING_LENGTH;
  * never resolves. A visibly-partial result is worth having; an invisible permanent "still
  * running" is not. The marker is appended and is itself charged to the budget.
  */
-export const MAX_TOOL_OUTPUT_SIZE = 20 * MAX_STRING_LENGTH;
+export const MAX_TOOL_OUTPUT_SIZE = MAX_TOOL_OUTPUT_CHARS;
 
-/** Turn-wide total for every `tool-activity` `output` — the count term for the cap above. */
-export const MAX_TURN_TOOL_OUTPUT_SIZE = 60 * MAX_STRING_LENGTH;
+/**
+ * Turn-wide total for every `tool-activity` `output` — the count term for the cap above.
+ *
+ * Sized at the server's whole-conversation ceiling, because that is the most tool output one
+ * response can contain: the loop re-POSTs the entire conversation on every turn and stops the
+ * request once it exceeds `MAX_CONVERSATION_CHARS`, so a turn carrying more than this never
+ * completes on the server to begin with. Anything the server did send, this client stores.
+ *
+ * It was `60 * MAX_STRING_LENGTH` = 600 000 — "three at-server-cap results", a number argued
+ * entirely from the per-call cap with nothing on the other side of it. The server's own budget
+ * is 3.3x that, so a data-heavy agentic turn had its results truncated in the browser AFTER the
+ * server explicitly allowed them, and the truncated text — not the real one — is what
+ * `toOpenAIMessages` replays to the model on the next request. Deriving from the shared
+ * constant is what keeps the two from drifting apart again.
+ *
+ * This is a bound on what one response may store, not a promise about any particular server: a
+ * host running its own endpoint with a larger budget still gets truncated-and-marked results
+ * rather than unbounded growth in the persisted doc.
+ */
+export const MAX_TURN_TOOL_OUTPUT_SIZE = MAX_CONVERSATION_CHARS;
 
 /**
  * Appended in place of the tail this client refused to store, so a truncated tool result is

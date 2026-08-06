@@ -23,15 +23,18 @@
  *
  * Internal to the package — not exported from `index.ts`.
  */
+import { MAX_TOOL_OUTPUT_CHARS } from '@mui/x-studio-schema';
 import { capText } from './promptCaps';
 
 /**
- * Total cap (chars, ~bytes of JSON text) on a single tool result. Sized so a
- * legitimate 1000-row query result with ordinary cell values passes untouched
- * (~200 KB is roughly 50K tokens — already a large single tool result), while a
- * runaway result is bounded well before it can dominate the conversation.
+ * Total cap (chars, ~bytes of JSON text) on a single tool result.
+ *
+ * Defined in `@mui/x-studio-schema` because `@mui/x-studio`'s SSE adapter mirrors it as
+ * `MAX_TOOL_OUTPUT_SIZE` — a client budget below this one would clip a result this loop had
+ * already decided to send. Re-exported here so callers and tests in this package keep naming it
+ * where it is enforced.
  */
-export const MAX_TOOL_OUTPUT_CHARS = 200_000;
+export { MAX_TOOL_OUTPUT_CHARS };
 
 /**
  * Per-string ("cell") cap applied while structurally trimming an oversized

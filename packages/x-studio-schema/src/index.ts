@@ -135,6 +135,9 @@ export { pruneDependsOnAgainstSelf } from './dependsOnCascade';
 export { isSameManagedFilterContent } from './docTransforms';
 export { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 export { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';
+// The AI-chat wire budgets, published for the same reason: the server enforces them and the
+// client mirrors them, and a mirror that is only a comment drifts. See `aiWireLimits.ts`.
+export { MAX_TOOL_OUTPUT_CHARS, MAX_CONVERSATION_CHARS } from './aiWireLimits';
 
 // The batch-query WIRE PROTOCOL, published because it has two implementers that must not depend
 // on each other: `@mui/x-studio`'s `createBatchingAdapter` builds these payloads and

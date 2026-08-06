@@ -75,6 +75,7 @@ src/
   anomalyDetection.ts     detectAnomaliesIQR (+ private median helper)
   unsafeKeys.ts           The single shared prototype-hazard key denylist
   wireLimits.ts           MAX_ARRAY_LENGTH/MAX_STRING_LENGTH — shared wire trust-boundary size caps
+  aiWireLimits.ts         The AI-chat wire BUDGETS — the server enforces them, the client mirrors them
   dataWireTypes.ts        The batch-query WIRE PROTOCOL — the one definition, for both implementers
   internalGuards.ts       isPlainRecord/stripUnsafeOwnKeys/repairFilterDependsOn — shared boundary helpers
   docScreening.ts         The per-entry StudioDoc screens shared by the load boundary and the factory
@@ -91,9 +92,12 @@ src/
 Every runtime module has a co-located `*.test.ts` except four: `aiToolRegistry.ts` (a declarative
 facts table whose invariants are compile-time-enforced by the mapped types deriving from it),
 `unsafeKeys.ts` (a fixed three-literal `Set` plus a one-line membership check, exercised
-indirectly by every prototype-hazard case in the boundary suites), `wireLimits.ts` (two exported
-number constants, exercised indirectly by every size-cap case in `parseStateMutation.test.ts`,
-`applyMutation.test.ts`, and `statePersistence.test.ts`), `docScreening.ts` (whose
+indirectly by every prototype-hazard case in the boundary suites), `wireLimits.ts` and
+`aiWireLimits.ts` (exported number constants, exercised through their enforcers — the former by
+every size-cap case in `parseStateMutation.test.ts`, `applyMutation.test.ts` and
+`statePersistence.test.ts`, the latter by `capToolOutput.test.ts` and `agenticLoop`'s
+conversation-cap cases server-side and by `studioBackendAdapter.test.ts`'s two mirror assertions
+client-side), `docScreening.ts` (whose
 screens are exercised through both of their callers — `statePersistence.test.ts` and
 `factories.test.ts` — since what matters is that the two boundaries agree on a payload, which only
 a per-caller test can assert), and `rankFilterScope.ts` (same reasoning, across its three callers'
@@ -858,10 +862,10 @@ Three sharp edges, all handled by private helpers:
   fell through to the slow path, which can't parse it either, and the function returned `null`
   instead of the documented best-effort `'2024-06-01'`.
 
-### `unsafeKeys.ts`, `wireLimits.ts`, `internalGuards.ts` and `docScreening.ts`
+### `unsafeKeys.ts`, `wireLimits.ts`, `aiWireLimits.ts`, `internalGuards.ts` and `docScreening.ts`
 
-All four exist purely so their guards have exactly one implementation across every trust
-boundary. They began fully package-internal; five names have since been published from
+All five exist purely so their guards have exactly one implementation across every trust
+boundary. They began fully package-internal; seven names have since been published from
 `index.ts`, on a deliberate rule:
 
 > **A guard is published when it is NOT an implementation detail of this package's own
@@ -869,8 +873,9 @@ boundary. They began fully package-internal; five names have since been publishe
 > forwards an untrusted value into the persisted `doc`, needs the SAME answer. Everything else
 > stays internal.
 
-Published: `UNSAFE_KEYS`/`isSafeKey` (from `unsafeKeys.ts`) and `MAX_ARRAY_LENGTH`/
-`MAX_STRING_LENGTH` (from `wireLimits.ts`). `@mui/x-studio`'s SSE adapter had hand-rolled a
+Published: `UNSAFE_KEYS`/`isSafeKey` (from `unsafeKeys.ts`), `MAX_ARRAY_LENGTH`/
+`MAX_STRING_LENGTH` (from `wireLimits.ts`), and `MAX_TOOL_OUTPUT_CHARS`/`MAX_CONVERSATION_CHARS`
+(from `aiWireLimits.ts`). `@mui/x-studio`'s SSE adapter had hand-rolled a
 byte-equivalent `key === '__proto__' || key === 'constructor' || key === 'prototype'` literal
 **precisely because these were unreachable** — which is how a denylist that exists to be defined
 exactly once starts drifting. Both modules stay zero-dependency, so exporting them adds nothing
@@ -890,6 +895,17 @@ those really are boundary internals.
   boundary's `dependsOn` repair (reachable by a server-built `addFilter` that bypasses the wire
   parser, and by a persisted/shared doc) enforces the identical bound the wire boundary does,
   rather than an independently-declared (and driftable) one.
+- **`aiWireLimits.ts`** — `MAX_TOOL_OUTPUT_CHARS`/`MAX_CONVERSATION_CHARS`, the AI-chat wire
+  budgets. Zero-dependency for the same reason, and separate from `wireLimits.ts` because it
+  answers a different question: not "is this one value too large to be legitimate" but "how much
+  tool output may cross this wire". Both numbers are enforced by `@mui/x-studio-ai-middleware`
+  (`capToolOutput`, `agenticLoop`) and MIRRORED by `@mui/x-studio`'s SSE adapter, which decides
+  how much of a streamed result to store on the persisted chat message. That mirror is the reason
+  they had to move here: the client's per-response budget was argued locally to 600,000 while the
+  server's ceiling was 2,000,000, so a data-heavy turn the server had already sent was clipped in
+  the browser — and since the client's copy is what `toOpenAIMessages` replays, the clipped text
+  went back to the model as though it were the whole result. A comment cannot hold two numbers
+  together across a package boundary; an import can.
 - **`internalGuards.ts`** — `isPlainRecord` (see
   [above](#isplainrecord--the-one-is-this-a-usable-bag-predicate)), `stripUnsafeOwnKeys`, and
   `repairFilterDependsOn`. It began as a pure dedup of three helpers previously defined

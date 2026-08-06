@@ -34,11 +34,11 @@ Three structural issues stand out. Two of them are the root cause of a visible s
 the review rounds spent their effort on, which is the main reason this assessment is worth
 having: those rounds were fixing recurring symptoms of causes they were not positioned to see.
 
-| #   | Issue                                                                                            | Severity | Shape of the fix                                |
-| :-- | :----------------------------------------------------------------------------------------------- | :------- | :---------------------------------------------- |
-| 1   | ~~Data wire contract defined independently on both sides~~ **CLOSED**                            | High     | Extracted to `x-studio-schema/dataWireTypes.ts` |
-| 2   | 25 of 42 controller write paths bypassed the shared reducer — now 19, and the blocker is removed | High     | Vocabulary split shipped; writers migrating     |
-| 3   | `StudioController` is a god object (1,896 code lines, 73 methods)                                | Medium   | Split along seams already visible               |
+| #   | Issue                                                                      | Severity | Shape of the fix                                |
+| :-- | :------------------------------------------------------------------------- | :------- | :---------------------------------------------- |
+| 1   | ~~Data wire contract defined independently on both sides~~ **CLOSED**      | High     | Extracted to `x-studio-schema/dataWireTypes.ts` |
+| 2   | ~~25 of 42 controller write paths bypassed the shared reducer~~ **CLOSED** | High     | 44/0 reducer-routed; `commitDocPatch` deleted   |
+| 3   | `StudioController` is a god object (1,896 code lines, 73 methods)          | Medium   | Three seams cut: 1,896 → 1,572                  |
 
 ## What is structurally right
 
@@ -136,6 +136,20 @@ protocol: put the contract in the zero-dependency package both sides already dep
 **The fix.** A wire-protocol module in `x-studio-schema`, imported by the batching adapter and
 by the middleware's validation boundary. The middleware gains a dependency on a zero-dependency
 package; the client gains nothing it did not already carry.
+
+**The same shape on the AI wire, found afterwards.** The AI protocol's _types_ are shared, which
+is why this assessment held it up as the counter-example — but two of its _budgets_ were not.
+`MAX_TOOL_OUTPUT_CHARS` (200,000) and `MAX_CONVERSATION_CHARS` (2,000,000) were defined in
+`x-studio-ai-middleware` and mirrored by hand in `x-studio`'s SSE adapter, which decides how much
+of a streamed tool result to store on the persisted chat message. The per-call mirror agreed. The
+per-response one did not: it had been argued locally to 600,000 — "three at-server-cap results" —
+against a server ceiling 3.3× higher, so a data-heavy agentic turn had its results clipped in the
+browser _after_ the server had allowed them, and because the client's copy is what
+`toOpenAIMessages` replays, the clipped text went back to the model as though it were whole.
+Both constants now live in `x-studio-schema/aiWireLimits.ts` and the client derives from them,
+with two tests asserting the mirror. Worth recording because it is issue 1 in miniature: sharing
+the types of a protocol is not the same as sharing its contract, and a number held in agreement
+by a comment is not held in agreement.
 
 ## Issue 2 — the "one reducer" invariant is half-realized
 
@@ -266,10 +280,16 @@ see, and vice versa, but a deep pass run repeatedly starts paying for the same g
 
 ## Recommended order of work
 
-1. **Extract the data wire contract into `x-studio-schema`** and have both sides import it.
-   Most mechanical of the three, clearest boundary, and it retires a recurring defect class
-   rather than its instances.
-2. **Decouple the mutation vocabulary from the AI tool surface**, then migrate the 26 bypass
-   writers onto the reducer. Issue 2 stops regenerating once this lands.
-3. **Split `StudioController`** along the seams above. Lowest risk of the three and largely
-   mechanical, but the least urgent — it costs comprehension, not correctness.
+1. ~~**Extract the data wire contract into `x-studio-schema`** and have both sides import it.~~
+   **Done** — `dataWireTypes.ts`, plus `aiWireLimits.ts` for the AI wire's two budgets, which
+   turned out to have the same defect.
+2. ~~**Decouple the mutation vocabulary from the AI tool surface**, then migrate the bypass
+   writers onto the reducer.~~ **Done** — 44/0, `commitDocPatch` deleted.
+3. **Split `StudioController`** along the seams above. Three cut (1,896 → 1,572); what remains
+   is screening and page resolution rather than write logic, so this is a reasonable stopping
+   point unless the class grows again.
+
+What is left is not on this list because it is not the same kind of item: `executeToolOnState.ts`
+(1,772 code lines, 76 top-level functions) is now the largest file across the four packages and
+no part of this work has examined it at the design level. It is the server-side instance of the
+shape issue 3 describes, and it deserves its own assessment rather than a line here.

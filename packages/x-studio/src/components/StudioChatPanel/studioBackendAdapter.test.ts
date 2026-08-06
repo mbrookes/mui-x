@@ -2,7 +2,13 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage, ChatMessageChunk, ChatStreamEnvelope } from '@mui/x-chat/headless';
 // Imported, never re-spelled as literals: a test that hard-codes `10_000` would keep passing
 // if the shared cap moved and the adapter stopped agreeing with the rest of the boundary.
-import { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH, UNSAFE_KEYS } from '@mui/x-studio-schema';
+import {
+  MAX_ARRAY_LENGTH,
+  MAX_STRING_LENGTH,
+  MAX_TOOL_OUTPUT_CHARS,
+  MAX_CONVERSATION_CHARS,
+  UNSAFE_KEYS,
+} from '@mui/x-studio-schema';
 import {
   createBackendChatAdapter,
   MAX_TOOL_ID_LENGTH,
@@ -1671,9 +1677,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       Array.from({ length: MAX_TURN_TOOL_PARTS * 4 }, (_unused, i) => startEvent(i)),
     );
 
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
-    );
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
     expect(warnSpy).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
   });
@@ -1687,9 +1691,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     ]).flat();
     const chunks = await collectAllTurnChunks(events);
 
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
-    );
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
     expect(chunks.filter((c) => c.type === 'tool-output-available')).toHaveLength(
       MAX_TURN_TOOL_PARTS,
     );
@@ -1745,9 +1747,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     ]);
 
     // The tool-activity events spent the whole shared budget…
-    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(
-      MAX_TURN_TOOL_PARTS,
-    );
+    expect(chunks.filter((c) => c.type === 'tool-input-start')).toHaveLength(MAX_TURN_TOOL_PARTS);
     // …so the approval events, which name NEW ids, get no parts of their own.
     expect(chunks.filter((c) => c.type === 'tool-approval-request')).toHaveLength(0);
     warnSpy.mockRestore();
@@ -1798,6 +1798,22 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
     expect(chunks.filter((c) => c.type === 'tool-input-available').length).toBeLessThan(40);
     expect(warnSpy).toHaveBeenCalledTimes(1);
     warnSpy.mockRestore();
+  });
+
+  // A client budget BELOW the server's clips results the server had already decided to send —
+  // and the clipped text, not the real one, is what `toOpenAIMessages` replays on the next
+  // request. These two assertions are the whole guard against that: they fail the moment either
+  // side's number is edited without the other, which is exactly how the turn budget came to sit
+  // at 600 000 against a server ceiling of 2 000 000.
+  it('stores per call exactly what the server sends per call', () => {
+    expect(MAX_TOOL_OUTPUT_SIZE).toBe(MAX_TOOL_OUTPUT_CHARS);
+  });
+
+  it('stores per response at least what the server can send in one', () => {
+    expect(MAX_TURN_TOOL_OUTPUT_SIZE).toBeGreaterThanOrEqual(MAX_CONVERSATION_CHARS);
+    // …and the per-call cap is genuinely the tighter of the two, so a single result is bounded
+    // by the server's per-call agreement rather than by the response-wide budget.
+    expect(MAX_TOOL_OUTPUT_SIZE).toBeLessThan(MAX_TURN_TOOL_OUTPUT_SIZE);
   });
 
   // The one over-cap payload on this boundary that is TRUNCATED rather than dropped, and the
@@ -1876,8 +1892,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
             phase: 'start',
             toolCallId: id,
             toolName: escapingString(MAX_TOOL_ID_LENGTH),
-            input:
-              i < 10 ? { note: escapingString(MAX_TOOL_INPUT_SIZE / 2) } : { table: 'orders' },
+            input: i < 10 ? { note: escapingString(MAX_TOOL_INPUT_SIZE / 2) } : { table: 'orders' },
           },
           {
             type: 'tool-activity',
@@ -1910,10 +1925,7 @@ describe('createBackendChatAdapter: tool-activity size limits', () => {
       (total, c) => total + jsonChars(c.toolCallId) + jsonChars(c.toolName),
       0,
     );
-    const inputBytes = inputs.reduce(
-      (total, c) => total + JSON.stringify(c.input)!.length,
-      0,
-    );
+    const inputBytes = inputs.reduce((total, c) => total + JSON.stringify(c.input)!.length, 0);
     const outputBytes = outputs.reduce((total, c) => total + jsonChars(c.output), 0);
 
     // ids/names: 2 fields x MAX_TOOL_ID_LENGTH x MAX_TURN_TOOL_PARTS = 32 768.

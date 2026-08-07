@@ -158,6 +158,15 @@ export type {
   StudioWireVersionCheck,
   StudioWireVersionRejection,
 } from './wireProtocol';
+// The execution-semantics conformance corpus: the artifact defining what the in-memory pipeline
+// and the SQL push-down path must both answer. Published from here because it is read by a test in
+// `x-studio-data-middleware` and by nothing that may depend on it. See `executionConformance.ts`.
+export { EXECUTION_CONFORMANCE_CASES } from './executionConformance';
+export type {
+  ConformanceDisposition,
+  ConformanceRow,
+  ExecutionConformanceCase,
+} from './executionConformance';
 // The AI-chat wire budgets, published for the same reason: the server enforces them and the
 // client mirrors them, and a mirror that is only a comment drifts. See `aiWireLimits.ts`.
 export { MAX_TOOL_OUTPUT_CHARS, MAX_CONVERSATION_CHARS } from './aiWireLimits';

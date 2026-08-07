@@ -118,6 +118,24 @@ export function assertTimeoutArgs(label: string, ms: unknown, opts: unknown): vo
  * Fails closed on an operator this helper does not model: pushing NO predicate
  * would mean "the filter matched every row", which fails OPEN.
  */
+/**
+ * SQL three-valued logic, as a guard.
+ *
+ * A comparison against NULL is UNKNOWN, and a WHERE clause keeps only rows for which the predicate
+ * is TRUE — so a NULL row value fails EVERY scalar comparison, including `<>`. That is not a detail
+ * this mock can skip: it is the one place the two execution engines are documented to disagree
+ * (`EXECUTION_SEMANTICS.md`, the degradation register — the in-memory evaluator KEEPS a NULL row
+ * for `not_equals`, SQL drops it), so a mock that quietly returned JS answers instead
+ * (`null != 'open'` is `true`; `null < 5` is `true`, because `null` coerces to `0`) reported the
+ * two engines as agreeing on the exact case where they do not.
+ *
+ * `executionConformance.test.ts` is what surfaced this: its known-divergence case asserts the
+ * divergence still EXISTS, and it failed here — against the mock, not against the product.
+ */
+function sqlComparable(rowValue: unknown): boolean {
+  return rowValue !== null && rowValue !== undefined;
+}
+
 export function wherePredicate(
   column: string,
   opOrValue: unknown,
@@ -128,29 +146,32 @@ export function wherePredicate(
     // Knex's 2-arg `.where(column, value)` — an equality comparison, so it must
     // use the same SQL-engine coercion rules as the 3-arg `=` branch below
     // rather than JS `===`.
-    return (row) => sqlValueEquals(row[key], opOrValue);
+    return (row) => sqlComparable(row[key]) && sqlValueEquals(row[key], opOrValue);
   }
   const op = opOrValue as string;
   switch (op) {
     case '=':
     case '==':
-      return (row) => sqlValueEquals(row[key], value);
+      return (row) => sqlComparable(row[key]) && sqlValueEquals(row[key], value);
     case '!=':
-      return (row) => !sqlValueEquals(row[key], value);
+      // NOT `!sqlValueEquals(...)`. A NULL row value makes `col <> ?` UNKNOWN, so SQL drops the
+      // row — see `sqlComparable`. This is the known divergence from the in-memory evaluator,
+      // which keeps it.
+      return (row) => sqlComparable(row[key]) && !sqlValueEquals(row[key], value);
     case '<':
-      return (row) => (row[key] as number) < (value as number);
+      return (row) => sqlComparable(row[key]) && (row[key] as number) < (value as number);
     case '<=':
-      return (row) => (row[key] as number) <= (value as number);
+      return (row) => sqlComparable(row[key]) && (row[key] as number) <= (value as number);
     case '>':
-      return (row) => (row[key] as number) > (value as number);
+      return (row) => sqlComparable(row[key]) && (row[key] as number) > (value as number);
     case '>=':
-      return (row) => (row[key] as number) >= (value as number);
+      return (row) => sqlComparable(row[key]) && (row[key] as number) >= (value as number);
     case 'like':
       // `applyPredicate`'s `like` branch emits the 3-arg form rather than
       // `.whereLike` — Knex's MySQL compiler appends `COLLATE utf8_bin` to
       // `whereLike` only. Without this branch the mock silently dropped
       // every `like` filter and returned the unfiltered table.
-      return (row) => likeMatches(row[key], value as string);
+      return (row) => sqlComparable(row[key]) && likeMatches(row[key], value as string);
     default:
       // FAIL CLOSED on an operator this mock does not model. The `else` used to
       // fall through, pushing NO predicate — so a production change to an
@@ -420,7 +441,10 @@ export function createMockDb(
         // Type-directed comparison rather than `values.includes(row[key])` — see
         // `sqlValueEquals`. An empty `values` still matches nothing, mirroring the
         // `1 = 0` Knex renders for `whereIn(col, [])`.
-        predicates.push((row) => values.some((value) => sqlValueEquals(row[key], value)));
+        predicates.push(
+          (row) =>
+            sqlComparable(row[key]) && values.some((value) => sqlValueEquals(row[key], value)),
+        );
         return qb;
       },
       whereLike(column: string, pattern: string) {
@@ -431,7 +455,10 @@ export function createMockDb(
       whereBetween(column: string, [lo, hi]: [unknown, unknown]) {
         const key = rowKeyOf(column);
         predicates.push(
-          (row) => (row[key] as number) >= (lo as number) && (row[key] as number) <= (hi as number),
+          (row) =>
+            sqlComparable(row[key]) &&
+            (row[key] as number) >= (lo as number) &&
+            (row[key] as number) <= (hi as number),
         );
         return qb;
       },

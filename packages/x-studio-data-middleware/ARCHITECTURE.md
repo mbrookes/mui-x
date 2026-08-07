@@ -85,6 +85,12 @@ Everything under `router/`, `shared/`, `mutations/mutationBuilder.ts`, and the i
 
 ## Read path
 
+> **This path is one half of a two-engine contract.** The same dashboard is answered in-memory by
+> `@mui/x-studio-core`'s pipeline when no adapter is configured, and the two must agree.
+> [`EXECUTION_SEMANTICS.md`](../x-studio/docs/EXECUTION_SEMANTICS.md) specifies what correct means;
+> `src/__tests__/executionConformance.test.ts` runs every case in the shared corpus through the real
+> client, this handler and the client-side residual.
+
 `handleBatchQuery(body, claims, options)`.
 
 ### 0. Request-shape validation

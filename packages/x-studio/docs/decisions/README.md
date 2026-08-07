@@ -13,14 +13,14 @@ written down.
 
 ## Index
 
-| #                                              | Decision                            | Status                     |
-| :--------------------------------------------- | :---------------------------------- | :------------------------- |
-| [0001](./0001-engine-binding-package-split.md) | Engine / binding package split      | **Accepted** — implemented |
-| [0002](./0002-commercial-tiering-seam.md)      | Commercial tiering seam             | **Open** — decision needed |
-| [0003](./0003-ai-assistant-product-scope.md)   | AI assistant's place in the product | **Open** — decision needed |
-| [0004](./0004-semantic-model-home.md)          | Where the semantic model lives      | **Open** — decision needed |
-| [0005](./0005-primary-execution-path.md)       | Which execution engine is primary   | **Open** — decision needed |
-| [0006](./0006-wire-protocol-versioning.md)     | Versioning the two host wires       | **Accepted** — implemented |
+| #                                              | Decision                            | Status                                                                                                                     |
+| :--------------------------------------------- | :---------------------------------- | :------------------------------------------------------------------------------------------------------------------------- |
+| [0001](./0001-engine-binding-package-split.md) | Engine / binding package split      | **Accepted** — implemented                                                                                                 |
+| [0002](./0002-commercial-tiering-seam.md)      | Commercial tiering seam             | **Open** — decision needed                                                                                                 |
+| [0003](./0003-ai-assistant-product-scope.md)   | AI assistant's place in the product | **Open** — decision needed                                                                                                 |
+| [0004](./0004-semantic-model-home.md)          | Where the semantic model lives      | **Open** — decision needed                                                                                                 |
+| [0005](./0005-primary-execution-path.md)       | Which execution engine is primary   | **Partly accepted** — [the contract](../EXECUTION_SEMANTICS.md) is written and enforced; the primary-path question is open |
+| [0006](./0006-wire-protocol-versioning.md)     | Versioning the two host wires       | **Accepted** — implemented                                                                                                 |
 
 ## Writing one
 

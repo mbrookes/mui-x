@@ -576,6 +576,12 @@ self-repair rules — lives in the binding; see
 
 ## The query adapter
 
+> **The adapter is one half of a two-engine contract.** What it may translate faithfully, what it
+> must hold back as a client-side residual, and the one divergence it ships on purpose are specified
+> in [`EXECUTION_SEMANTICS.md`](../x-studio/docs/EXECUTION_SEMANTICS.md) and enforced by a
+> conformance corpus that runs every case down both paths. Read the degradation register before
+> widening anything below.
+
 `StudioDataSourceAdapter` is the contract: `getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult>` plus an optional `submitMutation`. Two implementations:
 
 - **`createSimpleAdapter(url, options?)`** — one HTTP request per call, targeting a simpler host that speaks `StudioQueryDescriptor` natively, so it POSTs the descriptor essentially as-is and does **not** translate to the wire `FilterPredicate` shape.

@@ -77,14 +77,14 @@ framework-agnostic engine, a React component library, and an application shell, 
 three things were written in that order into the same directory. No requirement asked for that
 shape, and one explicit requirement is incompatible with it.
 
-| #   | Finding                                                                   | Severity            | Cost now vs. later                                                                      |
-| :-- | :------------------------------------------------------------------------ | :------------------ | :-------------------------------------------------------------------------------------- |
-| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED** | Done — `@mui/x-studio-core` is extracted and React-free.                                |
-| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**            | Cheap now. A breaking API change later.                                                 |
-| A3  | The MVP-excluded subsystem is the largest one built                       | Medium              | Costs nothing to fix — it needs a decision recorded, not code moved                     |
-| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium              | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
-| A5  | Two execution engines with no shared correctness contract                 | Medium              | Moderate, and grows with every pipeline feature                                         |
-| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**  | Done — both wires carry a version and a compatibility rule.                             |
+| #   | Finding                                                                   | Severity                        | Cost now vs. later                                                                      |
+| :-- | :------------------------------------------------------------------------ | :------------------------------ | :-------------------------------------------------------------------------------------- |
+| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED**             | Done — `@mui/x-studio-core` is extracted and React-free.                                |
+| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**                        | Cheap now. A breaking API change later.                                                 |
+| A3  | The MVP-excluded subsystem is the largest one built                       | Medium                          | Costs nothing to fix — it needs a decision recorded, not code moved                     |
+| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium                          | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
+| A5  | Two execution engines with no shared correctness contract                 | ~~Medium~~ **CONTRACT WRITTEN** | Done — the semantics are specified and conformance-tested.                              |
+| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**              | Done — both wires carry a version and a compatibility rule.                             |
 
 ## A1 — The package boundary does not serve the multi-framework requirement
 
@@ -325,6 +325,29 @@ pipeline feature has one obvious place to be defined.
 That is a significant refactor and may well not be worth it. But it should be an answered
 question, and the answer should be in the architecture doc, because every future pipeline feature
 pays the two-implementations tax until it is.
+
+> **Status: the correctness contract now exists; the primary-path question stays open.**
+>
+> [`EXECUTION_SEMANTICS.md`](./EXECUTION_SEMANTICS.md) specifies the seven rules both paths owe and
+> carries a **degradation register** — every leaf shape the wire cannot express faithfully, what
+> happens instead, and why. `EXECUTION_CONFORMANCE_CASES` in `@mui/x-studio-schema` encodes it as
+> data; `executionConformance.test.ts` runs each case through the real adapter, the real handler and
+> the real client-side residual, with the database as the only stand-in.
+>
+> Each case pins a **disposition** (pushed down vs client residual), not just an answer — because a
+> leaf can return the right rows today and still be latent, and asserting only the answer would let
+> a `contains` translate to a case-sensitive `LIKE` and pass. The "pushed down anyway, unfaithfully"
+> category is capped at its one argued-for entry by a test.
+>
+> **It found a defect on its first run**, in `createMockDb` rather than the product: the mock did not
+> model SQL three-valued logic, so it reported the two engines as agreeing on the exact case they
+> are documented to disagree on. All 1,237 other tests in that package passed either way. Nobody
+> writes a hand-rolled test asserting that a known bug is still a bug — which is the argument for a
+> corpus.
+>
+> Recorded as [ADR 0005](./decisions/0005-primary-execution-path.md). What remains is choosing which
+> engine is authoritative; that is a refactor decision, and it is now separable from the correctness
+> question it used to be tangled with.
 
 ## A6 — Integration is two handlers, not a versioned contract
 

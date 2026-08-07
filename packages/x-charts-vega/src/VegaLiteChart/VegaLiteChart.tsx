@@ -1275,17 +1275,48 @@ function SingleViewChart(props: VegaLiteChartProps) {
     xAxisHeight === undefined || (config as { position?: string }).position === 'none'
       ? config
       : { ...config, height: xAxisHeight };
+  // Pin the standalone x-axis to exactly the height the surface budgeted for
+  // it, the mirror of `pinStandaloneYAxisWidth` below.
+  //
+  // `resolveVegaViewSize` sizes the surface as `plot + X_AXIS_BASE_ALLOWANCE`,
+  // and x-charts then subtracts its 20px top/bottom margins plus whatever the
+  // axis measures itself to be. Left on `height: 'auto'` that measurement comes
+  // from the rendered tick labels, so the plot height depends on the font the
+  // browser happens to resolve — while the reference's plot is simply the size
+  // its spec declared. Any drift in font metrics therefore moves us relative to
+  // Vega: a 2px taller label row silently costs 2px of plot on EVERY spec.
+  // Pinning the axis to `allowance - margins` makes
+  // `plot === allowance - margins - axis` collapse to the spec's own plot size
+  // no matter what the text measures.
+  //
+  // Skipped for rotated labels, which genuinely need more than the flat
+  // allowance — a composed cell budgets those explicitly via `xAxisHeight`.
+  const pinStandaloneXAxisHeight = <T extends Record<string, unknown>>(config: T): T => {
+    const rotated = (config as { tickLabelStyle?: { angle?: number } }).tickLabelStyle?.angle;
+    if (
+      cell ||
+      height !== undefined ||
+      xAxisHeight !== undefined ||
+      (rotated !== undefined && rotated !== 0) ||
+      (config as { position?: string }).position === 'none'
+    ) {
+      return config;
+    }
+    return { ...config, height: X_AXIS_BASE_ALLOWANCE - DEFAULT_CHART_MARGIN_Y };
+  };
   const xAxis = compiled.xAxis
     ? [
-        rotateXLabelsIfCramped(
-          pinXAxisHeight(
-            withVegaTickCount(
-              dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom),
-              vegaSize.plotWidth,
+        pinStandaloneXAxisHeight(
+          rotateXLabelsIfCramped(
+            pinXAxisHeight(
+              withVegaTickCount(
+                dropAutoSize(compiled.xAxis.config, cell?.margin?.bottom),
+                vegaSize.plotWidth,
+              ),
             ),
+            resolvedWidth,
+            Boolean(compiled.yAxis),
           ),
-          resolvedWidth,
-          Boolean(compiled.yAxis),
         ),
       ]
     : undefined;

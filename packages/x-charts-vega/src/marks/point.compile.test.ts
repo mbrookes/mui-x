@@ -46,7 +46,7 @@ describe('compilePointMark', () => {
       },
     };
     const compiled = compileSpec(spec);
-    expect(compiled.xAxis?.config.scaleType).to.equal('point');
+    expect(compiled.xAxis?.config.scaleType).to.equal('band');
     const series = compiled.series[0] as unknown as { data: { x: unknown; y: unknown }[] };
     expect(series.data).to.deep.equal([
       { x: 'A', y: 3, id: 0 },

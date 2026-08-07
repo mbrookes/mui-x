@@ -70,7 +70,7 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
     });
 
     it('selects band when any layer with the channel is a bar mark', () => {
@@ -112,7 +112,9 @@ describe('scales & axes', () => {
         },
       });
       expect(compiled.xAxis?.config.scaleType).to.equal('band');
-      expect(compiled.gaps.some((gap) => gap.code === 'scale:point-forced-band')).to.equal(true);
+      // A band scale serves both now: its centres sit where Vega's padded point
+      // scale puts its points, so an explicit `point` is honoured, not overridden.
+      expect(compiled.gaps.some((gap) => gap.code === 'scale:point-forced-band')).to.equal(false);
     });
 
     it('lets scale.type: "band" win for a non-bar mark', () => {
@@ -195,11 +197,13 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
+      // Every discrete axis is a band scale now, so a non-bar mark's
+      // `paddingInner` reaches `categoryGapRatio` instead of being dropped. Band
+      // centres do not move with it, so the marks stay on Vega's positions.
       expect((compiled.xAxis?.config as { categoryGapRatio?: number }).categoryGapRatio).to.equal(
-        undefined,
+        0.3,
       );
-      expect(compiled.gaps.some((g) => g.code === 'scale:band-padding')).to.equal(false);
     });
   });
 
@@ -888,7 +892,7 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
       expect(compiled.gaps.some((g) => g.code === 'scale:temporal-point-approximation')).to.equal(
         true,
       );
@@ -903,7 +907,7 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
       expect(compiled.xAxis?.categories).to.deep.equal([
         new Date('2020-03-01'),
         new Date('2020-01-01'),
@@ -923,7 +927,7 @@ describe('scales & axes', () => {
           y: { field: 'v', type: 'quantitative' },
         },
       });
-      expect(compiled.xAxis?.config.scaleType).to.equal('point');
+      expect(compiled.xAxis?.config.scaleType).to.equal('band');
       expect(compiled.xAxis?.categories).to.deep.equal([
         new Date('2020-03-01'),
         new Date('2020-02-01'),

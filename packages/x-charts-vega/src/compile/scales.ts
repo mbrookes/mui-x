@@ -961,19 +961,22 @@ function resolveChannelAxis(
     // since x-charts has no way to size a bar series without one (an explicit
     // point scale on a bar/rect/boxplot/errorbar channel would otherwise
     // reach x-charts with no band width to draw from and crash).
-    const explicitConflictsWithBar = forcedDiscreteMark && explicitDiscrete === 'point';
-    if (explicitConflictsWithBar) {
-      gaps.add({
-        code: 'scale:point-forced-band',
-        message:
-          `An explicit \`scale.type: "point"\` is not usable here — this channel's mark ` +
-          '(bar/rect/boxplot/errorbar) needs a band scale to derive its width/summary geometry, ' +
-          'so "band" is used instead.',
-        severity: 'partial',
-        path: `${first.unit.path}.encoding.${channel}.scale.type`,
-      });
-    }
-    const scaleType = forcedDiscreteMark ? 'band' : (explicitDiscrete ?? 'point');
+    // Always a band scale, including where Vega would use a point one.
+    //
+    // Vega's point scale insets the first and last category by half a step
+    // (`pointPadding` defaults to 0.5), so four categories across 600px sit at
+    // 75/225/375/525 — not 0/200/400/600, which is where d3's `scalePoint` puts
+    // them and where this wrapper used to draw `parallel_coordinate`'s axes.
+    // x-charts builds its band scale with `paddingOuter` at half `paddingInner`,
+    // which makes the step `width / n` and every band centre land on
+    // `(i + 0.5) * step` for ANY gap ratio — exactly Vega's point positions.
+    // Marks resolve to band centres (`getValueToPositionMapper` adds
+    // `bandwidth / 2`), so this reproduces the inset rather than approximating
+    // it, and a bar still has a width to derive its geometry from.
+    //
+    // The one case it cannot express is an explicit `scale.padding: 0` asking
+    // for the un-inset layout; no gallery spec sets one.
+    const scaleType = 'band' as const;
 
     // A temporal discrete axis defaults to a locale date string (unless a
     // translatable `axis.format` overrides it); nominal/ordinal axes only carry

@@ -183,9 +183,12 @@ describe('compilePointMark', () => {
     expect(zAxis.min).to.equal(0);
     expect(zAxis.max).to.equal(15);
     expect(zAxis.sizeMap?.type).to.equal('continuous');
-    // Radius range matching Vega-Lite's default point size: a symbol area of
-    // 361 is a 19px-wide dot, so radius 9.5, with a `sqrt` interpolator.
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
+    // Vega's default size range of [4, 361] is a 2px dot growing to a 19px
+    // one, interpolated linearly in size units and only then square-rooted.
+    const interpolate = zAxis.sizeMap!.size as unknown as (t: number) => number;
+    expect(interpolate(0)).to.equal(1);
+    expect(interpolate(1)).to.equal(9.5);
+    expect(interpolate(0.5)).to.be.closeTo(Math.sqrt((4 + 361) / 2) / 2, 1e-9);
   });
 
   it('honors an explicit size scale.domain/.range instead of the data extent + default [0, 11] radius range', () => {
@@ -222,7 +225,9 @@ describe('compilePointMark', () => {
     };
     expect(zAxis.min).to.equal(0);
     expect(zAxis.max).to.equal(1000);
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, Math.sqrt(200) / 2]);
+    const explicit = zAxis.sizeMap!.size as unknown as (t: number) => number;
+    expect(explicit(0)).to.equal(0);
+    expect(explicit(1)).to.equal(Math.sqrt(200) / 2);
   });
 
   it('builds a piecewise sizeMap for a "threshold" size scale (explicit domain breakpoints)', () => {
@@ -340,7 +345,7 @@ describe('compilePointMark', () => {
     );
     expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
+    expect((zAxis.sizeMap!.size as unknown as (t: number) => number)(1)).to.equal(9.5);
   });
 
   it('falls back to the continuous default and reports a partial gap for a discretizing scale with a malformed range', () => {
@@ -368,7 +373,7 @@ describe('compilePointMark', () => {
     );
     expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
+    expect((zAxis.sizeMap!.size as unknown as (t: number) => number)(1)).to.equal(9.5);
   });
 
   it('reports a partial gap for a size scale.range with a non-numeric endpoint (e.g. a signal expression)', () => {
@@ -396,7 +401,7 @@ describe('compilePointMark', () => {
     );
     expect(gap?.severity).to.equal('partial');
     const zAxis = compiled.zAxis![0] as unknown as { sizeMap?: { size: [number, number] } };
-    expect(zAxis.sizeMap?.size).to.deep.equal([0, 9.5]);
+    expect((zAxis.sizeMap!.size as unknown as (t: number) => number)(1)).to.equal(9.5);
   });
 
   it('reports a partial gap for a non-quantitative size field (no x-charts size-scale equivalent)', () => {

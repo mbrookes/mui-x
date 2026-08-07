@@ -345,8 +345,30 @@ function vegaSizeToRadius(size: number): number {
   return Math.sqrt(size) / 2;
 }
 
-/** Vega-Lite's default continuous `size` range for point/circle marks, as radii. */
-const VEGA_DEFAULT_SIZE_RADIUS_MAX = vegaSizeToRadius(361);
+/**
+ * Vega-Lite's default continuous `size` range for point/circle marks, in Vega
+ * size units. The floor of 4 is a 2px dot, the ceiling of 361 a 19px one.
+ */
+const VEGA_DEFAULT_SIZE_AREA_RANGE: [number, number] = [4, 361];
+
+/**
+ * Vega interpolates a continuous `size` scale linearly in its size units and
+ * only then takes the radius, so radius grows as `sqrt(a + b·t)` rather than
+ * in proportion to `sqrt(t)`. x-charts' named `'sqrt'` interpolator can only
+ * do the latter, which left the smallest markers ~8% under the reference;
+ * its function form takes the interpolation factor directly, so the exact
+ * curve can be handed over instead. Verified against `item.size` on
+ * vega-embed's own output: a count of 1 in a [0, 19] domain gives 22.79 on
+ * both sides.
+ */
+function vegaSizeInterpolator([areaMin, areaMax]: readonly [number, number]) {
+  return (t: number): number => {
+    // d3's sequential scale does not clamp, so an out-of-domain value would
+    // otherwise reach `Math.sqrt` negative and render NaN.
+    const clamped = Math.min(1, Math.max(0, t));
+    return vegaSizeToRadius(areaMin + (areaMax - areaMin) * clamped);
+  };
+}
 
 /**
  * Default marker radius for a geo point with no static/field size, matching
@@ -857,15 +879,14 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
         // discretizing scale `buildDiscretizingSizeMap` couldn't build — its
         // own gap already explains why) is reported and falls back to that
         // default rather than being misread as two plain numbers.
-        let sizeRange: [number, number] = [0, VEGA_DEFAULT_SIZE_RADIUS_MAX];
+        let sizeAreaRange: [number, number] = VEGA_DEFAULT_SIZE_AREA_RANGE;
         if (!discretizingType && sizeScale?.range !== undefined) {
           if (
             Array.isArray(sizeScale.range) &&
             sizeScale.range.length === 2 &&
             sizeScale.range.every((value) => typeof value === 'number')
           ) {
-            const [rangeMinArea, rangeMaxArea] = sizeScale.range as [number, number];
-            sizeRange = [vegaSizeToRadius(rangeMinArea), vegaSizeToRadius(rangeMaxArea)];
+            sizeAreaRange = sizeScale.range as [number, number];
           } else {
             gaps.add({
               code: 'encoding:size-scale-range-unsupported',
@@ -881,15 +902,10 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
             id: sizeAxisId,
             min: domainMin,
             max: domainMax,
-            // `size` is the marker *radius* and the `sqrt` interpolator makes area
-            // proportional to the value (Vega-Lite's `size` semantics). Match
-            // Vega-Lite's default point size range of [0, 361] in *area*, i.e. a
-            // radius up to sqrt(361/π) ≈ 10.7px, rather than the previous 20px
-            // radius that rendered bubbles at roughly double Vega-Lite's size.
-            sizeMap: { type: 'continuous', size: sizeRange, interpolator: 'sqrt' },
+            sizeMap: { type: 'continuous', size: vegaSizeInterpolator(sizeAreaRange) },
           },
         ];
-        sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size, sizeRange);
+        sizeLegend = buildSizeLegend(domainMin, domainMax, encoding.size, sizeAreaRange);
       }
     }
   }
@@ -1095,18 +1111,18 @@ function buildSizeLegend(
   min: number,
   max: number,
   sizeDef: VegaEncoding['size'],
-  sizeRange: readonly [number, number] = [0, VEGA_DEFAULT_SIZE_RADIUS_MAX],
+  sizeAreaRange: readonly [number, number] = VEGA_DEFAULT_SIZE_AREA_RANGE,
 ): SizeLegend | undefined {
   if (!(max > min)) {
     return undefined;
   }
   // Mirror the `sizeMap` the markers themselves use — including an explicit
   // `scale.range` — so the legend symbols and the plotted dots stay in step.
-  const [radiusMin, radiusMax] = sizeRange;
-  const entries = niceSizeTicks(max).map((value) => {
-    const t = Math.min(1, Math.max(0, (value - min) / (max - min)));
-    return { value, radius: radiusMin + (radiusMax - radiusMin) * Math.sqrt(t) };
-  });
+  const interpolate = vegaSizeInterpolator(sizeAreaRange);
+  const entries = niceSizeTicks(max).map((value) => ({
+    value,
+    radius: interpolate((value - min) / (max - min)),
+  }));
   return { title: sizeLegendTitle(sizeDef), entries };
 }
 

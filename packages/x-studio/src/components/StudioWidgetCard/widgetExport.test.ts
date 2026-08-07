@@ -8,7 +8,8 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
 } from '../../models';
-import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
+import { exportChartToPng } from '../../internals/widgetPresentation';
+import { exportGridToCsv, downloadCsv } from '../../internals/widgetUtils';
 import { buildQueryDescriptor, buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
 import { studioRequestCache } from '../../internals/StudioRequestCache';
 import {
@@ -20,7 +21,13 @@ import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 
 vi.mock('../../internals/widgetUtils', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
-  return { ...actual, exportGridToCsv: vi.fn(), exportChartToPng: vi.fn(), downloadCsv: vi.fn() };
+  return { ...actual, exportGridToCsv: vi.fn(), downloadCsv: vi.fn() };
+});
+// `exportChartToPng` needs a live DOM node, so it lives in `widgetPresentation.tsx` with the
+// other React-dependent helpers rather than in the pure `widgetUtils.ts`.
+vi.mock('../../internals/widgetPresentation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../internals/widgetPresentation')>();
+  return { ...actual, exportChartToPng: vi.fn() };
 });
 
 const source: StudioDataSource = {

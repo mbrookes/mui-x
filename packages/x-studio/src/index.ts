@@ -160,7 +160,8 @@ export type { TabbedSidebarProps, TabbedSidebarPanel } from './components/Studio
 export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcuts';
 
 // ─── Widget utilities (composable API helpers) ────────────────────────────────
-export { WIDGET_TYPES, createDefaultWidget } from './internals/widgetUtils';
+export { WIDGET_TYPES } from './internals/widgetPresentation';
+export { createDefaultWidget } from './internals/widgetUtils';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
 export { StudioController, createStudioController } from './store/StudioController';

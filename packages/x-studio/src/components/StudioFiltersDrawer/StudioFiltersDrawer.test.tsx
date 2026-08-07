@@ -9,7 +9,7 @@ import type {
   StudioWidget,
 } from '../../models';
 import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
-import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { createStudioHarness } from '../../internals/test-utils';
 import { BUILTIN_WIDGET_DEFS } from '../widgets/builtinWidgetDefs';

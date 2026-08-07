@@ -1,7 +1,8 @@
 import type { StudioController } from '../../store/StudioController';
 import { createStudioPipeline, shouldApplyWidgetRankAtL3 } from '../../internals/StudioPipeline';
 import { selectAdapterResidualFilters } from '../../internals/filterScoping';
-import { exportGridToCsv, exportChartToPng, downloadCsv } from '../../internals/widgetUtils';
+import { exportChartToPng } from '../../internals/widgetPresentation';
+import { exportGridToCsv, downloadCsv } from '../../internals/widgetUtils';
 import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
 import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
 import { buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
@@ -10,7 +11,7 @@ import { studioRequestCache } from '../../internals/StudioRequestCache';
 import { lookup } from '../../utils/safeLookup';
 import { getGridViewSortModel } from '../widgets/StudioGridWidget/gridViewSortRegistry';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
-import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 
 type Row = Record<string, unknown>;
 

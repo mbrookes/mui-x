@@ -1,9 +1,6 @@
 import type { StudioDataField, StudioGridColumn, StudioGridSummaryAggregation } from '../models';
 import { formatFieldValue } from '../internals/numberFormat';
-import {
-  DEFAULT_STUDIO_LOCALE_TEXT,
-  type StudioLocaleText,
-} from '../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from '../internals/localeText';
 import { normalizeJoinKey } from '../internals/joinKeys';
 import { getStudioLocale } from '../internals/studioLocale';
 import { aggregateValues } from './gridGrouping';

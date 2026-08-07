@@ -12,7 +12,7 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { StudioChartType, StudioDataSource, StudioWidgetConfig } from '../../../models';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
 import { setActiveStudioLocale } from '../../../internals/studioLocale';
 
 const {

@@ -13,7 +13,7 @@ import {
   selectWidgets,
   useStudioLocaleText,
 } from '../../context';
-import { getWidgetSubtypeIcon, WIDGET_TYPES } from '../../internals/widgetUtils';
+import { getWidgetSubtypeIcon, WIDGET_TYPES } from '../../internals/widgetPresentation';
 import type { StudioWidget, StudioWidgetKind } from '../../models';
 import { useWidgetKindLabels, getBuiltInWidgetKindInfo } from './StudioComposeDrawerLabels';
 

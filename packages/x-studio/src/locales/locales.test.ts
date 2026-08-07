@@ -19,7 +19,7 @@ import { ptBRLocaleText } from './ptBR';
 import { frLocaleText } from './fr';
 import { deLocaleText } from './de';
 import { esLocaleText } from './es';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../internals/localeText';
 
 const DEFAULT_KEYS = Object.keys(DEFAULT_STUDIO_LOCALE_TEXT) as Array<
   keyof typeof DEFAULT_STUDIO_LOCALE_TEXT

@@ -1,10 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createWidgetForKind, exportChartToPng } from './widgetPresentation';
 import {
   buildCsvContent,
   createDefaultWidget,
-  createWidgetForKind,
   downloadCsv,
-  exportChartToPng,
   exportGridToCsv,
   formatDateFilterLabel,
   inferKpiDateSubtitle,
@@ -21,7 +20,7 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
 } from '../models';
-import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from './localeText';
 
 const SOURCES: Record<string, StudioDataSource> = {
   orders: {

@@ -13,7 +13,7 @@ import { createRenderer, screen, fireEvent, act } from '@mui/internal-test-utils
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { createDefaultStudioState } from '../../models/stateTypes';
 import type { StudioState } from '../../models';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { frLocaleText } from '../../locales/fr';
 import {
   mockUseStudioSelector,

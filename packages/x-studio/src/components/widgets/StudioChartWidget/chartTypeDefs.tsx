@@ -32,7 +32,7 @@ import {
   buildFunnelStages,
   buildGanttItems,
 } from '../../../internals/chartAggregation';
-import type { StudioLocaleText } from '../../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../../internals/localeText';
 import { cachedCompute } from '../../../internals/computedCache';
 import { findMeasureExpressionField, resolveMeasureAggregate } from '../../../internals/aggregate';
 import { computeAggregate } from '../StudioKpiWidget/kpiUtils';

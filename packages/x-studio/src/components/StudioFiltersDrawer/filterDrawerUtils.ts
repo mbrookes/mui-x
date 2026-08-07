@@ -6,10 +6,7 @@ import type {
   StudioFilterOperator,
   StudioFilterState,
 } from '../../models';
-import {
-  DEFAULT_STUDIO_LOCALE_TEXT,
-  type StudioLocaleText,
-} from '../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from '../../internals/localeText';
 import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import { hasBetweenBound, isConditionComplete } from '../../internals/filterUtils';
 import type { FieldOption, FieldType, FilterMode } from './filterDrawerTypes';

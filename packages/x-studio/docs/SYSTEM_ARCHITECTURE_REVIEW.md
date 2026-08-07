@@ -96,12 +96,23 @@ scope.
 `package.json` peer-depends on `react`, `@mui/material`, `@emotion/react` and `@emotion/styled`.
 An Angular host consuming it does not get a wrapper; it gets React in its bundle.
 
-**The seam already exists, and it is clean.** Classifying every non-test source line by whether
-it touches React or MUI:
+**The seam already exists.** The honest measurement is the RUNTIME import closure — which files
+can be loaded without React — with `import type` erased, since a type-only edge costs nothing in
+a bundle. (A first pass counting files that merely do not _directly_ import React reported 40%;
+that number was wrong, because most of those files transitively reach React anyway.)
+
+`scripts/checkReactFreeClosure.py` computes it and can be re-run:
 
 ```text
-58,480 total     34,748 React/MUI-coupled (59%)     23,732 framework-agnostic (40%)
+                        before   after steps 1-2
+runtime-clean            18,740      23,820 code lines
+engine dirs, clean       16,502      18,732   (83 of 98 files)
+engine dirs, blocked      3,957       1,729   (15 files, all genuinely React)
 ```
+
+The remaining fifteen are eight `.tsx` components, four `use*` hooks, the React context, the test
+harness, and `widgetPresentation.tsx` — every one of them correctly belongs to the React binding
+rather than the core.
 
 By directory, the agnostic half is not scattered — it is almost exactly the engine:
 
@@ -117,6 +128,33 @@ components/ 35,365   134 .tsx files — the React layer
 `StudioController.ts` and `StudioPipeline.ts` import React **zero times**. `StudioPipeline` is
 already documented as "the non-React pipeline façade". The engine and the UI are already
 separable; nobody has drawn the package line where the code already divides.
+
+> **Status: steps 1–3 done — the field is green.**
+>
+> Two edges were doing all the blocking, and neither was essential:
+>
+> 1. **Locale text routed through a React module.** `DEFAULT_STUDIO_LOCALE_TEXT` and
+>    `StudioLocaleText` live in `internals/localeText.ts`, which is pure — but 34 files imported
+>    them from `StudioUIConfigContext.ts`, which merely re-exports them and is a React context.
+>    Redirecting those imports to the real source freed `locales/` (4,244 lines of i18n data) and
+>    three engine modules. No logic changed.
+> 2. **`widgetUtils.tsx` mixed pure helpers with icon components.** `StudioController` reaches
+>    `inferWidgetTitles` through `widgetConfigSanitization`, and that helper shared a 1,098-line
+>    file with `WIDGET_TYPES` and thirty icon imports — so the controller, and therefore the whole
+>    engine, could not load without React. Split into `widgetUtils.ts` (22 pure declarations) and
+>    `widgetPresentation.tsx` (8 that render or need a DOM node). No declaration was needed by
+>    both halves, so the split required no duplication.
+>
+> **`StudioController`, `StudioPipeline`, `createBatchingAdapter` and `widgetConfigSanitization`
+> are now all runtime-clean.** 4,782 tests pass; two module mocks needed repointing, which is the
+> only test change.
+>
+> Both fixes are ones a code-structure review would ask for on their own merits — a file with two
+> concerns, an import path pointing at a re-exporter. They happened to be the two things standing
+> between this package and a stated product requirement.
+>
+> What remains for the package split itself is the widget-kind descriptor/renderer decision below,
+> then scaffolding and moving files that no longer need editing.
 
 **What this costs.** Today: nothing visible, which is exactly why it has survived. At the first
 Angular or Vue integration: a choice between shipping React inside a non-React host, or

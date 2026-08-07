@@ -1,4 +1,4 @@
-import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 
 export interface Localization {
   components: {

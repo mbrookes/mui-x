@@ -1,5 +1,5 @@
 import type { StudioDataField, StudioFilterOperator } from '../../models';
-import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 
 /**
  * Single source of truth for filter-operator metadata (which operators are valid

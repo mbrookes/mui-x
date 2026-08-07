@@ -16,7 +16,7 @@ import DownloadIcon from '@mui/icons-material/Download';
 
 import { useStudioLocaleText } from '../../context';
 import type { StudioWidgetDef } from '../../internals/StudioUIConfigContext';
-import { exportChartToPng } from '../../internals/widgetUtils';
+import { exportChartToPng } from '../../internals/widgetPresentation';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import type { StudioDataSource, StudioWidget } from '../../models';
 

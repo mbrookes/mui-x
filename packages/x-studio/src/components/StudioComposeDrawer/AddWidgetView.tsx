@@ -10,11 +10,8 @@ import {
   selectDataSources,
   useStudioLocaleText,
 } from '../../context';
-import {
-  createWidgetForKind,
-  resolveWidgetRequiresDataSource,
-  WIDGET_TYPES,
-} from '../../internals/widgetUtils';
+import { createWidgetForKind, WIDGET_TYPES } from '../../internals/widgetPresentation';
+import { resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidgetKind } from '../../models';
 import { getBuiltInWidgetKindInfo } from './StudioComposeDrawerLabels';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';

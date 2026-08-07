@@ -9,7 +9,7 @@ import {
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
 import { frLocaleText } from '../../../locales/fr';
 import { StudioMapWidget } from './StudioMapWidget';
 

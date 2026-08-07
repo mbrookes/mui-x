@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { SelectionFilterInput } from './SelectionFilterInput';
 import { FIELD_VALUES_CAP } from './useFieldValues';
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { StudioDataSource, StudioWidget } from '../../models';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { generateSuggestions } from './chatSuggestions';
 
 const ordersSource: StudioDataSource = {

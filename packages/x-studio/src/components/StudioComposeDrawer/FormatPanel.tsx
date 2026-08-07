@@ -27,7 +27,7 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetUtils';
-import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 import type { StudioWidgetConfig } from '../../models';
 import { GridConditionalFormatSection } from './GridConditionalFormatSection';
 import { useBufferedInput } from './useBufferedInput';

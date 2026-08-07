@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import { createStudioHarness } from '../../internals/test-utils';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/StudioUIConfigContext';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 

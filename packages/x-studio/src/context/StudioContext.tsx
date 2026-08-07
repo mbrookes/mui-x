@@ -13,7 +13,7 @@ import {
   useCustomWidgetMap,
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
-import type { StudioLocaleText } from '../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../internals/localeText';
 import { setActiveStudioLocale } from '../internals/studioLocale';
 import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import type { StudioMapGeographyDefinition } from '../internals/geographyLoaders';

@@ -11,7 +11,7 @@ import type {
   StudioState,
   StudioCustomWidgetDef,
 } from '../../models';
-import type { StudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioLocaleText } from '../../internals/localeText';
 import type { StudioMapGeographyDefinition } from '../../internals/geographyLoaders';
 
 /**

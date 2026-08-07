@@ -6,12 +6,12 @@ import type { StudioWidget, StudioWidgetConfig } from '../../models';
 import type { StudioWidgetDef } from '../../internals/StudioUIConfigContext';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioWidgetExpandDialog } from './StudioWidgetExpandDialog';
-import * as widgetUtils from '../../internals/widgetUtils';
+import * as widgetUtils from '../../internals/widgetPresentation';
 
 const { render } = createRenderer();
 
-vi.mock('../../internals/widgetUtils', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../internals/widgetUtils')>()),
+vi.mock('../../internals/widgetPresentation', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../internals/widgetPresentation')>()),
   exportChartToPng: vi.fn(),
 }));
 

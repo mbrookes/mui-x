@@ -1,17 +1,19 @@
-import type { StudioController } from '../../store/StudioController';
-import { createStudioPipeline, shouldApplyWidgetRankAtL3 } from '../../internals/StudioPipeline';
-import { selectAdapterResidualFilters } from '../../internals/filterScoping';
-import { exportChartToPng } from '../../internals/widgetPresentation';
-import { exportGridToCsv, downloadCsv } from '../../internals/widgetUtils';
-import { enrichWithCrossSourceFields } from '../../internals/crossSourceEnrichment';
+import type { StudioController } from '@mui/x-studio-core/store';
+import {
+  createStudioPipeline,
+  shouldApplyWidgetRankAtL3,
+  selectAdapterResidualFilters,
+  enrichWithCrossSourceFields,
+  buildWidgetQueryDescriptor,
+  getCachedNormalizedDataSource,
+  studioRequestCache,
+} from '@mui/x-studio-core/engine';
+import { lookup } from '@mui/x-studio-core/utils';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
+import { exportChartToPng, exportGridToCsv, downloadCsv } from '../../internals/widgetPresentation';
 import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
-import { buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
-import { getCachedNormalizedDataSource } from '../../internals/normalizedRowsCache';
-import { studioRequestCache } from '../../internals/StudioRequestCache';
-import { lookup } from '../../utils/safeLookup';
-import { getGridViewSortModel } from '../widgets/StudioGridWidget/gridViewSortRegistry';
 import type { StudioDataSource, StudioWidget, StudioWidgetConfig } from '../../models';
-import type { StudioLocaleText } from '../../internals/localeText';
+import { getGridViewSortModel } from '../widgets/StudioGridWidget/gridViewSortRegistry';
 
 type Row = Record<string, unknown>;
 

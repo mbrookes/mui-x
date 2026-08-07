@@ -2,10 +2,10 @@ import * as React from 'react';
 import { createRenderer, act, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { MIN_SPAN } from '@mui/x-studio-schema';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../internals/test-utils';
 import type { StudioHarness } from '../../internals/test-utils';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import type {
   StudioCustomWidgetDef,
   StudioWidget,

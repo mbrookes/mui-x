@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
+import { frLocaleText } from '@mui/x-studio-core/locales';
 import { createStudioHarness } from '../../internals/test-utils';
-import type { StudioLocaleText } from '../../internals/localeText';
-import { frLocaleText } from '../../locales/fr';
 import {
   StudioWidgetCardActionsOverlay,
   type StudioWidgetCardActionsOverlayProps,

@@ -1,14 +1,14 @@
 import * as React from 'react';
 import { createRenderer, screen, fireEvent, waitFor, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { createDefaultStudioState } from '../../models/stateTypes';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
+import { frLocaleText } from '@mui/x-studio-core/locales';
 import type { StudioState } from '../../models';
 import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type ResolvedStudioFeatures,
   type StudioLocaleText,
 } from '../../internals/StudioUIConfigContext';
-import { frLocaleText } from '../../locales/fr';
 import {
   mockUseStudioSelector,
   mockUseStudioController,

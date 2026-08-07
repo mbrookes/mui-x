@@ -15,11 +15,13 @@
  * the same key."
  */
 import { describe, it, expect } from 'vitest';
-import { ptBRLocaleText } from './ptBR';
-import { frLocaleText } from './fr';
-import { deLocaleText } from './de';
-import { esLocaleText } from './es';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../internals/localeText';
+import {
+  ptBRLocaleText,
+  frLocaleText,
+  deLocaleText,
+  esLocaleText,
+} from '@mui/x-studio-core/locales';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 
 const DEFAULT_KEYS = Object.keys(DEFAULT_STUDIO_LOCALE_TEXT) as Array<
   keyof typeof DEFAULT_STUDIO_LOCALE_TEXT

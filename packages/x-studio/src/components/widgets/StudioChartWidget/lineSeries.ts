@@ -1,4 +1,4 @@
-import type { MultiYSeriesData } from '../../../internals/chartAggregation';
+import type { MultiYSeriesData } from '@mui/x-studio-core/engine';
 import type { StudioChartType, StudioDataSource, StudioExpressionField } from '../../../models';
 import {
   computeStackTotals,

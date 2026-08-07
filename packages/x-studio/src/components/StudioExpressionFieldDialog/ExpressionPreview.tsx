@@ -1,9 +1,9 @@
 'use client';
 import * as React from 'react';
 import { Box, Chip, Stack, Typography } from '@mui/material';
+import { evaluateExpression, evaluateMeasure } from '@mui/x-studio-core/utils';
+import { formatNumber } from '@mui/x-studio-core/engine';
 import type { StudioDataSource, StudioExpression, StudioExpressionField } from '../../models';
-import { evaluateExpression, evaluateMeasure } from '../../utils/expressionEvaluator';
-import { formatNumber } from '../../internals/numberFormat';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 
 // ─── Preview ──────────────────────────────────────────────────────────────────

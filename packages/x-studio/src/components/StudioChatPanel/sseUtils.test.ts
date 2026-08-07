@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDefaultStudioState } from '../../models/stateTypes';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
 import { serializeDashboardState, parseSSEStream } from './sseUtils';
 
 // ── serializeDashboardState: doc.ai trimming ─────────────────────────────────

@@ -8,5 +8,5 @@ export type { KpiTrendProps, KpiTrendResult } from './KpiTrend';
 // The single "which date field does this KPI use?" rule. Exported so the compose drawer's
 // `KpiSparklineOptions` can answer that question with the SAME implementation the rendered widget
 // uses, instead of its own third variant.
-export { resolveKpiDateField } from './kpiUtils';
-export type { KpiDateFieldResolution, KpiDateFieldOrigin } from './kpiUtils';
+export { resolveKpiDateField } from '@mui/x-studio-core/engine';
+export type { KpiDateFieldResolution, KpiDateFieldOrigin } from '@mui/x-studio-core/engine';

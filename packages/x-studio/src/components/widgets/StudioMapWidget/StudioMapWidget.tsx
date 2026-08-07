@@ -6,6 +6,19 @@ import { GeoDataPlot } from '@mui/x-charts-premium/Map';
 import { ChartsSurface } from '@mui/x-charts/ChartsSurface';
 import { ContinuousColorLegend } from '@mui/x-charts/ChartsLegend';
 import type { ExtendedFeatureCollection } from '@mui/x-charts-vendor/d3-geo';
+import {
+  buildManyToOneRelationshipIndex,
+  getReachableSourceIds,
+  normalizeJoinKey,
+  normalizeToAlpha2,
+  alpha2ToName,
+  STATE_ABBR_TO_NAME,
+  formatNumber,
+  aggregateNumbers,
+  coerceAggregateValue,
+} from '@mui/x-studio-core/engine';
+import { lookup, inferExpressionType } from '@mui/x-studio-core/utils';
+import type { StudioMapGeographyDefinition } from '@mui/x-studio-core/engine';
 import type { StudioDataSource, StudioWidgetOf } from '../../../models';
 import {
   useStudioController,
@@ -18,25 +31,10 @@ import {
 } from '../../../context';
 import { useStudioGeographies } from '../../../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
-import {
-  buildManyToOneRelationshipIndex,
-  getReachableSourceIds,
-} from '../../../internals/dataSourceGraph';
-import { normalizeJoinKey } from '../../../internals/joinKeys';
-import { lookup } from '../../../utils/safeLookup';
-import {
-  normalizeToAlpha2,
-  alpha2ToName,
-  STATE_ABBR_TO_NAME,
-} from '../../../internals/countryUtils';
-import type { StudioMapGeographyDefinition } from '../../../internals/geographyLoaders';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { StudioMapTooltip, StudioMapTooltipContext } from './StudioMapTooltip';
 import { StudioMapShapePlot } from './StudioMapShapePlot';
-import { formatNumber } from '../../../internals/numberFormat';
-import { aggregateNumbers, coerceAggregateValue } from '../../../internals/aggregate';
-import { inferExpressionType } from '../../../utils/expressionEvaluator';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';
 
 // ─── Types ────────────────────────────────────────────────────────────────────

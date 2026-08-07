@@ -3,6 +3,7 @@ import * as React from 'react';
 import { Alert, Button, Stack, Typography } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import { createFilterId } from '@mui/x-studio-schema';
+import { getReachableSourceIds, filterMutationRejectionMessage } from '@mui/x-studio-core/engine';
 import type { StudioFilterState, StudioDataField } from '../../models';
 import { useStudioController } from '../../context/StudioContext';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
@@ -14,8 +15,6 @@ import {
   selectRelationships,
   useStudioSelector,
 } from '../../context';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import { filterMutationRejectionMessage } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { FilterRow, type FieldOption } from './FilterRow';
 
 // ── Panel ─────────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { lookup } from '@mui/x-studio-core/utils';
 import {
   useStudioController,
   useStudioSelector,
@@ -17,7 +18,6 @@ import {
   selectDataSources,
 } from '../../context';
 import type { StudioNumberFormat } from '../../models';
-import { lookup } from '../../utils/safeLookup';
 import { useDataTypeLabels } from './StudioComposeDrawerLabels';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 

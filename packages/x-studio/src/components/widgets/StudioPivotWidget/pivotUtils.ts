@@ -4,12 +4,10 @@ import {
   createAggregateAccumulator,
   finalizeAccumulator,
   type AggregateAccumulator,
-} from '../../../internals/aggregate';
-import { escapeCsvCell } from '../../../internals/csvUtils';
-import { downloadCsv } from '../../../internals/widgetUtils';
-import { formatFieldValue, formatNumber } from '../../../internals/numberFormat';
-import { evaluateMeasure } from '../../../utils/expressionEvaluator';
-import { lookup } from '../../../utils/safeLookup';
+} from '@mui/x-studio-core/engine';
+import { escapeCsvCell, formatFieldValue, formatNumber } from '@mui/x-studio-core/engine';
+import { evaluateMeasure, lookup } from '@mui/x-studio-core/utils';
+import { downloadCsv } from '../../../internals/widgetPresentation';
 import type { StudioDataField, StudioExpressionField } from '../../../models';
 
 // Re-exported so existing importers of `./pivotUtils` keep working unchanged —

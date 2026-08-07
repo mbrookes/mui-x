@@ -1,11 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import type { StudioController } from '@mui/x-studio-core/store';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
 import {
   createWidgetFromDescription,
   type CreateWidgetResult,
 } from './createWidgetFromDescription';
 import type { StudioAIConfig } from './studioBackendAdapter';
-import type { StudioController } from '../../store/StudioController';
-import { createDefaultStudioState } from '../../models/stateTypes';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

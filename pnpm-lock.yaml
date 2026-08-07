@@ -2338,6 +2338,9 @@ importers:
       '@mui/x-internals':
         specifier: workspace:*
         version: link:../x-internals/build
+      '@mui/x-studio-core':
+        specifier: workspace:*
+        version: link:../x-studio-core
       '@mui/x-studio-schema':
         specifier: workspace:*
         version: link:../x-studio-schema
@@ -2392,6 +2395,31 @@ importers:
       '@mui/x-chat-headless':
         specifier: workspace:*
         version: link:../x-chat-headless/build
+
+  packages/x-studio-core:
+    dependencies:
+      '@mui/x-internals':
+        specifier: workspace:*
+        version: link:../x-internals/build
+      '@mui/x-studio-schema':
+        specifier: workspace:*
+        version: link:../x-studio-schema
+      dayjs:
+        specifier: 'catalog:'
+        version: 1.11.21
+      topojson-client:
+        specifier: ^3.1.0
+        version: 3.1.0
+      us-atlas:
+        specifier: ^3.0.1
+        version: 3.0.1
+      world-atlas:
+        specifier: ^2.0.2
+        version: 2.0.2
+    devDependencies:
+      '@mui/x-charts-vendor':
+        specifier: workspace:^
+        version: link:../x-charts-vendor/build
 
   packages/x-studio-data-middleware:
     dependencies:

@@ -6,7 +6,7 @@ import {
   createFunnelConversionFormatter,
 } from '@mui/x-charts-pro/FunnelChart';
 import type { FunnelCurveType } from '@mui/x-charts-pro/FunnelChart';
-import { formatNumber } from '../../../internals/numberFormat';
+import { formatNumber } from '@mui/x-studio-core/engine';
 import type { StudioNumberFormat } from '../../../models';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { buildChartDescription } from './chartA11y';

@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AggregatedData } from '../../../internals/chartAggregation';
+import type { AggregatedData } from '@mui/x-studio-core/engine';
 import {
   StudioUIConfigContext,
   DEFAULT_STUDIO_LOCALE_TEXT,

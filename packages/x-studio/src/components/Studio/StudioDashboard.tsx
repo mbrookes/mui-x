@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Box } from '@mui/material';
 import type { SxProps, Theme } from '@mui/material/styles';
+import type { StudioLocaleText, StudioMapGeographyDefinition } from '@mui/x-studio-core/engine';
 import { Studio } from './Studio';
 import type { StudioHandle, StudioProps } from './Studio';
 import type {
@@ -11,8 +12,6 @@ import type {
   StudioState,
   StudioCustomWidgetDef,
 } from '../../models';
-import type { StudioLocaleText } from '../../internals/localeText';
-import type { StudioMapGeographyDefinition } from '../../internals/geographyLoaders';
 
 /**
  * Props for `StudioDashboard` — the embed-first entry point to Studio.

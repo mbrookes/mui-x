@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
+import type { StudioController } from '@mui/x-studio-core/store';
 import { buildRichContext } from './richContext';
-import { createDefaultStudioState } from '../../models/stateTypes';
-import type { StudioController } from '../../store/StudioController';
 import type { StudioAIRecentMutation } from '../../models';
 
 function fakeController(

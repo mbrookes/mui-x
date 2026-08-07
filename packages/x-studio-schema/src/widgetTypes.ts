@@ -1100,3 +1100,38 @@ export interface StudioPage {
    */
   stackBreakpoint?: number;
 }
+
+/**
+ * The framework-agnostic half of a widget-kind definition: what the kind IS and how it behaves,
+ * with nothing about how it renders.
+ *
+ * Three packages need this and only one of them can name a React type. `@mui/x-studio` extends it
+ * with `component`/`setupPanel`/`icon` to make `StudioCustomWidgetDef`;
+ * `@mui/x-studio-ai-middleware` reads it to describe available kinds in the system prompt; and
+ * `@mui/x-studio-core` uses it to answer questions like "does this kind require a data source"
+ * without depending on a renderer.
+ *
+ * It lives here because it was already being declared twice. The middleware carried its own
+ * hand-maintained copy whose doc said the client's values "structurally satisfy this subset at
+ * the app boundary" — structural typing across a package boundary, kept in agreement by comment,
+ * which is the arrangement that cannot fail until it does.
+ */
+export interface StudioWidgetKindDescriptor {
+  /**
+   * Unique identifier for this widget kind. Namespace custom kinds (`'acme-weather'`) to avoid
+   * colliding with built-ins or with another extension.
+   */
+  kind: string;
+  /** Display name shown in the widget picker. */
+  label: string;
+  /** Short description shown below the label in the widget picker. */
+  description?: string;
+  /** Whether a data source must be selected before this kind can be created. @default false */
+  requiresDataSource?: boolean;
+  /** Whether the AI insights action is offered for this kind. @default false */
+  aiInsight?: boolean;
+  /** Export format this kind supports, if any. The renderer performs the export. */
+  export?: 'csv' | 'png';
+  /** Seed config applied when a widget of this kind is created. */
+  defaultConfig?: Record<string, unknown>;
+}

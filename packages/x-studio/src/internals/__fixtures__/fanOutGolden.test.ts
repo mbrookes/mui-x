@@ -3,8 +3,8 @@ import {
   resolveChartRowsForAggregation,
   aggregateByField,
   analyzeChartSupport,
-} from '../chartAggregation';
-import { buildGroupedGridRows } from '../../utils/gridGrouping';
+} from '@mui/x-studio-core/engine';
+import { buildGroupedGridRows } from '@mui/x-studio-core/utils';
 import type { StudioDataSource, StudioRelationship } from '../../models';
 
 /**

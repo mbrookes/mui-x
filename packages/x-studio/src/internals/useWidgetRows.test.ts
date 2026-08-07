@@ -11,6 +11,7 @@
 import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, render, act } from '@mui/internal-test-utils';
+import { studioRequestCache } from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
   StudioDataSourceAdapter,
@@ -20,7 +21,6 @@ import type {
   StudioState,
   StudioWidget,
 } from '../models';
-import { studioRequestCache } from './StudioRequestCache';
 import { StudioUIConfigContext, DEFAULT_STUDIO_LOCALE_TEXT } from './StudioUIConfigContext';
 import {
   mockUseStudioSelector,
@@ -546,7 +546,7 @@ describe('async adapter path', () => {
       { id: 7, region: 'EU', amount: 1 },
       { id: 8, region: 'US', amount: 2 },
     ];
-    const { buildWidgetQueryDescriptor } = await import('./queryDescriptor');
+    const { buildWidgetQueryDescriptor } = await import('@mui/x-studio-core/engine');
     const descriptor = buildWidgetQueryDescriptor(widget, 'page-1', undefined, {
       filters: mockState.doc.filters,
       expressionFields: [],
@@ -597,7 +597,7 @@ describe('async adapter path', () => {
     // Pre-populate the cache with data, namespaced to this SAME adapter instance (matching
     // the adapter identity `useAdapterRows` will pass through to `get`).
     const cachedRows: Row[] = [{ id: 'cached', region: 'EU' }];
-    const { buildQueryDescriptor } = await import('./queryDescriptor');
+    const { buildQueryDescriptor } = await import('@mui/x-studio-core/engine');
     const descriptor = buildQueryDescriptor(widget, [], 'page-1');
     studioRequestCache.set(descriptor.cacheKey, { rows: cachedRows }, undefined, adapter);
 
@@ -877,7 +877,7 @@ describe('async adapter path', () => {
     // runs; the B branch serves the cached result synchronously. That synchronous cache-hit
     // branch must reset isLoading — otherwise the loading overlay stays true forever even
     // though valid data is already rendered.
-    const { buildQueryDescriptor } = await import('./queryDescriptor');
+    const { buildQueryDescriptor } = await import('@mui/x-studio-core/engine');
     const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
 
     // The SAME adapter/dataSource instance is used across the A → B transition (a rerender

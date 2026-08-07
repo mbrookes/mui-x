@@ -1,12 +1,12 @@
 'use client';
 import * as React from 'react';
 import { Box, Tooltip, Typography, useTheme } from '@mui/material';
+import { getStudioLocale } from '@mui/x-studio-core/engine';
+import type { GanttItem } from '@mui/x-studio-core/engine';
 import {
   useStudioLocaleText,
   type StudioLocaleText,
 } from '../../../internals/StudioUIConfigContext';
-import { getStudioLocale } from '../../../internals/studioLocale';
-import type { GanttItem } from '../../../internals/chartShapes/gantt';
 
 // Re-exported for backward compatibility with existing imports of this module.
 export type { GanttItem };

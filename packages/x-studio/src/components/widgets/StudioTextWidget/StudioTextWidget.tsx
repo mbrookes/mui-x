@@ -2,16 +2,16 @@
 import * as React from 'react';
 import { Box, CircularProgress, Typography } from '@mui/material';
 
+import {
+  resolveTextFontFamily,
+  sanitizeCssColor,
+  sanitizeFontSize,
+  isSafeTextAlign,
+} from '@mui/x-studio-core/engine';
 import type { StudioWidgetOf } from '../../../models';
 import { useStudioLocaleText } from '../../../context';
 import { useTextWidgetAI } from './useTextWidgetAI';
 import { renderMarkdown } from './renderMarkdown';
-import { resolveTextFontFamily } from '../../../internals/textFontFamily';
-import {
-  sanitizeCssColor,
-  sanitizeFontSize,
-  isSafeTextAlign,
-} from '../../../internals/cssValueValidation';
 
 export interface StudioTextWidgetProps {
   widget: StudioWidgetOf<'text'>;

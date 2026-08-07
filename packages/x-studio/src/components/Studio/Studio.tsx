@@ -8,7 +8,8 @@ import type {
   SerializedStudioSession,
   MigrationResult,
 } from '@mui/x-studio-schema';
-import { StudioProvider } from '../../context';
+import type { StudioLocaleText, StudioMapGeographyDefinition } from '@mui/x-studio-core/engine';
+import { StudioController } from '@mui/x-studio-core/store';
 import type {
   StudioDataSource,
   StudioDataSourceAdapter,
@@ -17,9 +18,7 @@ import type {
   StudioState,
   StudioCustomWidgetDef,
 } from '../../models';
-import type { StudioLocaleText } from '../../internals/localeText';
-import type { StudioMapGeographyDefinition } from '../../internals/geographyLoaders';
-import { StudioController } from '../../store';
+import { StudioProvider } from '../../context';
 import type { StudioChatPanelProps } from '../StudioChatPanel/StudioChatPanel';
 import type { StudioAIConfig } from '../StudioChatPanel/studioBackendAdapter';
 import type { StudioCanvasProps } from '../StudioCanvas/StudioCanvas';

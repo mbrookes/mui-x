@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { StudioController } from '@mui/x-studio-core/store';
 import { applyStateMutation } from './applyStateMutation';
-import { StudioController } from '../../store/StudioController';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
 
 // These tests exercise the real `StudioController` (no mocks) so they verify the

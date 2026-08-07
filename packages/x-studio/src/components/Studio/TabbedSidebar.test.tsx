@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { StudioController } from '../../store/StudioController';
+import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioState } from '../../models';
 import {
   mockUseStudioSelector,

@@ -10,15 +10,19 @@ import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
-import type { StudioChartConfig, StudioDataSource, StudioWidgetOf } from '../../../models';
-import type { StudioChartType } from '../../../models/baseTypes';
+import type { StudioChartType } from '@mui/x-studio-core/models';
 import {
   formatPeriodLabel,
   periodKeyToDateRange,
   normalizeToDate,
   getTemporalAxisData,
   truncateToGranularity,
-} from '../../../internals/temporalUtils';
+  inferWidgetTitles,
+  canDetectAnomalies,
+  detectChartDataAnomalies,
+  isAnomalyAnnotation,
+} from '@mui/x-studio-core/engine';
+import type { StudioChartConfig, StudioDataSource, StudioWidgetOf } from '../../../models';
 import {
   useStudioController,
   useStudioSelector,
@@ -34,14 +38,8 @@ import { CHART_TYPE_DEFS } from './chartTypeDefs';
 import type { ChartRenderContext, ChartTypeDef } from './chartTypeDefs';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
-import { inferWidgetTitles } from '../../../internals/widgetUtils';
 
 import { normalizeCrossFilterValue, crossFilterValueEquals } from './chartWidgetHelpers';
-import {
-  canDetectAnomalies,
-  detectChartDataAnomalies,
-  isAnomalyAnnotation,
-} from '../../../internals/anomalyDetection';
 
 export interface StudioChartWidgetSlots {
   /** Replaces the unsupported/unconfigured chart overlay (default: a Typography with helper text). */
@@ -83,13 +81,13 @@ export interface StudioChartWidgetProps {
    * @param {StudioChartAnnotation[]} annotations The annotations produced by anomaly detection.
    */
   onAnomalyDetected?: (
-    annotations: import('../../../models/widgetTypes').StudioChartAnnotation[],
+    annotations: import('@mui/x-studio-core/models').StudioChartAnnotation[],
   ) => void;
   /**
    * Additional annotations generated outside the widget (e.g. anomaly detection markers).
    * Merged with `widget.config.annotations` when rendering reference lines.
    */
-  overlayAnnotations?: import('../../../models/widgetTypes').StudioChartAnnotation[];
+  overlayAnnotations?: import('@mui/x-studio-core/models').StudioChartAnnotation[];
   slots?: StudioChartWidgetSlots;
   slotProps?: StudioChartWidgetSlotProps;
 }
@@ -584,7 +582,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // Use pre-aggregated chart data so annotation x-values match the chart's
     // actual x-axis labels. Edge buckets are trimmed — partial first/last
     // periods in the date range produce false-positive low outliers.
-    let annotations: import('../../../models/widgetTypes').StudioChartAnnotation[] = [];
+    let annotations: import('@mui/x-studio-core/models').StudioChartAnnotation[] = [];
     if (chartData && chartData.labels.length > 0) {
       annotations = detectChartDataAnomalies(widget.id, chartData.labels, chartData.values, true);
     } else if (multiYData && multiYData.labels.length > 0 && multiYData.series.length > 0) {

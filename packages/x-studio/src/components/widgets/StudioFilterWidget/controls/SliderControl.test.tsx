@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { act, createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { setActiveStudioLocale } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../../../internals/test-utils';
-import { setActiveStudioLocale } from '../../../../internals/studioLocale';
 import { SliderControl } from './SliderControl';
 
 const { render } = createRenderer();

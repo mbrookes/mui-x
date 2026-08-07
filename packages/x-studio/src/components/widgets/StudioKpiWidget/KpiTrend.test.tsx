@@ -1,9 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_STUDIO_LOCALE_TEXT, formatDateRangeLong } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../../internals/test-utils';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
-import { formatDateRangeLong } from './kpiUtils';
 import { KpiTrend, type KpiTrendResult } from './KpiTrend';
 
 const { render } = createRenderer();

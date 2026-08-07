@@ -3,14 +3,14 @@ import { createRenderer, act, fireEvent } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
+import { frLocaleText } from '@mui/x-studio-core/locales';
 import type { StudioDataSource, StudioState, StudioWidget, StudioWidgetOf } from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
-import { frLocaleText } from '../../../locales/fr';
 import { StudioMapWidget } from './StudioMapWidget';
 
 // Capture the props passed to our custom plot so we can drive its `onShapeClick`.

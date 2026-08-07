@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { afterEach, describe, expect, it } from 'vitest';
+import { setActiveStudioLocale } from '@mui/x-studio-core/engine';
+import type { GanttItem } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../../internals/test-utils';
-import { setActiveStudioLocale } from '../../../internals/studioLocale';
-import type { GanttItem } from '../../../internals/chartShapes/gantt';
 import { StudioGanttChart, msToPct } from './StudioGanttChart';
 
 /**

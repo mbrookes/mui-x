@@ -31,8 +31,8 @@ import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import KeyboardArrowLeftIcon from '@mui/icons-material/KeyboardArrowLeft';
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight';
+import type { WidgetMoveDirection } from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../context';
-import type { WidgetMoveDirection } from '../../internals/widgetLayoutMove';
 
 export interface StudioWidgetCardActionsOverlayProps {
   mode: 'edit' | 'view';

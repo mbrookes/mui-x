@@ -1,7 +1,7 @@
 'use client';
 import * as React from 'react';
+import type { StudioChartAnnotation } from '@mui/x-studio-core/models';
 import type { StudioWidget } from '../../models';
-import type { StudioChartAnnotation } from '../../models/widgetTypes';
 import { useStudioUIConfig, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import {
   buildInsightPrompt,

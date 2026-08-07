@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { createRenderer, screen, waitFor, act } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { DrawerPanel } from './DrawerPanel';
 
 const { render } = createRenderer();

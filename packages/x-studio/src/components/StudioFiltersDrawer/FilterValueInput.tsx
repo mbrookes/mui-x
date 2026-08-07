@@ -9,8 +9,8 @@ import {
   Stack,
   TextField,
 } from '@mui/material';
+import type { FieldType } from '@mui/x-studio-core/engine';
 import type { StudioFilterOperator } from '../../models';
-import type { FieldType } from './filterDrawerTypes';
 import { useStudioLocaleText } from '../../context';
 import { DateValueInput } from './DateValueInput';
 

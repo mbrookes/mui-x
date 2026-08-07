@@ -15,9 +15,9 @@ import {
   Stack,
   Typography,
 } from '@mui/material';
+import { lookup } from '@mui/x-studio-core/utils';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource } from '../../models';
-import { lookup } from '../../utils/safeLookup';
 
 export interface RelationshipFormState {
   sourceId: string;

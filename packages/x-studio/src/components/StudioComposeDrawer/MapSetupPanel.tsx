@@ -11,6 +11,7 @@ import {
   Stack,
   Switch,
 } from '@mui/material';
+import { getReachableSourceIds, buildFieldCatalog } from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -22,8 +23,6 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { useStudioGeographies } from '../../internals/StudioUIConfigContext';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import type { StudioWidgetConfig, StudioWidgetConfigForKind } from '../../models';
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';

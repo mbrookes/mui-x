@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
+import type { SankeyAggregateData } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../../internals/test-utils';
-import type { SankeyAggregateData } from '../../../internals/chartShapes/sankey';
 import { StudioSankeyChart } from './StudioSankeyChart';
 
 /**

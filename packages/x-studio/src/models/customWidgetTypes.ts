@@ -1,4 +1,5 @@
 import type * as React from 'react';
+import type { StudioWidgetKindDescriptor } from '@mui/x-studio-schema';
 import type { StudioDataSource, StudioWidget } from '.';
 
 /**
@@ -51,17 +52,7 @@ export interface StudioCustomWidgetSetupPanelProps {
  * <Studio customWidgets={[alertWidget]} ... />
  * ```
  */
-export interface StudioCustomWidgetDef {
-  /**
-   * Unique identifier for this widget kind.
-   * Use namespaced strings to avoid collisions with built-in kinds
-   * and other custom widgets (e.g. `'acme-weather'`, `'my-org-gauge'`).
-   */
-  kind: string;
-  /** Display name shown in the widget picker. */
-  label: string;
-  /** Short description shown below the label in the widget picker. */
-  description?: string;
+export interface StudioCustomWidgetDef extends StudioWidgetKindDescriptor {
   /** Icon element (24–32 px) shown in the widget picker. */
   icon?: React.ReactNode;
   /**
@@ -74,32 +65,6 @@ export interface StudioCustomWidgetDef {
    * When omitted, the widget appears in the picker but has no editable settings.
    */
   setupPanel?: React.ComponentType<StudioCustomWidgetSetupPanelProps>;
-  /**
-   * Whether a data source must be selected before this widget can be created.
-   * When `true`, the widget picker's data-source selector is shown just like for
-   * chart/grid/kpi widgets.
-   * @default false
-   */
-  requiresDataSource?: boolean;
-  /**
-   * Whether the AI insights icon should be shown on this widget's action overlay.
-   * Only meaningful when an `aiConfig` endpoint is configured on `<Studio>`.
-   * @default false
-   */
-  aiInsight?: boolean;
-  /**
-   * Export format this widget kind supports, if any. Shows a "Download" action in the widget
-   * card's toolbar (labeled for PNG or CSV). The actual export logic is the component's own
-   * responsibility: populate the `exportRef` prop it receives with a function that performs the
-   * export when called.
-   * @default undefined (no export action shown)
-   */
-  export?: 'csv' | 'png';
-  /**
-   * Default `config.customConfig` values written when a new widget of this kind is created.
-   * Must contain only JSON-serializable values.
-   */
-  defaultConfig?: Record<string, unknown>;
   /**
    * When `true`, the widget card renders the component edge-to-edge: the title/subtitle
    * header is omitted and the card padding is removed, so the component fills the entire

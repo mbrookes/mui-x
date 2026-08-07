@@ -19,6 +19,7 @@ import AddIcon from '@mui/icons-material/Add';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
+import { lookup } from '@mui/x-studio-core/utils';
 import type {
   StudioDataField,
   StudioExpression,
@@ -30,7 +31,6 @@ import type {
   StudioFieldExpression,
 } from '../../models';
 import { useStudioLocaleText } from '../../context';
-import { lookup } from '../../utils/safeLookup';
 
 // ─── Operator options ────────────────────────────────────────────────────────
 

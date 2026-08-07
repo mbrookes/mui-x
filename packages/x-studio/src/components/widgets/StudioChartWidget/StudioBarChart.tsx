@@ -3,13 +3,9 @@ import * as React from 'react';
 import { BarChart } from '@mui/x-charts/BarChart';
 import type { BarChartProps } from '@mui/x-charts/BarChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
+import type { AggregatedData, MultiSeriesData, MultiYSeriesData } from '@mui/x-studio-core/engine';
+import { sanitizeFiniteNumber } from '@mui/x-studio-core/engine';
 import type { StudioChartConfig, StudioDataSource, StudioExpressionField } from '../../../models';
-import type {
-  AggregatedData,
-  MultiSeriesData,
-  MultiYSeriesData,
-} from '../../../internals/chartAggregation';
-import { sanitizeFiniteNumber } from '../../../internals/cssValueValidation';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import {
   alignFilteredToAllLabels,

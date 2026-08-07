@@ -1,11 +1,10 @@
 import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { StudioProvider, useStudioController } from './StudioContext';
+import { getStudioLocale, setActiveStudioLocale, formatNumber } from '@mui/x-studio-core/engine';
+import { StudioController } from '@mui/x-studio-core/store';
 import { useStudioUIConfig, useStudioLocale } from '../internals/StudioUIConfigContext';
-import { getStudioLocale, setActiveStudioLocale } from '../internals/studioLocale';
-import { formatNumber } from '../internals/numberFormat';
-import { StudioController } from '../store/StudioController';
+import { StudioProvider, useStudioController } from './StudioContext';
 
 const { render } = createRenderer();
 

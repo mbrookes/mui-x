@@ -16,6 +16,8 @@ import {
   TextField,
   Tooltip,
 } from '@mui/material';
+import { inferWidgetTitles, inferKpiDateSubtitle } from '@mui/x-studio-core/engine';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -26,8 +28,6 @@ import {
   selectCrossFilterAllPages,
   useStudioLocaleText,
 } from '../../context';
-import { inferWidgetTitles, inferKpiDateSubtitle } from '../../internals/widgetUtils';
-import type { StudioLocaleText } from '../../internals/localeText';
 import type { StudioWidgetConfig } from '../../models';
 import { GridConditionalFormatSection } from './GridConditionalFormatSection';
 import { useBufferedInput } from './useBufferedInput';

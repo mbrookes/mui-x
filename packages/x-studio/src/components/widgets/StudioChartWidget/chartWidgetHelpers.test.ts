@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from '../../../internals/localeText';
-import { setActiveStudioLocale } from '../../../internals/studioLocale';
+import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from '@mui/x-studio-core/engine';
+import { setActiveStudioLocale } from '@mui/x-studio-core/engine';
 import {
   buildGhostBarContext,
   computeControlledHighlight,

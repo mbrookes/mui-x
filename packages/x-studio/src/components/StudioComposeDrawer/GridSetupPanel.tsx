@@ -28,13 +28,16 @@ import FunctionsIcon from '@mui/icons-material/Functions';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
-import type {
-  StudioDataField,
-  StudioGridColumn,
-  StudioGridSummaryAggregation,
-  StudioWidgetConfig,
-  StudioWidgetConfigForKind,
-} from '../../models';
+import { getReachableSourceIds } from '@mui/x-studio-core/engine';
+// The composite per-column aggregation key is shared with its consumer
+// (`StudioGridWidget`'s `resolveAggregationFieldKeys`) so producer and consumer can
+// never drift on the key format — see `columnAggKey`'s doc comment.
+import { columnAggKey } from '@mui/x-studio-core/utils';
+import {
+  buildFieldCatalog,
+  buildSourceFieldEntries,
+  type FieldCatalogEntry,
+} from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -45,16 +48,13 @@ import {
   selectFilters,
   useStudioLocaleText,
 } from '../../context';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-// The composite per-column aggregation key is shared with its consumer
-// (`StudioGridWidget`'s `resolveAggregationFieldKeys`) so producer and consumer can
-// never drift on the key format — see `columnAggKey`'s doc comment.
-import { columnAggKey } from '../../utils/gridSummary';
-import {
-  buildFieldCatalog,
-  buildSourceFieldEntries,
-  type FieldCatalogEntry,
-} from '../../internals/fieldCatalog';
+import type {
+  StudioDataField,
+  StudioGridColumn,
+  StudioGridSummaryAggregation,
+  StudioWidgetConfig,
+  StudioWidgetConfigForKind,
+} from '../../models';
 import { StudioUIConfigContext, useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import { FieldTypeIcon } from '../../internals/FieldTypeIcon';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';

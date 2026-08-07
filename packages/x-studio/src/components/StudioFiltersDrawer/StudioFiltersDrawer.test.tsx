@@ -1,6 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { hasConflictingRankFilter, DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
 import type {
   CreateDefaultStudioStateOverrides,
   StudioFilterPreset,
@@ -8,9 +10,6 @@ import type {
   StudioPage,
   StudioWidget,
 } from '../../models';
-import { hasConflictingRankFilter } from '../../internals/rankFilterScope';
-import type { StudioLocaleText } from '../../internals/localeText';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import { createStudioHarness } from '../../internals/test-utils';
 import { BUILTIN_WIDGET_DEFS } from '../widgets/builtinWidgetDefs';
 import { StudioFiltersDrawer } from './StudioFiltersDrawer';
@@ -182,7 +181,7 @@ describe('<StudioFiltersDrawer /> add filter while searching (finding 6)', () =>
 // `StudioWidgetEditDialog/FilterRow.tsx` resolved the same tokens correctly.
 describe('<StudioFiltersDrawer /> operator localization', () => {
   it('renders the widget filter row operator select translated under a non-English locale', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     renderWithSelectedWidget(
       {
         id: 'chart-1',

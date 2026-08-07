@@ -11,26 +11,18 @@
  *   (`useTextWidgetAI`).
  * - `numericStats` — min/max/mean/… over a numeric column (also used by `richContext`).
  */
-import type { StudioKpiAggregation } from '../../models/baseTypes';
-import type { StudioState, StudioFilterState } from '../../models/stateTypes';
-import type { StudioWidget, StudioWidgetConfig } from '../../models/widgetTypes';
-import type { StudioDataSource } from '../../models/dataTypes';
-import type { StudioExpressionField } from '../../models/expressionTypes';
-import { createStudioPipeline, type StudioPipelineState } from '../../internals/StudioPipeline';
-import { selectFiltersForWidget } from '../../internals/filterScoping';
+import type {
+  StudioKpiAggregation,
+  StudioState,
+  StudioFilterState,
+  StudioWidget,
+  StudioWidgetConfig,
+  StudioDataSource,
+  StudioExpressionField,
+} from '@mui/x-studio-core/models';
 import {
-  enrichWithCrossSourceFields,
-  enrichWithCrossSourceColumns,
-} from '../../internals/crossSourceEnrichment';
-import { normalizeToAlpha2, normalizeToStateAbbr } from '../../internals/countryUtils';
-import {
-  computeAggregate,
-  findDateFilter,
-  extractDateRange,
-  computePreviousPeriodRange,
-  toLocalYmd,
-} from '../widgets/StudioKpiWidget/kpiUtils';
-import {
+  createStudioPipeline,
+  type StudioPipelineState,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
@@ -43,9 +35,22 @@ import {
   type MultiSeriesData,
   type MultiYSeriesData,
   type HeatmapData,
-} from '../../internals/chartAggregation';
-import { canDetectAnomalies, detectChartDataAnomalies } from '../../internals/anomalyDetection';
-import { getStudioLocale } from '../../internals/studioLocale';
+} from '@mui/x-studio-core/engine';
+import {
+  selectFiltersForWidget,
+  enrichWithCrossSourceFields,
+  enrichWithCrossSourceColumns,
+  normalizeToAlpha2,
+  normalizeToStateAbbr,
+  computeAggregate,
+  findDateFilter,
+  extractDateRange,
+  computePreviousPeriodRange,
+  toLocalYmd,
+  canDetectAnomalies,
+  detectChartDataAnomalies,
+  getStudioLocale,
+} from '@mui/x-studio-core/engine';
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 

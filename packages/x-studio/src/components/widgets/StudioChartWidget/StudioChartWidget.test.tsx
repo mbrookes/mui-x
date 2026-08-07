@@ -4,6 +4,7 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { frLocaleText } from '@mui/x-studio-core/locales';
 import type {
   StudioDataSource,
   StudioState,
@@ -20,7 +21,6 @@ import {
   DEFAULT_STUDIO_LOCALE_TEXT,
   type StudioLocaleText,
 } from '../../../internals/StudioUIConfigContext';
-import { frLocaleText } from '../../../locales/fr';
 import { StudioChartWidget } from './StudioChartWidget';
 import { withAlpha } from './chartWidgetHelpers';
 

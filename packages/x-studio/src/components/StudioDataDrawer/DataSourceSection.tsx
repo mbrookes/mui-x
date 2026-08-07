@@ -17,6 +17,12 @@ import {
 import AddIcon from '@mui/icons-material/Add';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
+import { enrichRowsWithExpressions, evaluateMeasure } from '@mui/x-studio-core/utils';
+import {
+  getReachableSourceIds,
+  getDataSourceRowState,
+  isAwaitingDataSourceRows,
+} from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -25,12 +31,6 @@ import {
 } from '../../context';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';
-import { enrichRowsWithExpressions, evaluateMeasure } from '../../utils/expressionEvaluator';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import {
-  getDataSourceRowState,
-  isAwaitingDataSourceRows,
-} from '../../internals/dataSourceRowState';
 import DataSourcePreviewTooltip from './DataSourcePreviewTooltip';
 import PhysicalFieldRow from './PhysicalFieldRow';
 import ExpressionFieldRow from './ExpressionFieldRow';

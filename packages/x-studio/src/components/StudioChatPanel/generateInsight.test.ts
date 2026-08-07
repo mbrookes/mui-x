@@ -1,4 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import {
+  computeDateRangePreset,
+  computePreviousPeriodRange,
+  toLocalYmd,
+} from '@mui/x-studio-core/engine';
 import { buildWidgetDataSummary, numericStats } from './generateInsight';
 import { createDefaultStudioState } from '../../models';
 import type {
@@ -11,8 +16,6 @@ import type {
   StudioExpression,
   StudioRelationship,
 } from '../../models';
-import { computeDateRangePreset } from '../../internals/dateRangeUtils';
-import { computePreviousPeriodRange, toLocalYmd } from '../widgets/StudioKpiWidget/kpiUtils';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

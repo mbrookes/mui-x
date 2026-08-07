@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import type { HeatmapData } from '../../../internals/chartShapes/heatmap';
+import type { HeatmapData } from '@mui/x-studio-core/engine';
 
 const theme = createTheme();
 const heatmapSpy = vi.fn();

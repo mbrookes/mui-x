@@ -12,9 +12,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { renderHook, act } from '@mui/internal-test-utils';
 import type { ChatMessage } from '@mui/x-chat/headless';
-import { createDefaultStudioState } from '../../models/stateTypes';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
+import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioState } from '../../models';
-import { StudioController } from '../../store/StudioController';
 import { mockUseStudioSelector, configureStudioContextMock } from '../../../test/studioContextMock';
 // `useChatThreads` (and its `createThreadId`/`createMessageId` re-exports via `./chatIds`)
 // transitively imports `../../context`, which the `vi.mock` below replaces — this import

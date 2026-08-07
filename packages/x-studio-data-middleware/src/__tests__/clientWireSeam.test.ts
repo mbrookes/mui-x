@@ -28,11 +28,11 @@ import { describe, it, expect, vi } from 'vitest';
 import {
   createBatchingAdapter,
   MAX_BATCH_WIDGETS_PER_REQUEST,
-} from '../../../x-studio/src/server/createBatchingAdapter';
+} from '../../../x-studio-core/src/adapter/createBatchingAdapter';
 // The OTHER side of the same document: the L3 layer whose answer the wire plan must be compared
 // against. Asserting only what the client emits is what let a semi-join that returns a different
 // row set than memory ship as "exactly what `resolveRows` does".
-import { resolveRows } from '../../../x-studio/src/internals/dataSourceGraph';
+import { resolveRows } from '../../../x-studio-core/src/engine/dataSourceGraph';
 import type {
   StudioDataSource,
   StudioQueryDescriptor,

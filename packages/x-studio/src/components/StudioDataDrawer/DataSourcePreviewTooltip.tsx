@@ -2,12 +2,12 @@
 import * as React from 'react';
 import { Box, Stack, Tooltip, Typography } from '@mui/material';
 import type { PopperProps } from '@mui/material/Popper';
-import { useStudioLocaleText } from '../../context';
-import { formatFieldValue } from '../../internals/numberFormat';
 import {
+  formatFieldValue,
   getDataSourceRowState,
   isAwaitingDataSourceRows,
-} from '../../internals/dataSourceRowState';
+} from '@mui/x-studio-core/engine';
+import { useStudioLocaleText } from '../../context';
 
 import type { StudioDataSource } from '../../models';
 

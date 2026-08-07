@@ -1,5 +1,5 @@
 import { GRID_COLS } from '@mui/x-studio-schema';
-import { lookup } from '../../utils/safeLookup';
+import { lookup } from '@mui/x-studio-core/utils';
 
 /**
  * ONE meaning for a missing `page.widgetColSpans` entry, for the whole canvas.

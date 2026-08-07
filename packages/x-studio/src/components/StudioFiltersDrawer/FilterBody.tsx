@@ -10,8 +10,9 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import type { FieldType, FilterMode } from '@mui/x-studio-core/engine';
+import { needsOperatorValueReset } from '@mui/x-studio-core/engine';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
-import type { FieldType, FilterMode } from './filterDrawerTypes';
 import type { AvailableSeries } from './RankFilterInput';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterValueInput } from './FilterValueInput';
@@ -19,7 +20,6 @@ import { SelectionFilterInput } from './SelectionFilterInput';
 import { RankFilterInput } from './RankFilterInput';
 import { useStudioLocaleText } from '../../context';
 import { SecondCondition } from './SecondCondition';
-import { needsOperatorValueReset } from './filterDrawerUtils';
 
 interface FilterBodyProps {
   filter: StudioFilterState;

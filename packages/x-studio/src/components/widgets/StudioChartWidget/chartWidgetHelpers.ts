@@ -3,14 +3,16 @@ import {
   formatTemporalAxisLabel,
   getTemporalAxisData,
   sortLabels,
-} from '../../../internals/temporalUtils';
-import { formatNumber, formatPercent } from '../../../internals/numberFormat';
-import type { StudioLocaleText } from '../../../internals/localeText';
+  formatNumber,
+  formatPercent,
+} from '@mui/x-studio-core/engine';
 import type {
+  StudioLocaleText,
   AggregatedData,
   MultiSeriesData,
   MultiYSeriesData,
-} from '../../../internals/chartAggregation';
+} from '@mui/x-studio-core/engine';
+import type { StudioBarLayout } from '@mui/x-studio-core/models';
 import type {
   StudioChartConfig,
   StudioDataField,
@@ -18,7 +20,6 @@ import type {
   StudioExpressionField,
   StudioNumberFormat,
 } from '../../../models';
-import type { StudioBarLayout } from '../../../models/baseTypes';
 
 /**
  * Applies alpha to an arbitrary CSS color without parsing it, using `color-mix()`

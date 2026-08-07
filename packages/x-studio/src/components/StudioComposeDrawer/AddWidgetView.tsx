@@ -2,6 +2,7 @@
 import * as React from 'react';
 import { Alert, Stack, Typography } from '@mui/material';
 
+import { resolveWidgetRequiresDataSource } from '@mui/x-studio-core/engine';
 import {
   CanvasScrollContext,
   useStudioController,
@@ -11,7 +12,6 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import { createWidgetForKind, WIDGET_TYPES } from '../../internals/widgetPresentation';
-import { resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
 import type { StudioWidgetKind } from '../../models';
 import { getBuiltInWidgetKindInfo } from './StudioComposeDrawerLabels';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';

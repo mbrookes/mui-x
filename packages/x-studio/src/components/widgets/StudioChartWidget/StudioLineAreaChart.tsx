@@ -3,14 +3,10 @@ import * as React from 'react';
 import { LineChart } from '@mui/x-charts/LineChart';
 import type { LineChartProps } from '@mui/x-charts/LineChart';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
+import type { StudioWidgetForecast } from '@mui/x-studio-core/models';
+import type { AggregatedData, MultiSeriesData, MultiYSeriesData } from '@mui/x-studio-core/engine';
+import { computeWidgetForecast } from '@mui/x-studio-core/engine';
 import type { StudioChartConfig, StudioDataSource, StudioExpressionField } from '../../../models';
-import type { StudioWidgetForecast } from '../../../models/widgetTypes';
-import type {
-  AggregatedData,
-  MultiSeriesData,
-  MultiYSeriesData,
-} from '../../../internals/chartAggregation';
-import { computeWidgetForecast } from '../../../internals/forecastUtils';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { buildMultiYLineSeries } from './lineSeries';
 import {

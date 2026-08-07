@@ -2,11 +2,10 @@
 import * as React from 'react';
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { DataGridPremium, type GridColDef } from '@mui/x-data-grid-premium';
-import { useStudioLocaleText } from '../../context';
+import { enrichRowsWithExpressions } from '@mui/x-studio-core/utils';
+import { formatFieldValue, isAwaitingDataSourceRows } from '@mui/x-studio-core/engine';
 import type { StudioDataSource, StudioExpressionField, StudioRelationship } from '../../models';
-import { enrichRowsWithExpressions } from '../../utils/expressionEvaluator';
-import { formatFieldValue } from '../../internals/numberFormat';
-import { isAwaitingDataSourceRows } from '../../internals/dataSourceRowState';
+import { useStudioLocaleText } from '../../context';
 
 interface DataSourcePreviewProps {
   source: StudioDataSource;

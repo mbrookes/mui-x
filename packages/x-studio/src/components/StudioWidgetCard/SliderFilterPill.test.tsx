@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { formatFieldValue } from '@mui/x-studio-core/engine';
 import type { StudioDataField, StudioDataSource } from '../../models';
-import { formatFieldValue } from '../../internals/numberFormat';
 import { SliderFilterPill } from './SliderFilterPill';
 
 const { render } = createRenderer();

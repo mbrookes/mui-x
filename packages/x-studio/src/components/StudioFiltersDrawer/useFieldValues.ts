@@ -1,7 +1,7 @@
 import * as React from 'react';
+import { getDataSourceRowState } from '@mui/x-studio-core/engine';
 import { useStudioSelector, selectDataSources } from '../../context';
 import type { StudioDataSource, StudioFilterState } from '../../models';
-import { getDataSourceRowState } from '../../internals/dataSourceRowState';
 
 type Row = Record<string, unknown>;
 

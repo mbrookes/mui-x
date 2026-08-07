@@ -2,8 +2,8 @@ import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { MultiYSeriesData } from '@mui/x-studio-core/engine';
 import type { StudioDataSource } from '../../../models';
-import type { MultiYSeriesData } from '../../../internals/chartAggregation';
 
 const dataProviderSpy = vi.fn();
 

@@ -2,41 +2,21 @@
 import * as React from 'react';
 import { Box, Skeleton, Tooltip } from '@mui/material';
 
-import type {
-  StudioDataField,
-  StudioDataSource,
-  StudioWidgetOf,
-  StudioWidgetConfigForKind,
-  StudioWidgetConfig,
-  StudioFilterState,
-  StudioKpiAggregation,
-  StudioExpressionField,
-  StudioRelationship,
-} from '../../../models';
-import { summarizeFilter } from '../../StudioFiltersDrawer/filterDrawerUtils';
-import { resolveRows } from '../../../internals/dataSourceGraph';
 import {
+  summarizeFilter,
+  resolveRows,
   resolveChartRowsForAggregation,
   analyzeChartSupport,
-} from '../../../internals/chartAggregation';
-import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
-import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
-import { collectSelectFields } from '../../../internals/queryDescriptor';
-import { buildFieldLabelMap } from '../../../internals/fieldCatalog';
-import { usePageChartColors } from '../../../internals/usePageChartColors';
-import { useWidgetRows } from '../../../internals/useWidgetRows';
-import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
-import {
-  useStudioSelector,
-  useStudioLocaleText,
-  selectDataSources,
-  selectRelationships,
-  selectGlobalCrossFilterMode,
-  makeSelectExpressionFieldsForSources,
-} from '../../../context';
-import { formatNumber } from '../../../internals/numberFormat';
-import { cachedCompute } from '../../../internals/computedCache';
-import { evaluateMeasure } from '../../../utils/expressionEvaluator';
+  getCachedEnrichedRows,
+  getCachedNormalizedDataSource,
+  collectSelectFields,
+  buildFieldLabelMap,
+  usePageChartColors,
+  formatNumber,
+  cachedCompute,
+  stableStringify,
+} from '@mui/x-studio-core/engine';
+import { evaluateMeasure } from '@mui/x-studio-core/utils';
 import {
   type Granularity,
   autoGranularity,
@@ -50,8 +30,28 @@ import {
   computeSparklineData,
   resolveKpiDateField,
   toLocalYmd,
-} from './kpiUtils';
-import { stableStringify } from '../../../internals/stableStringify';
+} from '@mui/x-studio-core/engine';
+import { useWidgetRows } from '../../../internals/useWidgetRows';
+import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
+import {
+  useStudioSelector,
+  useStudioLocaleText,
+  selectDataSources,
+  selectRelationships,
+  selectGlobalCrossFilterMode,
+  makeSelectExpressionFieldsForSources,
+} from '../../../context';
+import type {
+  StudioDataField,
+  StudioDataSource,
+  StudioWidgetOf,
+  StudioWidgetConfigForKind,
+  StudioWidgetConfig,
+  StudioFilterState,
+  StudioKpiAggregation,
+  StudioExpressionField,
+  StudioRelationship,
+} from '../../../models';
 import { KpiValue, type KpiValueProps } from './KpiValue';
 import { KpiSparkline, type KpiSparklineProps } from './KpiSparkline';
 import { KpiTrend, type KpiTrendResult, type KpiTrendProps } from './KpiTrend';

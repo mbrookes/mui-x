@@ -2,8 +2,8 @@ import * as React from 'react';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it } from 'vitest';
+import type { ScatterDataPoint } from '@mui/x-studio-core/engine';
 import { StudioScatterChart } from './StudioScatterChart';
-import type { ScatterDataPoint } from '../../../internals/chartAggregation';
 
 // Real DOM-level test (finding 1): unlike `StudioScatterChart.test.tsx`, this file does
 // NOT mock `@mui/x-charts/ScatterChart` — it renders the actual chart so the ghost-dimming

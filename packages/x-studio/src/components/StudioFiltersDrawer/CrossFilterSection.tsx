@@ -1,6 +1,7 @@
 'use client';
 import { Box, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import { formatCrossFilterValueLabel } from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -11,7 +12,6 @@ import {
 } from '../../context';
 import type { StudioFilterState, StudioPage } from '../../models';
 import { CollapsibleSection } from '../../internals/CollapsibleSection';
-import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
 
 export function CrossFilterSection({
   filters,

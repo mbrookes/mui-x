@@ -16,6 +16,12 @@ import {
   Typography,
 } from '@mui/material';
 import FunctionsIcon from '@mui/icons-material/Functions';
+import {
+  validateExpressionField,
+  inferExpressionType,
+  type ExpressionValidationError,
+} from '@mui/x-studio-core/utils';
+import { lookup } from '@mui/x-studio-core/utils';
 import type {
   StudioDataSource,
   StudioExpression,
@@ -23,13 +29,7 @@ import type {
   StudioFunctionExpression,
 } from '../../models';
 import { useStudioController, useStudioLocaleText } from '../../context';
-import {
-  validateExpressionField,
-  inferExpressionType,
-  type ExpressionValidationError,
-} from '../../utils/expressionEvaluator';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
-import { lookup } from '../../utils/safeLookup';
 import { ExpressionBuilder } from './ExpressionNodeEditor';
 import { ExpressionPreview } from './ExpressionPreview';
 

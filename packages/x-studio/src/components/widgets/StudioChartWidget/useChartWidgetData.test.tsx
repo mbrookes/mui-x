@@ -15,6 +15,7 @@ import * as React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@mui/internal-test-utils';
 import { blueberryTwilightPalette } from '@mui/x-charts/colorPalettes';
+import { studioRequestCache } from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
   StudioFilterState,
@@ -24,7 +25,6 @@ import type {
   StudioWidgetConfigForKind,
   StudioWidgetOf,
 } from '../../../models';
-import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
   StudioUIConfigContext,
   DEFAULT_STUDIO_LOCALE_TEXT,

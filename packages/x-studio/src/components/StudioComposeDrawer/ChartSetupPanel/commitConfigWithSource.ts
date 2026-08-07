@@ -1,5 +1,5 @@
+import type { StudioController } from '@mui/x-studio-core/store';
 import type { StudioChartConfig } from '../../../models';
-import type { StudioController } from '../../../store/StudioController';
 
 /**
  * Which picks may re-point the widget at the picked field's source.

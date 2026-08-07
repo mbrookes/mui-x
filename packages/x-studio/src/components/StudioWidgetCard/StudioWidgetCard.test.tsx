@@ -11,11 +11,13 @@ import type {
   StudioWidgetConfig,
 } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
-import { exportGridToCsv } from '../../internals/widgetUtils';
+import { exportGridToCsv } from '../../internals/widgetPresentation';
 import { StudioWidgetCard } from './StudioWidgetCard';
 
-vi.mock('../../internals/widgetUtils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
+// `exportGridToCsv` needs a DOM (it builds a link and clicks it), so it lives in
+// `widgetPresentation.tsx` rather than the engine's pure `widgetUtils.ts`.
+vi.mock('../../internals/widgetPresentation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../internals/widgetPresentation')>();
   return { ...actual, exportGridToCsv: vi.fn() };
 });
 

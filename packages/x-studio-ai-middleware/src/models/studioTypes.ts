@@ -13,19 +13,12 @@
 export * from '@mui/x-studio-schema';
 
 /**
- * Server-side subset of `StudioCustomWidgetDef`.
+ * The widget-kind metadata this package needs to describe available kinds in the system prompt.
  *
- * The React `component`, `setupPanel`, and `icon` fields are omitted — the
- * server only needs the serializable metadata to build the AI system prompt.
- * This is intentionally NOT part of the shared schema (the client's full,
- * React-typed `StudioCustomWidgetDef` lives in `@mui/x-studio`); values produced
- * there structurally satisfy this subset at the app boundary.
+ * Was a hand-maintained subset of `@mui/x-studio`'s React-typed `StudioCustomWidgetDef`, whose
+ * own doc noted that the client's values "structurally satisfy this subset at the app boundary" —
+ * two declarations of one contract, kept in agreement by structural typing and a comment. It is
+ * now the shared `StudioWidgetKindDescriptor`, which the client's def extends, so the two cannot
+ * disagree about which fields a kind carries.
  */
-export interface StudioCustomWidgetDef {
-  kind: string;
-  label: string;
-  description?: string;
-  requiresDataSource?: boolean;
-  aiInsight?: boolean;
-  defaultConfig?: Record<string, unknown>;
-}
+export type { StudioWidgetKindDescriptor as StudioCustomWidgetDef } from '@mui/x-studio-schema';

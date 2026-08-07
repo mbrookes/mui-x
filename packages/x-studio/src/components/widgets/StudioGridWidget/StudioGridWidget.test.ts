@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import { resolveRows } from '@mui/x-studio-core/engine';
 import type {
   StudioConditionalFormat,
   StudioDataSource,
   StudioFilterState,
   StudioRelationship,
 } from '../../../models';
-import { resolveRows } from '../../../internals/dataSourceGraph';
 import {
   evalConditionalFormat,
   makeFanoutSafeAggregationFunction,

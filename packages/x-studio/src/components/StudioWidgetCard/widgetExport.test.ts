@@ -1,5 +1,11 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { StudioController } from '../../store/StudioController';
+import { StudioController } from '@mui/x-studio-core/store';
+import {
+  buildQueryDescriptor,
+  buildWidgetQueryDescriptor,
+  studioRequestCache,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
   StudioExpressionField,
@@ -8,26 +14,20 @@ import type {
   StudioWidget,
   StudioWidgetConfig,
 } from '../../models';
-import { exportChartToPng } from '../../internals/widgetPresentation';
-import { exportGridToCsv, downloadCsv } from '../../internals/widgetUtils';
-import { buildQueryDescriptor, buildWidgetQueryDescriptor } from '../../internals/queryDescriptor';
-import { studioRequestCache } from '../../internals/StudioRequestCache';
+import { exportChartToPng, exportGridToCsv, downloadCsv } from '../../internals/widgetPresentation';
 import {
   setGridViewSortModel,
   clearGridViewSortModel,
 } from '../widgets/StudioGridWidget/gridViewSortRegistry';
 import { runWidgetExport } from './widgetExport';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 
-vi.mock('../../internals/widgetUtils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../internals/widgetUtils')>();
-  return { ...actual, exportGridToCsv: vi.fn(), downloadCsv: vi.fn() };
-});
+// `exportGridToCsv`/`downloadCsv` need a DOM, so they live in `widgetPresentation.tsx` alongside
+// `exportChartToPng` rather than in the engine's pure `widgetUtils.ts`.
 // `exportChartToPng` needs a live DOM node, so it lives in `widgetPresentation.tsx` with the
 // other React-dependent helpers rather than in the pure `widgetUtils.ts`.
 vi.mock('../../internals/widgetPresentation', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../internals/widgetPresentation')>();
-  return { ...actual, exportChartToPng: vi.fn() };
+  return { ...actual, exportChartToPng: vi.fn(), exportGridToCsv: vi.fn(), downloadCsv: vi.fn() };
 });
 
 const source: StudioDataSource = {

@@ -20,6 +20,14 @@ import {
   Typography,
 } from '@mui/material';
 import { normalizeChartSeries } from '@mui/x-studio-schema';
+import { fieldsForCapability } from '@mui/x-studio-core/utils';
+import {
+  analyzeChartSupport,
+  chartTypeSupportsMeasure,
+  getReachableSourceIds,
+  buildFieldCatalog,
+} from '@mui/x-studio-core/engine';
+import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
 import {
   useStudioController,
   useStudioSelector,
@@ -30,11 +38,6 @@ import {
   selectFilters,
   useStudioLocaleText,
 } from '../../../context';
-import { useStudioFeatures } from '../../../internals/StudioUIConfigContext';
-import { fieldsForCapability } from '../../../utils/fieldCapabilities';
-import { analyzeChartSupport, chartTypeSupportsMeasure } from '../../../internals/chartAggregation';
-import { getReachableSourceIds } from '../../../internals/dataSourceGraph';
-import { buildFieldCatalog } from '../../../internals/fieldCatalog';
 import { getChartTypeDef } from '../../widgets/StudioChartWidget/chartTypeDefs';
 import type {
   StudioChartType,

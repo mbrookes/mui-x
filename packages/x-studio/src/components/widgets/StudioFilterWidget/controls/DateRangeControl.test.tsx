@@ -11,8 +11,8 @@ import 'dayjs/plugin/utc';
 import 'dayjs/plugin/timezone';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../../../internals/test-utils';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../../internals/localeText';
 import { DateRangeControl } from './DateRangeControl';
 
 // This suite runs entirely on fake timers so the control's 300ms debounce is driven by

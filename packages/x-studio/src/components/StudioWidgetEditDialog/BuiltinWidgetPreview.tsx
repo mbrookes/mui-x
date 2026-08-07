@@ -1,5 +1,6 @@
 'use client';
 import * as React from 'react';
+import { resolveWidgetPageId } from '@mui/x-studio-core/engine';
 import {
   useStudioSelector,
   selectWidgets,
@@ -9,7 +10,6 @@ import {
 } from '../../context';
 import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
-import { resolveWidgetPageId } from '../../internals/widgetPageResolution';
 
 // ── Built-in widget preview ───────────────────────────────────────────────────
 

@@ -10,6 +10,16 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { fieldHasCapability, lookup } from '@mui/x-studio-core/utils';
+import {
+  buildSourceFieldEntries,
+  selectFiltersForWidget,
+  shouldApplyWidgetRankAtL3,
+  // THE date-field rule. The setup panel must answer "is a filter driving the time axis?" with the
+  // SAME implementation the rendered KPI widget uses, so both read it from the engine rather than
+  // each carrying its own copy.
+  resolveKpiDateField,
+} from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -23,16 +33,6 @@ import {
   selectCrossFilterAllPages,
   useStudioLocaleText,
 } from '../../context';
-import { fieldHasCapability } from '../../utils/fieldCapabilities';
-import { lookup } from '../../utils/safeLookup';
-import { buildSourceFieldEntries } from '../../internals/fieldCatalog';
-import { selectFiltersForWidget } from '../../internals/filterScoping';
-import { shouldApplyWidgetRankAtL3 } from '../../internals/StudioPipeline';
-// THE date-field rule, owned by the KPI widget and exported for exactly this reason: the setup
-// panel must answer "is a filter driving the time axis?" with the SAME implementation the rendered
-// widget uses. Imported from `kpiUtils` (pure) rather than the widget's barrel, which would drag
-// the whole chart-rendering import chain into the compose drawer.
-import { resolveKpiDateField } from '../widgets/StudioKpiWidget/kpiUtils';
 import type { StudioDataSource, StudioWidgetConfig } from '../../models';
 import { DataSourceFieldSelect, type DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { useBufferedInput } from './useBufferedInput';

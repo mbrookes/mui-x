@@ -1,7 +1,7 @@
 'use client';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
 import type { StudioWidgetKind } from '../../models';
 import { useStudioLocaleText } from '../../context';
-import type { StudioLocaleText } from '../../internals/localeText';
 
 export function useWidgetKindLabels(): Record<StudioWidgetKind, string> {
   const localeText = useStudioLocaleText();

@@ -1,6 +1,14 @@
 'use client';
 
 import * as React from 'react';
+import {
+  resolveRowsCached,
+  getCachedNormalizedDataSource,
+  getCachedEnrichedRows,
+  buildQueryDescriptor,
+  selectFiltersForWidget,
+  studioRequestCache,
+} from '@mui/x-studio-core/engine';
 import type {
   StudioChartConfig,
   StudioExpressionField,
@@ -8,12 +16,6 @@ import type {
   StudioQueryDescriptor,
   StudioWidgetOf,
 } from '../../../models';
-import { resolveRowsCached } from '../../../internals/resolvedRowsCache';
-import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
-import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
-import { buildQueryDescriptor } from '../../../internals/queryDescriptor';
-import { selectFiltersForWidget } from '../../../internals/filterScoping';
-import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import {
   useStudioSelector,
   selectFilters,

@@ -1,9 +1,10 @@
-// The shared data model now lives in the dependency-free `@mui/x-studio-schema`
-// package so `@mui/x-studio` and `@mui/x-studio-ai-middleware` can no longer
-// drift. These are thin re-exports; edit the schema package to change a type.
-export * from '@mui/x-studio-schema';
-// React-dependent custom-widget registration types stay in this package.
+// The React binding's model surface: everything the framework-agnostic engine defines, plus the
+// types only a binding can name.
+//
+// `@mui/x-studio-core/models` re-exports `@mui/x-studio-schema` — the shared, persisted data
+// model. Added here are the three things that need React in their type: custom-widget
+// registration, UI feature flags, and the host's AI config.
+export * from '@mui/x-studio-core/models';
 export * from './customWidgetTypes';
-// UI feature-flag prop types (component props, not persisted/AI-protocol state).
 export * from './featureFlags';
 export type { StudioAIConfig } from './aiConfig';

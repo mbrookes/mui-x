@@ -623,10 +623,17 @@ export default defineConfig(
     // JSDoc `@param`/`@returns` on each is low-value documentation busywork, so
     // we disable those two rules here (mirrors the scheduler packages above,
     // which are likewise internal). All other code-quality rules stay on.
-    files: [`packages/x-studio/src/**/*${EXTENSION_TS}`],
+    files: [
+      `packages/x-studio/src/**/*${EXTENSION_TS}`,
+      `packages/x-studio-core/src/**/*${EXTENSION_TS}`,
+    ],
     rules: {
       'jsdoc/require-param': 'off',
       'jsdoc/require-returns': 'off',
+      // The engine/adapter/utils barrels are generated `export *` fan-outs over ~60 modules.
+      // `import/export` flags the harmless overlaps a fan-out produces; TypeScript already
+      // rejects a genuinely ambiguous re-export, which is the check that matters.
+      'import/export': 'off',
     },
   },
   {
@@ -634,7 +641,11 @@ export default defineConfig(
     // and French ' apostrophes / … ellipses — which are the CORRECT translations.
     // `mui/straight-quotes` would flag (and could auto-fix-corrupt) them, so it is
     // disabled for the locale files only.
-    files: [`packages/x-studio/src/locales/**/*${EXTENSION_TS}`],
+    files: [
+      `packages/x-studio/src/locales/**/*${EXTENSION_TS}`,
+      `packages/x-studio-core/src/locales/**/*${EXTENSION_TS}`,
+      `packages/x-studio-core/src/engine/localeText${EXTENSION_TS}`,
+    ],
     rules: {
       'mui/straight-quotes': 'off',
     },

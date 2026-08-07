@@ -3,9 +3,9 @@ import { createRenderer, fireEvent, screen, within } from '@mui/internal-test-ut
 import { describe, expect, it, vi } from 'vitest';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
+import { getOperators } from '@mui/x-studio-core/engine';
 import type { StudioFilterState } from '../../models';
 import { FilterBody } from './FilterBody';
-import { getOperators } from './filterDrawerUtils';
 
 const { render } = createRenderer();
 

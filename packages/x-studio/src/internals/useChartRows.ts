@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { resolveChartRowsForAggregation, type ChartSupportResult } from '@mui/x-studio-core/engine';
 import type { StudioChartConfig, StudioFilterState, StudioWidgetOf } from '../models';
 import {
   useStudioSelector,
@@ -8,7 +9,6 @@ import {
   selectRelationships,
   selectExpressionFields,
 } from '../context';
-import { resolveChartRowsForAggregation, type ChartSupportResult } from './chartAggregation';
 
 type Row = Record<string, unknown>;
 

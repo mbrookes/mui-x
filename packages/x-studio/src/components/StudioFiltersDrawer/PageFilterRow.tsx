@@ -3,20 +3,12 @@ import * as React from 'react';
 import { Alert, Box, IconButton, Stack } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import {
-  useStudioController,
-  useStudioSelector,
-  selectDataSources,
-  selectExpressionFields,
-  selectFilters,
-  selectPages,
-  useStudioLocaleText,
-} from '../../context';
-import type { StudioFilterState } from '../../models';
-import {
   hasConflictingRankFilter,
   type RankFilterWidgetPageIndex,
-} from '../../internals/rankFilterScope';
-import type { FieldOption, FilterMode, SimpleField } from './filterDrawerTypes';
+  FieldOption,
+  FilterMode,
+  SimpleField,
+} from '@mui/x-studio-core/engine';
 import {
   getOperators,
   resolveFilterField,
@@ -26,7 +18,17 @@ import {
   isFilterEffective,
   isFilterFresh,
   filterMutationRejectionMessage,
-} from './filterDrawerUtils';
+} from '@mui/x-studio-core/engine';
+import type { StudioFilterState } from '../../models';
+import {
+  useStudioController,
+  useStudioSelector,
+  selectDataSources,
+  selectExpressionFields,
+  selectFilters,
+  selectPages,
+  useStudioLocaleText,
+} from '../../context';
 import { useFieldValues } from './useFieldValues';
 import { FilterModeToggle } from './FilterModeToggle';
 import { FilterCard } from './FilterCard';

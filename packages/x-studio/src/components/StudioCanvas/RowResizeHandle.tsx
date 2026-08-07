@@ -3,14 +3,14 @@
 import * as React from 'react';
 import { Box } from '@mui/material';
 
+import type { StudioWidgetKind } from '@mui/x-studio-core/models';
+import { lookup } from '@mui/x-studio-core/utils';
 import { MIN_SPAN } from './canvasGridConstants';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { useStudioSelector } from '../../context';
 import type { StudioState } from '../../models';
-import type { StudioWidgetKind } from '../../models/baseTypes';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
-import { lookup } from '../../utils/safeLookup';
 
 interface RowResizeHandleProps {
   leftId: string;

@@ -1,9 +1,11 @@
-import type { StudioController } from '../../store/StudioController';
+import type { StudioController } from '@mui/x-studio-core/store';
+import {
+  createDefaultWidget,
+  sanitizeWidgetConfigForChartType,
+  DEFAULT_STUDIO_LOCALE_TEXT,
+} from '@mui/x-studio-core/engine';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
 import type { BuiltinStudioWidgetKind, StudioWidget, StudioWidgetKind } from '../../models';
-import { createDefaultWidget } from '../../internals/widgetUtils';
-import { sanitizeWidgetConfigForChartType } from '../../internals/widgetConfigSanitization';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
-import type { StudioLocaleText } from '../../internals/localeText';
 import type { StudioAIConfig } from './studioBackendAdapter';
 
 export interface CreateWidgetResult {

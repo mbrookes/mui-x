@@ -11,6 +11,9 @@
  * (`fieldStats` > `pageLayout` > `recentMutations`) and anything that doesn't fit
  * is dropped, with the dropped section names recorded in `omitted`.
  */
+import { createStudioPipeline } from '@mui/x-studio-core/engine';
+import { fieldHasCapability } from '@mui/x-studio-core/utils';
+import type { StudioController } from '@mui/x-studio-core/store';
 import type {
   StudioState,
   StudioDataField,
@@ -21,9 +24,6 @@ import type {
   StudioAILayoutWidget,
   StudioAICrossFilterEdge,
 } from '../../models';
-import { createStudioPipeline } from '../../internals/StudioPipeline';
-import { fieldHasCapability } from '../../utils/fieldCapabilities';
-import type { StudioController } from '../../store/StudioController';
 import { numericStats } from './generateInsight';
 
 /** Default per-request budget (in estimated tokens) for the rich context block. */

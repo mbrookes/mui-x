@@ -6,8 +6,12 @@ import type { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import AccessTimeIcon from '@mui/icons-material/AccessTime';
-import type { RelativeDateValue } from '../../internals/filterTypes';
-import { isRelativeDateValue, absoluteToRelative, relativeToAbsolute } from './filterDrawerUtils';
+import type { RelativeDateValue } from '@mui/x-studio-core/engine';
+import {
+  isStrictRelativeDateValue,
+  absoluteToRelative,
+  relativeToAbsolute,
+} from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../context';
 import { RelativeDateInput } from './RelativeDateInput';
 
@@ -25,7 +29,7 @@ export function DateValueInput({
   label?: string;
 }) {
   const localeText = useStudioLocaleText();
-  const isRel = isRelativeDateValue(value);
+  const isRel = isStrictRelativeDateValue(value);
   const mode = isRel ? 'relative' : 'absolute';
 
   // `absoluteToRelative`/`relativeToAbsolute` are lossy: "2024-05-20" viewed 45 days later

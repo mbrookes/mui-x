@@ -11,6 +11,7 @@ import {
   Switch,
   Typography,
 } from '@mui/material';
+import { buildFieldCatalog, buildSourceFieldEntries } from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -24,7 +25,6 @@ import {
 import type { DataSourceFieldEntry } from './DataSourceFieldSelect';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import type { StudioWidgetConfigForKind } from '../../models';
-import { buildFieldCatalog, buildSourceFieldEntries } from '../../internals/fieldCatalog';
 // The SAME resolver the pivot widget itself applies, so panel and canvas can never disagree about
 // whether a stored `pivotAggregation` is one this build supports.
 import { resolvePivotAggregation } from '../widgets/StudioPivotWidget/pivotUtils';

@@ -19,8 +19,8 @@ import type { StudioPieChartProps } from './StudioPieChart';
  * This lives in its own file because the stub would otherwise leak into the sibling suite's
  * (default-locale) percentage assertions.
  */
-vi.mock('../../../internals/numberFormat', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../../internals/numberFormat')>()),
+vi.mock('@mui/x-studio-core/engine', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@mui/x-studio-core/engine')>()),
   formatPercent: (value: number, fractionDigits: number = 1) =>
     `${value.toFixed(fractionDigits).replace('.', ',')} %`,
 }));

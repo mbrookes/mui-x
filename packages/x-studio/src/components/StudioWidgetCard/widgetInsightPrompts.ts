@@ -1,5 +1,5 @@
-import type { StudioChartAnnotation } from '../../models/widgetTypes';
-import type { StudioLocaleText } from '../../internals/localeText';
+import type { StudioChartAnnotation } from '@mui/x-studio-core/models';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
 
 export type StudioWidgetInsightType = 'summary' | 'analysis' | 'forecast' | 'correlation';
 

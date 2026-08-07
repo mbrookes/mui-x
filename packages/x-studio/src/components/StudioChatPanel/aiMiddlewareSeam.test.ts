@@ -42,6 +42,7 @@ import type { ChatMessage, ChatMessageChunk } from '@mui/x-chat/headless';
 import { ChatStore } from '@mui/x-chat-headless/store';
 import { processStream } from '@mui/x-chat-headless/stream';
 /* eslint-disable import/no-relative-packages */
+import { StudioController } from '@mui/x-studio-core/store';
 import {
   handleAIChat,
   isApprovalThreadIdAuthorized,
@@ -52,7 +53,6 @@ import {
 } from '../../../../x-studio-ai-middleware/src';
 /* eslint-enable import/no-relative-packages */
 import { createBackendChatAdapter, type StudioAIConfig } from './studioBackendAdapter';
-import { StudioController } from '../../store/StudioController';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
 
 // ── Fake OpenAI gateway ───────────────────────────────────────────────────────

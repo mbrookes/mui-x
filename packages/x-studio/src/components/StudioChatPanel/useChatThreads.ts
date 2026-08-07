@@ -3,10 +3,10 @@
 import * as React from 'react';
 import type { ChatMessage as ChatMessageType } from '@mui/x-chat/headless';
 import { useChat } from '@mui/x-chat/headless';
+import type { StudioController } from '@mui/x-studio-core/store';
 import { useStudioSelector, selectAi } from '../../context';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import type { StudioAIChatThread } from '../../models';
-import type { StudioController } from '../../store/StudioController';
 import { createThreadId } from './chatIds';
 
 // ── Thread management ────────────────────────────────────────────────────────

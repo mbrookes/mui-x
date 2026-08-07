@@ -1,12 +1,12 @@
 import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../test/studioContextMock';
-import { StudioController } from '../../store/StudioController';
 import { TextSetupPanel } from './TextSetupPanel';
 
 const controller = {

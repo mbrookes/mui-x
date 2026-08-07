@@ -1,8 +1,10 @@
 'use client';
 import * as React from 'react';
 
-import type { StudioState, StudioFeatureFlags, StudioCustomWidgetDef } from '../models';
-import type { StudioController } from '../store';
+import type { StudioController } from '@mui/x-studio-core/store';
+import type { StudioLocaleText, StudioMapGeographyDefinition } from '@mui/x-studio-core/engine';
+import { setActiveStudioLocale } from '@mui/x-studio-core/engine';
+import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
 import {
   StudioUIConfigContext,
   useStudioFeatures,
@@ -13,10 +15,7 @@ import {
   useCustomWidgetMap,
   DEFAULT_STUDIO_LOCALE_TEXT,
 } from '../internals/StudioUIConfigContext';
-import type { StudioLocaleText } from '../internals/localeText';
-import { setActiveStudioLocale } from '../internals/studioLocale';
-import type { StudioAIConfig } from '../components/StudioChatPanel/studioBackendAdapter';
-import type { StudioMapGeographyDefinition } from '../internals/geographyLoaders';
+import type { StudioState, StudioFeatureFlags, StudioCustomWidgetDef } from '../models';
 
 /** Ref to the canvas scroll container, used to scroll to bottom after adding a widget. */
 export const CanvasScrollContext =

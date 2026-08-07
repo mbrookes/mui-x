@@ -9,6 +9,28 @@ import type { GaugeProps } from '@mui/x-charts/Gauge';
 import type { AxisItemIdentifier, HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, Typography } from '@mui/material';
 
+import type { StudioChartType, StudioBarLayout } from '@mui/x-studio-core/models';
+import type {
+  AggregatedData,
+  MultiSeriesData,
+  MultiYSeriesData,
+  ScatterDataPoint,
+  ScatterSeriesData,
+  StudioLocaleText,
+} from '@mui/x-studio-core/engine';
+import {
+  aggregateFunnelReached,
+  aggregateHeatmap,
+  aggregateSankey,
+  buildFunnelStages,
+  buildGanttItems,
+  cachedCompute,
+  findMeasureExpressionField,
+  resolveMeasureAggregate,
+  computeAggregate,
+  sanitizeFiniteNumber,
+} from '@mui/x-studio-core/engine';
+import { lookup } from '@mui/x-studio-core/utils';
 import type {
   StudioChartConfig,
   StudioChartConfigOfType,
@@ -17,25 +39,6 @@ import type {
   StudioExpressionField,
   StudioSharedWidgetConfig,
 } from '../../../models';
-import type { StudioChartType, StudioBarLayout } from '../../../models/baseTypes';
-import type {
-  AggregatedData,
-  MultiSeriesData,
-  MultiYSeriesData,
-  ScatterDataPoint,
-  ScatterSeriesData,
-} from '../../../internals/chartAggregation';
-import {
-  aggregateFunnelReached,
-  aggregateHeatmap,
-  aggregateSankey,
-  buildFunnelStages,
-  buildGanttItems,
-} from '../../../internals/chartAggregation';
-import type { StudioLocaleText } from '../../../internals/localeText';
-import { cachedCompute } from '../../../internals/computedCache';
-import { findMeasureExpressionField, resolveMeasureAggregate } from '../../../internals/aggregate';
-import { computeAggregate } from '../StudioKpiWidget/kpiUtils';
 import { StudioFunnelChart } from './StudioFunnelChart';
 import { StudioGanttChart } from './StudioGanttChart';
 import { StudioSankeyChart } from './StudioSankeyChart';
@@ -47,8 +50,6 @@ import { StudioPieChart } from './StudioPieChart';
 import { StudioLineAreaChart } from './StudioLineAreaChart';
 import { StudioBarChart } from './StudioBarChart';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
-import { sanitizeFiniteNumber } from '../../../internals/cssValueValidation';
-import { lookup } from '../../../utils/safeLookup';
 import { makeValueFormatter, resolveFieldDef } from './chartWidgetHelpers';
 
 type HoverHighlightItem = HighlightItemIdentifier<'bar' | 'line' | 'pie'>;

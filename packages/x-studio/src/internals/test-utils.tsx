@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { StudioController } from '../store';
+import { StudioController } from '@mui/x-studio-core/store';
 import { StudioProvider } from '../context/StudioContext';
 import type { StudioProviderProps } from '../context/StudioContext';
 import type { CreateDefaultStudioStateOverrides } from '../models';

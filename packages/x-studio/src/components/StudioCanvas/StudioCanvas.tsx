@@ -5,6 +5,9 @@ import { Box, Paper, Typography } from '@mui/material';
 import { autoScrollForElements } from '@atlaskit/pragmatic-drag-and-drop-auto-scroll/element';
 
 import { useResizeObserver } from '@mui/x-internals/useResizeObserver';
+import { resolveWidgetRequiresDataSource, sanitizeCssColor } from '@mui/x-studio-core/engine';
+import type { StudioWidget, StudioPage, StudioMode } from '@mui/x-studio-core/models';
+import { lookup } from '@mui/x-studio-core/utils';
 import {
   useStudioController,
   useStudioSelector,
@@ -21,11 +24,8 @@ import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoun
 import { StudioWidgetCard } from '../StudioWidgetCard';
 import type { StudioWidgetCardProps } from '../StudioWidgetCard';
 import { createWidgetForKind } from '../../internals/widgetPresentation';
-import { resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
-import type { StudioWidget, StudioPage } from '../../models/widgetTypes';
 import { isWidgetOfKind } from '../../models';
 import type { StudioCustomWidgetDef } from '../../models';
-import type { StudioMode } from '../../models/baseTypes';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 import {
   DRAG_TYPE_CANVAS_WIDGET,
@@ -37,8 +37,6 @@ import { resolveResizePair, resolveRowColSpans } from './rowColSpans';
 import { InsertionPoint } from './InsertionPoint';
 import { WidgetGap } from './WidgetGap';
 import { useStudioDropTarget } from './useStudioDropTarget';
-import { sanitizeCssColor } from '../../internals/cssValueValidation';
-import { lookup } from '../../utils/safeLookup';
 
 /**
  * The narrower minimum a sparkline-less KPI would PREFER (BL-155): without the chart it

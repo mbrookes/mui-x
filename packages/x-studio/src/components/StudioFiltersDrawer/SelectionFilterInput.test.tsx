@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { SelectionFilterInput } from './SelectionFilterInput';
 import { FIELD_VALUES_CAP } from './useFieldValues';
 
@@ -31,7 +31,7 @@ describe('SelectionFilterInput cap hint localization (finding 2.20)', () => {
   });
 
   it('renders a translated cap hint under a non-English locale', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     const { StudioUIConfigContext } = await import('../../internals/StudioUIConfigContext');
     const values = Array.from({ length: FIELD_VALUES_CAP }, (_, i) => `v${i}`);
     const mergedLocaleText = { ...DEFAULT_STUDIO_LOCALE_TEXT, ...frLocaleText };

@@ -2,10 +2,10 @@
 import * as React from 'react';
 import { Box, Dialog, DialogTitle, IconButton, Stack, Tab, Tabs, Typography } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import { lookup } from '@mui/x-studio-core/utils';
 import { useStudioSelector, makeSelectWidget } from '../../context';
 import { useStudioFeatures, useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
-import { lookup } from '../../utils/safeLookup';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { FormatPanel } from '../StudioComposeDrawer/FormatPanel';

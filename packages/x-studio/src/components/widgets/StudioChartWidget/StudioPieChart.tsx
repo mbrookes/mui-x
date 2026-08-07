@@ -4,11 +4,15 @@ import { PieChart, PieArc } from '@mui/x-charts/PieChart';
 import type { PieChartProps, PieArcProps } from '@mui/x-charts/PieChart';
 import type { HighlightItemIdentifier } from '@mui/x-charts/models';
 import { Box, useTheme } from '@mui/material';
-import { aggregateByField } from '../../../internals/chartAggregation';
-import type { AggregatedData } from '../../../internals/chartAggregation';
-import { applyXGroupBy, isEmptyXValue, toXValue } from '../../../internals/chartValues';
-import { formatPercent } from '../../../internals/numberFormat';
-import { sortLabels } from '../../../internals/temporalUtils';
+import {
+  aggregateByField,
+  applyXGroupBy,
+  isEmptyXValue,
+  toXValue,
+  formatPercent,
+  sortLabels,
+} from '@mui/x-studio-core/engine';
+import type { AggregatedData } from '@mui/x-studio-core/engine';
 import type { StudioChartConfig } from '../../../models';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { computeControlledHighlight } from './chartWidgetHelpers';

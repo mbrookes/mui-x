@@ -2,8 +2,8 @@
 import { Box, Typography } from '@mui/material';
 import { SparkLineChart } from '@mui/x-charts/SparkLineChart';
 import { Gauge } from '@mui/x-charts/Gauge';
+import { formatNumber } from '@mui/x-studio-core/engine';
 import type { StudioNumberFormat } from '../../../models';
-import { formatNumber } from '../../../internals/numberFormat';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface KpiSparklineProps {

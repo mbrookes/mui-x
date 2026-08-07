@@ -2,9 +2,9 @@
 import * as React from 'react';
 import { Box, useTheme } from '@mui/material';
 import { HeatmapPremium } from '@mui/x-charts-premium/HeatmapPremium';
-import type { HeatmapData } from '../../../internals/chartShapes/heatmap';
+import type { HeatmapData } from '@mui/x-studio-core/engine';
+import { formatFieldValue } from '@mui/x-studio-core/engine';
 import type { StudioChartConfig, StudioDataField } from '../../../models';
-import { formatFieldValue } from '../../../internals/numberFormat';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { buildChartDescription } from './chartA11y';
 

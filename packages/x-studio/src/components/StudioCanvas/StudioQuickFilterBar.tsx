@@ -4,6 +4,11 @@ import { Box, Chip, IconButton, Tooltip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import {
+  summarizeFilter,
+  formatCrossFilterValueLabel,
+  buildFieldLabelMap,
+} from '@mui/x-studio-core/engine';
+import {
   useStudioController,
   useStudioSelector,
   useStudioLocaleText,
@@ -14,10 +19,7 @@ import {
   selectCrossFilterAllPages,
 } from '../../context';
 import type { StudioFilterState } from '../../models';
-import { summarizeFilter } from '../StudioFiltersDrawer/filterDrawerUtils';
 import { useStudioFeatures, useStudioUIConfig } from '../../internals/StudioUIConfigContext';
-import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
-import { buildFieldLabelMap } from '../../internals/fieldCatalog';
 
 interface QuickFilterChipProps {
   /** Tooltip shown when hovering the chip body (toggles the filter enabled/disabled). */

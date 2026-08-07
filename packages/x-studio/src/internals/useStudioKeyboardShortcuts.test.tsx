@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer, screen, act } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
-import { StudioController } from '../store/StudioController';
+import { StudioController } from '@mui/x-studio-core/store';
 import { StudioProvider } from '../context';
 import { useStudioKeyboardShortcuts } from './useStudioKeyboardShortcuts';
 

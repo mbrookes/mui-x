@@ -1,0 +1,909 @@
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import {
+  buildCsvContent,
+  formatDateFilterLabel,
+  inferKpiDateSubtitle,
+  inferWidgetTitles,
+  isBuiltinWidgetKind,
+} from './widgetUtils';
+import type { StudioDataField, StudioDataSource, StudioFilterState, StudioWidget } from '../models';
+import type { StudioLocaleText } from './localeText';
+
+function relDateFilter(
+  direction: 'past' | 'next',
+  amount: number,
+  unit: 'day' | 'week' | 'month' | 'year',
+  operator: StudioFilterState['operator'] = 'equals',
+): StudioFilterState {
+  return {
+    id: 'f1',
+    field: 'date',
+    fieldType: 'date',
+    operator,
+    scope: { kind: 'page' },
+    value: { relative: true, direction, amount, unit },
+  } as StudioFilterState;
+}
+
+const SOURCES: Record<string, StudioDataSource> = {
+  orders: {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'category', label: 'Category', type: 'string' },
+      { id: 'revenue', label: 'Revenue', type: 'number' },
+      { id: 'month', label: 'Month', type: 'date' },
+    ],
+  },
+  customers: {
+    id: 'customers',
+    label: 'Customers',
+    fields: [
+      { id: 'name', label: 'Name', type: 'string' },
+      { id: 'ltv', label: 'Lifetime Value', type: 'number' },
+    ],
+  },
+};
+
+function makeWidget(overrides: Partial<StudioWidget> = {}): StudioWidget {
+  return {
+    id: 'w1',
+    kind: 'chart',
+    title: 'Chart',
+    sourceId: 'orders',
+    config: {},
+    ...overrides,
+  };
+}
+
+describe('inferWidgetTitles — chart', () => {
+  it('falls back to source label when no fields are configured', () => {
+    const { title, subtitle } = inferWidgetTitles(makeWidget(), SOURCES);
+    expect(title).toBe('Orders chart');
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('builds "Y by X" title from configured fields', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: { xField: 'category', yField: 'revenue', ySeries: [{ fieldId: 'revenue' }] },
+      }),
+      SOURCES,
+    );
+    expect(title).toBe('Revenue by Category');
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('joins multiple Y series labels', () => {
+    const { title } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          ySeries: [{ fieldId: 'revenue' }, { fieldId: 'ltv' }],
+        },
+      }),
+      {
+        ...SOURCES,
+        orders: {
+          ...SOURCES.orders,
+          fields: [...SOURCES.orders.fields, { id: 'ltv', label: 'LTV', type: 'number' }],
+        },
+      },
+    );
+    expect(title).toBe('Revenue, LTV by Month');
+  });
+
+  it('uses xGroupBy granularity in the title', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          yField: 'revenue',
+          ySeries: [{ fieldId: 'revenue' }],
+          xGroupBy: 'month',
+        },
+      }),
+      SOURCES,
+    );
+    expect(title).toBe('Monthly Revenue');
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('includes seriesField split in subtitle', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          ySeries: [{ fieldId: 'revenue' }],
+          seriesField: 'category',
+        },
+      }),
+      SOURCES,
+    );
+    expect(subtitle).toBe('Orders · split by Category');
+  });
+
+  it('combines xGroupBy and seriesField in the title', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          ySeries: [{ fieldId: 'revenue' }],
+          xGroupBy: 'month',
+          seriesField: 'category',
+        },
+      }),
+      SOURCES,
+    );
+    expect(title).toBe('Monthly Revenue by Category');
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('keeps split information in the subtitle when there is no xGroupBy', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: {
+          xField: 'month',
+          ySeries: [{ fieldId: 'revenue' }],
+          seriesField: 'category',
+        },
+      }),
+      SOURCES,
+    );
+    expect(title).toBe('Revenue by Month');
+    expect(subtitle).toBe('Orders · split by Category');
+  });
+
+  it('uses the source label as chart subtitle when configured', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({ config: { xField: 'month', ySeries: [{ fieldId: 'revenue' }] } }),
+      SOURCES,
+    );
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('uses chartType label in subtitle', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: { chartType: 'line', xField: 'month', ySeries: [{ fieldId: 'revenue' }] },
+      }),
+      SOURCES,
+    );
+    expect(subtitle).toBe('Orders');
+  });
+
+  it('uses "Y vs X" for scatter charts', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({
+        config: { chartType: 'scatter', xField: 'category', ySeries: [{ fieldId: 'revenue' }] },
+      }),
+      SOURCES,
+    );
+    expect(title).toBe('Revenue vs Category');
+    expect(subtitle).toBe('Orders');
+  });
+});
+
+describe('inferWidgetTitles — KPI', () => {
+  const kpi = (config: Partial<StudioWidget['config']> = {}) => makeWidget({ kind: 'kpi', config });
+
+  it('uses "Total <field>" for sum aggregation', () => {
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }),
+      SOURCES,
+    );
+    expect(title).toBe('Total Revenue');
+  });
+
+  it('uses "Average <field>" for avg aggregation', () => {
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'avg' }),
+      SOURCES,
+    );
+    expect(title).toBe('Average Revenue');
+  });
+
+  it('uses "Count of <field>" for count aggregation', () => {
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'count' }),
+      SOURCES,
+    );
+    expect(title).toBe('Count of Revenue');
+  });
+
+  it('uses "Min <field>" for min aggregation', () => {
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'min' }),
+      SOURCES,
+    );
+    expect(title).toBe('Min Revenue');
+  });
+
+  it('uses "Max <field>" for max aggregation', () => {
+    const { title } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'max' }),
+      SOURCES,
+    );
+    expect(title).toBe('Max Revenue');
+  });
+
+  it('falls back to source label KPI when field not configured', () => {
+    const { title } = inferWidgetTitles(kpi(), SOURCES);
+    expect(title).toBe('Orders KPI');
+  });
+
+  it('does not auto-generate a subtitle', () => {
+    const { subtitle } = inferWidgetTitles(
+      kpi({ kpiValueField: 'revenue', kpiAggregation: 'sum' }),
+      SOURCES,
+    );
+    expect(subtitle).toBe('');
+  });
+});
+
+describe('inferWidgetTitles — grid', () => {
+  it('uses source label as title and visible columns as subtitle', () => {
+    const { title, subtitle } = inferWidgetTitles(
+      makeWidget({ kind: 'grid', config: {} }),
+      SOURCES,
+    );
+    expect(title).toBe('Orders');
+    expect(subtitle).toBe('Category, Revenue, Month');
+  });
+
+  it('truncates long grid column lists in the subtitle', () => {
+    const { subtitle } = inferWidgetTitles(
+      makeWidget({
+        kind: 'grid',
+        config: {
+          columns: [
+            { fieldId: 'category' },
+            { fieldId: 'revenue' },
+            { fieldId: 'month' },
+            { fieldId: 'status' },
+          ],
+        },
+      }),
+      {
+        ...SOURCES,
+        orders: {
+          ...SOURCES.orders,
+          fields: [...SOURCES.orders.fields, { id: 'status', label: 'Status', type: 'string' }],
+        },
+      },
+    );
+    expect(subtitle).toBe('Category, Revenue, Month +1 more');
+  });
+});
+
+describe('inferWidgetTitles — text', () => {
+  it('returns the existing title unchanged', () => {
+    const widget = makeWidget({ kind: 'text', title: 'My Heading', sourceId: undefined });
+    const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
+    expect(title).toBe('My Heading');
+    expect(subtitle).toBe('');
+  });
+});
+
+describe('inferWidgetTitles — filter', () => {
+  it('uses "Filter: <fieldLabel>" as title when field is configured', () => {
+    const widget = makeWidget({
+      kind: 'filter',
+      config: { filterWidgetField: 'category' },
+    });
+    const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
+    expect(title).toBe('Filter: Category');
+    expect(subtitle).toBe('');
+  });
+
+  it('uses "Filter" as title when no field is configured', () => {
+    const widget = makeWidget({ kind: 'filter', config: {} });
+    const { title, subtitle } = inferWidgetTitles(widget, SOURCES);
+    expect(title).toBe('Filter');
+    expect(subtitle).toBe('');
+  });
+});
+
+// ─── widgetKindRequiresDataSource ─────────────────────────────────────────────
+
+describe('isBuiltinWidgetKind', () => {
+  it('recognizes all seven built-in kinds', () => {
+    for (const kind of ['text', 'kpi', 'chart', 'grid', 'filter', 'pivot', 'map']) {
+      expect(isBuiltinWidgetKind(kind)).toBe(true);
+    }
+  });
+
+  it('rejects a custom kind', () => {
+    expect(isBuiltinWidgetKind('weather-tile')).toBe(false);
+  });
+
+  it('rejects prototype-chain keys (doc-authored kinds are untrusted)', () => {
+    expect(isBuiltinWidgetKind('constructor')).toBe(false);
+    expect(isBuiltinWidgetKind('hasOwnProperty')).toBe(false);
+  });
+});
+
+describe('buildCsvContent', () => {
+  const source: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [
+      { id: 'id', label: 'Order ID', type: 'string' },
+      { id: 'product', label: 'Product', type: 'string' },
+      { id: 'revenue', label: 'Revenue', type: 'number' },
+    ],
+    rows: [],
+  };
+
+  const rows = [
+    { id: 'ORD-1', product: 'Widget', revenue: 100 },
+    { id: 'ORD-2', product: 'Gadget, Pro', revenue: 200 }, // comma in value
+    { id: 'ORD-3', product: 'Item "X"', revenue: 50 }, // quote in value
+  ];
+
+  it('uses field labels as CSV headers', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const csv = buildCsvContent(widget, source, rows);
+    // Headers are always escaped via `escapeCsvCell` (finding 1.8), which always
+    // quotes — see the injection test below for why.
+    expect(csv.split('\n')[0]).toBe('"Order ID","Product","Revenue"');
+  });
+
+  it('restricts columns to config.columns when set', () => {
+    const widget: StudioWidget = {
+      id: 'w1',
+      kind: 'grid',
+      title: 'Orders',
+      config: { columns: [{ fieldId: 'id' }, { fieldId: 'revenue' }] },
+    };
+    const csv = buildCsvContent(widget, source, rows);
+    const header = csv.split('\n')[0];
+    expect(header).toBe('"Order ID","Revenue"');
+    expect(header).not.toContain('Product');
+  });
+
+  it('wraps values containing commas in double quotes', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const csv = buildCsvContent(widget, source, rows);
+    expect(csv).toContain('"Gadget, Pro"');
+  });
+
+  it('escapes embedded double-quotes by doubling them', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const csv = buildCsvContent(widget, source, rows);
+    expect(csv).toContain('"Item ""X"""');
+  });
+
+  it('falls back to all source fields when config.columns is empty', () => {
+    const widget: StudioWidget = {
+      id: 'w1',
+      kind: 'grid',
+      title: 'Orders',
+      config: { columns: [] },
+    };
+    const csv = buildCsvContent(widget, source, rows);
+    expect(csv.split('\n')[0]).toBe('"Order ID","Product","Revenue"');
+  });
+
+  it('produces one line per data row plus a header', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const csv = buildCsvContent(widget, source, rows);
+    expect(csv.split('\n')).toHaveLength(rows.length + 1);
+  });
+
+  // ─── CSV formula injection (architecture review 1.8) ────────────────────────
+  it('neutralizes a formula-injection-lead text cell with a leading apostrophe', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const hostileRows = [{ id: 'ORD-1', product: '=HYPERLINK("http://evil","click")', revenue: 1 }];
+    const csv = buildCsvContent(widget, source, hostileRows);
+    const dataLine = csv.split('\n')[1];
+    expect(dataLine).toContain('"\'=HYPERLINK(""http://evil"",""click"")"');
+  });
+
+  it('does not neutralize a legitimate negative number cell', () => {
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'Orders', config: {} };
+    const negativeRows = [{ id: 'ORD-1', product: 'Refund', revenue: -5 }];
+    const csv = buildCsvContent(widget, source, negativeRows);
+    const dataLine = csv.split('\n')[1];
+    // Numeric cells are quoted (finding 1.2) but never given the leading-apostrophe
+    // formula-injection prefix — a genuine number can't be a spreadsheet formula.
+    expect(dataLine.endsWith(',"-5"') || dataLine.includes(',"-5",')).toBe(true);
+    expect(dataLine).not.toContain("'-5");
+  });
+
+  // ─── Runtime-value numeric guard (architecture review 1.2 & 1.3) ────────────
+
+  it('quotes a numeric cell whose formatted value contains a grouping comma, keeping the CSV row intact (finding 1.2)', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [
+        { id: 'val', label: 'Value', type: 'number', format: 'decimal' },
+        { id: 'name', label: 'Name', type: 'string' },
+      ],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ val: 1234.5, name: 'Alice' }]);
+    const dataLine = csv.split('\n')[1];
+    // `1,234.50`'s thousands separator would previously have been emitted bare,
+    // splitting this single logical row into three CSV columns instead of two.
+    expect(dataLine).toBe('"1,234.50","Alice"');
+  });
+
+  it('escapes a formula-injection payload in a "number"-typed field holding a non-numeric runtime value (finding 1.3)', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      // Declared as `number`, but the row below supplies a string runtime value
+      // (dirty data / a misbehaving adapter) — the guard must key off the
+      // runtime value, not this declared type.
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const hostileRows = [{ amount: '=HYPERLINK("http://evil","x")' }];
+    const csv = buildCsvContent(widget, src, hostileRows);
+    const dataLine = csv.split('\n')[1];
+    expect(dataLine).toBe('"\'=HYPERLINK(""http://evil"",""x"")"');
+  });
+
+  it('still emits a genuine numeric value in a "number"-typed field raw (quoted, unescaped) even when other rows in the same column are dirty', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ amount: -5 }, { amount: 'bad-data' }]);
+    const lines = csv.split('\n');
+    expect(lines[1]).toBe('"-5"');
+    expect(lines[2]).toBe('"bad-data"');
+  });
+});
+
+describe('buildCsvContent — number formatting', () => {
+  it('formats currency fields with symbol and no decimals', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [
+        { id: 'rev', label: 'Revenue', type: 'number', format: 'currency', currencyCode: 'USD' },
+      ],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ rev: 1234.5 }]);
+    const value = csv.split('\n')[1];
+    // Currency format: $1,235 (integer display, narrowSymbol)
+    expect(value).toMatch(/\$1[,.]?23[45]/);
+  });
+
+  it('formats decimal fields with two decimal places, quoted so the grouping comma does not split the row (finding 1.2)', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'val', label: 'Value', type: 'number', format: 'decimal' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ val: 1234.5 }]);
+    const value = csv.split('\n')[1];
+    // Previously asserted as an unquoted `1,234.50`, which is invalid CSV — the
+    // bare comma silently splits the row into an extra column (finding 1.2).
+    expect(value).toBe('"1,234.50"');
+  });
+
+  it('formats integer fields with no decimal places', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'qty', label: 'Qty', type: 'number', format: 'integer' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ qty: 42.9 }]);
+    const value = csv.split('\n')[1];
+    expect(value).toBe('"43"');
+  });
+
+  it('formats percent fields', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'pct', label: 'Pct', type: 'number', format: 'percent' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ pct: 75 }]);
+    const value = csv.split('\n')[1];
+    expect(value).toContain('%');
+  });
+
+  it('outputs empty string for null/undefined number values', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'rev', label: 'Revenue', type: 'number', format: 'currency' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ rev: null }, { rev: undefined }]);
+    const dataLines = csv.split('\n').slice(1);
+    // `null`/`undefined` are not runtime numbers, so they fall through to the
+    // normal (always-quoted) text-cell path — an empty, but still quoted, cell.
+    expect(dataLines[0]).toBe('""');
+    expect(dataLines[1]).toBe('""');
+  });
+
+  it('does not alter string field values', () => {
+    const src: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'name', label: 'Name', type: 'string' }],
+      rows: [],
+    };
+    const widget: StudioWidget = { id: 'w1', kind: 'grid', title: 'T', config: {} };
+    const csv = buildCsvContent(widget, src, [{ name: 'Alice' }]);
+    // String cells always go through `escapeCsvCell` (finding 1.8), which always
+    // quotes — the value itself is untouched.
+    expect(csv.split('\n')[1]).toBe('"Alice"');
+  });
+});
+
+// ─── Cross-source column header/format parity with the rendered grid (finding 2.6) ──
+//
+// A cross-source column (a grid column whose `sourceId` differs from the widget's own
+// source) is resolved on screen via `resolveCrossSourceFieldDefs`. Without folding those
+// same resolved defs into the CSV field map, the export drifted: the header fell back to
+// the raw field id and the value skipped number/currency formatting.
+
+describe('buildCsvContent — cross-source column defs', () => {
+  const src: StudioDataSource = {
+    id: 'orders',
+    label: 'Orders',
+    fields: [{ id: 'id', label: 'Order ID', type: 'string' }],
+    rows: [],
+  };
+  const widget: StudioWidget = {
+    id: 'w1',
+    kind: 'grid',
+    title: 'Orders',
+    config: {
+      columns: [{ fieldId: 'id' }, { fieldId: 'lifetimeValue', sourceId: 'customers' }],
+    },
+  };
+  // The value is already enriched onto the row (mirroring the display/export enrichment).
+  const rows = [{ id: 'o1', lifetimeValue: 1234.5 }];
+
+  it('drifts to the raw field id and unformatted value without cross-source defs (baseline)', () => {
+    const csv = buildCsvContent(widget, src, rows);
+    const [header, dataLine] = csv.split('\n');
+    // Header falls back to the raw field id; the value is emitted raw (quoted number).
+    expect(header).toBe('"Order ID","lifetimeValue"');
+    expect(dataLine).toBe('"o1","1234.5"');
+  });
+
+  it('matches the rendered grid header label and number/currency formatting when the defs are passed', () => {
+    const crossSourceFieldDefs: StudioDataField[] = [
+      {
+        id: 'lifetimeValue',
+        label: 'Lifetime Value',
+        type: 'number',
+        format: 'currency',
+        currencyCode: 'USD',
+      },
+    ];
+    const csv = buildCsvContent(widget, src, rows, [], crossSourceFieldDefs);
+    const [header, dataLine] = csv.split('\n');
+    // Header now uses the related source's field label, matching the on-screen column.
+    expect(header).toBe('"Order ID","Lifetime Value"');
+    // Currency formatting applied ($1,235) and the numeric cell is quoted so its grouping
+    // comma cannot split the row — exactly what the grid renders.
+    expect(dataLine).toMatch(/^"o1","\$1[,.]?23[45]"$/);
+  });
+});
+
+describe('formatDateFilterLabel — default EN tokens', () => {
+  it('formats "Last 7 days"', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 7, 'day'))).toBe('Last 7 days');
+  });
+
+  it('formats "Next 1 month" with singular unit', () => {
+    expect(formatDateFilterLabel(relDateFilter('next', 1, 'month'))).toBe('Next 1 month');
+  });
+
+  it('formats "Last 3 years"', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 3, 'year'))).toBe('Last 3 years');
+  });
+
+  it('formats "Last 1 week" with singular unit', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 1, 'week'))).toBe('Last 1 week');
+  });
+
+  it('formats "Next 2 weeks" with plural unit', () => {
+    expect(formatDateFilterLabel(relDateFilter('next', 2, 'week'))).toBe('Next 2 weeks');
+  });
+});
+
+// Regression coverage for finding 2.15: a canonical date-only value (`'YYYY-MM-DD'`) is
+// anchored to UTC midnight by `new Date(...)`; formatting that instant through the local
+// calendar day-shifted it back a day for any viewer west of UTC. `formatAbsoluteDate`
+// (private to this module, exercised here via `formatDateFilterLabel`'s absolute-date
+// branches) must read the Y/M/D components directly instead.
+
+describe('formatDateFilterLabel — date-only values do not day-shift west of UTC', () => {
+  const originalTz = process.env.TZ;
+
+  beforeEach(() => {
+    // Node re-reads `TZ` per `Date` call (no restart needed), so this reliably
+    // reproduces the bug for a negative-UTC-offset viewer regardless of the host
+    // machine's own timezone.
+    process.env.TZ = 'America/New_York';
+  });
+
+  afterEach(() => {
+    process.env.TZ = originalTz;
+  });
+
+  function absoluteDateFilter(
+    operator: StudioFilterState['operator'],
+    value: unknown,
+    value2?: unknown,
+  ): StudioFilterState {
+    return {
+      id: 'f1',
+      field: 'date',
+      fieldType: 'date',
+      operator,
+      scope: { kind: 'page' },
+      value,
+      ...(value2 !== undefined ? { value2 } : {}),
+    } as StudioFilterState;
+  }
+
+  it('does not shift a "since" (greater_than_or_equal) date-only value back a day', () => {
+    expect(formatDateFilterLabel(absoluteDateFilter('greater_than_or_equal', '2024-03-15'))).toBe(
+      'Since Mar 15, 2024',
+    );
+  });
+
+  it('does not shift a "until" (less_than_or_equal) date-only value back a day', () => {
+    expect(formatDateFilterLabel(absoluteDateFilter('less_than_or_equal', '2024-03-15'))).toBe(
+      'Until Mar 15, 2024',
+    );
+  });
+
+  it('does not shift either side of a between-with-two-values range', () => {
+    expect(
+      formatDateFilterLabel(absoluteDateFilter('less_than_or_equal', '2024-03-15', '2024-03-20')),
+    ).toBe('Mar 15, 2024 – Mar 20, 2024');
+  });
+
+  it('does not shift a between-range built from a { from, to } value', () => {
+    expect(
+      formatDateFilterLabel(
+        absoluteDateFilter('between', { from: '2024-03-15', to: '2024-03-20' }),
+      ),
+    ).toBe('Mar 15, 2024 – Mar 20, 2024');
+  });
+});
+
+describe('formatDateFilterLabel — dashboard date range presets', () => {
+  function presetFilter(preset: string): StudioFilterState {
+    return {
+      id: 'f1',
+      field: 'date',
+      fieldType: 'date',
+      operator: 'between',
+      scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
+      value: null,
+      dateRangePreset: preset as any,
+    } as StudioFilterState;
+  }
+
+  it('returns "Last 12 months" for last_12_months preset', () => {
+    expect(formatDateFilterLabel(presetFilter('last_12_months'))).toBe('Last 12 months');
+  });
+
+  it('returns "Last 3 months" for last_3_months preset', () => {
+    expect(formatDateFilterLabel(presetFilter('last_3_months'))).toBe('Last 3 months');
+  });
+
+  it('returns "This month" for this_month preset', () => {
+    expect(formatDateFilterLabel(presetFilter('this_month'))).toBe('This month');
+  });
+
+  it('returns "YTD" for ytd preset', () => {
+    expect(formatDateFilterLabel(presetFilter('ytd'))).toBe('YTD');
+  });
+
+  it('uses custom locale for preset label', () => {
+    const lt = {
+      dateRangePresetLast12Months: 'Derniers 12 mois',
+    } as StudioLocaleText;
+    expect(formatDateFilterLabel(presetFilter('last_12_months'), lt)).toBe('Derniers 12 mois');
+  });
+});
+
+describe('formatDateFilterLabel — custom locale tokens', () => {
+  const ptBRLike: Partial<StudioLocaleText> = {
+    dateFilterLast: (amount, unit) => `Últimos ${amount} ${unit}`,
+    dateFilterNext: (amount, unit) => `Próximos ${amount} ${unit}`,
+    dateFilterFrom: (date) => `A partir de ${date}`,
+    dateFilterUpTo: (label) => `Até ${label}`,
+    dateFilterSince: (date) => `Desde ${date}`,
+    dateFilterUntil: (date) => `Até ${date}`,
+    dateFilterUnitDay: 'dia',
+    dateFilterUnitDays: 'dias',
+    dateFilterUnitMonth: 'mês',
+    dateFilterUnitMonths: 'meses',
+    dateFilterUnitYear: 'ano',
+    dateFilterUnitYears: 'anos',
+    dateFilterUnitWeek: 'semana',
+    dateFilterUnitWeeks: 'semanas',
+    dateFilterUnitHour: 'hora',
+    dateFilterUnitHours: 'horas',
+    dateFilterUnitMinute: 'minuto',
+    dateFilterUnitMinutes: 'minutos',
+    dateFilterUnitSecond: 'segundo',
+    dateFilterUnitSeconds: 'segundos',
+  };
+  const lt = ptBRLike as StudioLocaleText;
+
+  it('uses custom "Last N days" translation', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 7, 'day'), lt)).toBe('Últimos 7 dias');
+  });
+
+  it('uses singular unit for amount=1', () => {
+    expect(formatDateFilterLabel(relDateFilter('next', 1, 'month'), lt)).toBe('Próximos 1 mês');
+  });
+
+  it('uses plural unit for amount>1', () => {
+    expect(formatDateFilterLabel(relDateFilter('past', 3, 'year'), lt)).toBe('Últimos 3 anos');
+  });
+});
+
+describe('inferWidgetTitles — locale glue words', () => {
+  const customLocale: Partial<StudioLocaleText> = {
+    widgetAutoTitleBy: 'par',
+    widgetAutoTitleVs: 'contre',
+    widgetAutoTitleSplitBy: 'divisé par',
+    widgetAggPrefixSum: 'Somme de',
+    widgetAggPrefixAvg: 'Moyenne de',
+    widgetGroupByPrefixMonth: 'Mensuel',
+    widgetAutoTitleSourceSuffixChart: 'graphique',
+    widgetAutoTitleSourceSuffixKpi: 'ICP',
+  };
+  const lt = customLocale as StudioLocaleText;
+
+  it('uses custom "by" glue word in chart title', () => {
+    const widget = makeWidget({
+      config: { xField: 'month', yField: 'revenue' },
+    });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toContain('par');
+    expect(title).not.toContain(' by ');
+  });
+
+  it('uses custom aggregation prefix for KPI', () => {
+    const widget = makeWidget({
+      kind: 'kpi',
+      config: { kpiValueField: 'revenue', kpiAggregation: 'sum' },
+    });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toMatch(/^Somme de/);
+  });
+
+  it('uses custom source suffix for chart fallback', () => {
+    const widget = makeWidget({ config: {} });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toContain('graphique');
+  });
+
+  it('uses custom source suffix for KPI fallback', () => {
+    const widget = makeWidget({ kind: 'kpi', config: {} });
+    const { title } = inferWidgetTitles(widget, SOURCES, lt);
+    expect(title).toContain('ICP');
+  });
+});
+
+describe('inferKpiDateSubtitle — locale tokens', () => {
+  it('returns null when no date filters are present', () => {
+    const widget: StudioWidget = { id: 'kpi1', kind: 'kpi', title: 'KPI', config: {} };
+    expect(inferKpiDateSubtitle(widget, [])).toBeNull();
+  });
+
+  it('returns formatted date label for a matching page-scope date filter', () => {
+    const widget: StudioWidget = { id: 'kpi1', kind: 'kpi', title: 'KPI', config: {} };
+    const subtitle = inferKpiDateSubtitle(widget, [relDateFilter('past', 30, 'day')]);
+    expect(subtitle).toBe('Last 30 days');
+  });
+
+  it('uses custom locale text for the date subtitle', () => {
+    const widget: StudioWidget = { id: 'kpi1', kind: 'kpi', title: 'KPI', config: {} };
+    const lt = {
+      dateFilterLast: (amount: number, unit: string) => `Letzte ${amount} ${unit}`,
+      dateFilterUnitDay: 'Tag',
+      dateFilterUnitDays: 'Tage',
+    } as StudioLocaleText;
+    const subtitle = inferKpiDateSubtitle(widget, [relDateFilter('past', 30, 'day')], {}, lt);
+    expect(subtitle).toBe('Letzte 30 Tage');
+  });
+
+  it('returns null for non-kpi widgets', () => {
+    const widget: StudioWidget = { id: 'c1', kind: 'chart', title: 'Chart', config: {} };
+    expect(inferKpiDateSubtitle(widget, [relDateFilter('past', 7, 'day')])).toBeNull();
+  });
+});
+
+// ─── Prototype-chain-safe record lookups ──────────────────────────────────────
+
+/**
+ * Every record key that reaches this module — a widget's `sourceId`, a filter widget's
+ * `filterWidgetSourceId`, a relative-date `unit`, a `dateRangePreset` — is doc- or AI-authored,
+ * so it can name an `Object.prototype` member. A bare `record[key]` resolves the inherited
+ * member (truthy, so neither `?.` nor `?? fallback` fires); `utils/safeLookup`'s `lookup` must
+ * make every one of these resolve to `undefined` instead.
+ */
+
+describe('prototype-chain keys in doc-authored record lookups', () => {
+  it('does not throw when a widget sourceId names an Object.prototype member', () => {
+    const widget = makeWidget({ kind: 'chart', sourceId: 'constructor', config: {} });
+    expect(() => inferWidgetTitles(widget, SOURCES)).not.toThrow();
+    // Falls back to the source-less chart title rather than reading `Object.fields`.
+    expect(inferWidgetTitles(widget, SOURCES).title).toBe('Chart');
+  });
+
+  it('does not throw for a grid widget whose sourceId names an Object.prototype member', () => {
+    const widget = makeWidget({ kind: 'grid', sourceId: 'toString', config: {} });
+    expect(() => inferWidgetTitles(widget, SOURCES)).not.toThrow();
+    expect(inferWidgetTitles(widget, SOURCES).subtitle).toBe('');
+  });
+
+  it('does not throw when filterWidgetSourceId names an Object.prototype member', () => {
+    const widget = makeWidget({
+      kind: 'filter',
+      sourceId: 'orders',
+      config: { filterWidgetField: 'category', filterWidgetSourceId: 'constructor' },
+    });
+    expect(() => inferWidgetTitles(widget, SOURCES)).not.toThrow();
+    expect(inferWidgetTitles(widget, SOURCES).title).toBe('Filter');
+  });
+
+  it('never renders "undefined" as a relative-date unit label', () => {
+    const filter = relDateFilter('past', 3, 'constructor' as unknown as 'day');
+    const label = formatDateFilterLabel(filter);
+    expect(label).not.toContain('undefined');
+    expect(label).toBe('Last 3 constructors');
+  });
+
+  it('never renders "undefined" for a hostile dashboard date-range preset', () => {
+    const filter: StudioFilterState = {
+      id: 'f1',
+      field: 'date',
+      fieldType: 'date',
+      operator: 'between',
+      scope: { kind: 'dashboard-date-range', sourceId: 's1', pageId: 'p1' },
+      value: null,
+      dateRangePreset: 'toString',
+    } as unknown as StudioFilterState;
+    expect(formatDateFilterLabel(filter)).not.toContain('undefined');
+  });
+
+  it('exports an empty cell for a column named after an Object.prototype member', () => {
+    const source: StudioDataSource = {
+      id: 's',
+      label: 'S',
+      fields: [{ id: 'constructor', label: 'Ctor', type: 'string' }],
+    };
+    const widget = makeWidget({
+      kind: 'grid',
+      sourceId: 's',
+      config: { columns: [{ fieldId: 'constructor' }] },
+    });
+    const csv = buildCsvContent(widget, source, [{ other: 1 }]);
+    expect(csv).toBe('"Ctor"\n""');
+  });
+});

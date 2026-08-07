@@ -1,4 +1,4 @@
-import type { StudioWidgetKind } from '../../models/baseTypes';
+import type { StudioWidgetKind } from '@mui/x-studio-core/models';
 
 /** Drag item type for a widget card being repositioned on the canvas. */
 export const DRAG_TYPE_CANVAS_WIDGET = 'studio-canvas-widget' as const;

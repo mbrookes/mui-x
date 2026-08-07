@@ -8,7 +8,7 @@ import {
   buildScatterCategoryColorMap,
   type ScatterDataPoint,
   type ScatterSeriesData,
-} from '../../../internals/chartAggregation';
+} from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { buildChartDescription } from './chartA11y';

@@ -1,10 +1,10 @@
 import * as React from 'react';
 import { createRenderer, screen, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import type { FieldOption } from '@mui/x-studio-core/engine';
 import type { StudioFilterState } from '../../models';
 import { createStudioHarness } from '../../internals/test-utils';
 import { WidgetFilterRow } from './WidgetFilterRow';
-import type { FieldOption } from './filterDrawerTypes';
 
 const { render } = createRenderer();
 

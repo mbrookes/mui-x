@@ -13,6 +13,21 @@ import {
 import { alpha } from '@mui/material/styles';
 import CancelIcon from '@mui/icons-material/Cancel';
 
+import { moveWidgetInLayout, type WidgetMoveDirection } from '@mui/x-studio-core/engine';
+import {
+  resolveTextFontFamily,
+  sanitizeCssColor,
+  sanitizeFontSize,
+  sanitizeFiniteNumber,
+  sanitizeFontWeight,
+  isSafeTextAlign,
+  inferKpiDateSubtitle,
+  resolveWidgetRequiresDataSource,
+  canDetectAnomalies,
+  createStudioPipeline,
+  getReachableSourceIds,
+  formatCrossFilterValueLabel,
+} from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioSelector,
@@ -35,15 +50,6 @@ import {
 } from '../../context';
 import { StudioWidgetCardActionsOverlay } from './StudioWidgetCardActionsOverlay';
 import { StudioWidgetExpandDialog } from './StudioWidgetExpandDialog';
-import { moveWidgetInLayout, type WidgetMoveDirection } from '../../internals/widgetLayoutMove';
-import { resolveTextFontFamily } from '../../internals/textFontFamily';
-import {
-  sanitizeCssColor,
-  sanitizeFontSize,
-  sanitizeFiniteNumber,
-  sanitizeFontWeight,
-  isSafeTextAlign,
-} from '../../internals/cssValueValidation';
 import { useStudioAnnounce } from '../../internals/StudioLiveRegion';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
@@ -56,11 +62,6 @@ import type { StudioChartWidgetProps } from '../widgets/StudioChartWidget';
 import type { StudioKpiWidgetProps } from '../widgets/StudioKpiWidget/StudioKpiWidget';
 import type { StudioTextWidgetProps } from '../widgets/StudioTextWidget/StudioTextWidget';
 import type { StudioFilterWidgetProps } from '../widgets/StudioFilterWidget';
-import { inferKpiDateSubtitle, resolveWidgetRequiresDataSource } from '../../internals/widgetUtils';
-import { canDetectAnomalies } from '../../internals/anomalyDetection';
-import { createStudioPipeline } from '../../internals/StudioPipeline';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import { formatCrossFilterValueLabel } from '../../internals/crossFilterValueLabel';
 import { resolveFieldDef } from '../widgets/StudioChartWidget/chartWidgetHelpers';
 import { useWidgetKindLabels } from '../StudioComposeDrawer/StudioComposeDrawerLabels';
 import { runWidgetExport } from './widgetExport';

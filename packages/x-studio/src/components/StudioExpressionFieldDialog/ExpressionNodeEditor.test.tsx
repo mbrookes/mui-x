@@ -15,7 +15,7 @@ const SOURCE_FIELDS: StudioDataField[] = [{ id: 'amount', label: 'Amount', type:
 // dialog already resolves every other string through it.
 describe('<ExpressionBuilder /> localization', () => {
   it('renders operator options, the aggregation picker, and generic input labels translated under a non-English locale', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     const expression: StudioExpression = {
       operator: 'add',
       inputs: [{ id: 'amount' }, { type: 'number', value: 0 }, { type: 'number', value: 0 }],
@@ -67,7 +67,7 @@ describe('<ExpressionBuilder /> localization', () => {
   });
 
   it('renders the "if" operator\'s Condition/Then/Else input labels translated', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     const expression: StudioExpression = {
       operator: 'if',
       inputs: [
@@ -97,7 +97,7 @@ describe('<ExpressionBuilder /> localization', () => {
   });
 
   it('renders the "datediff" operator\'s unit input label translated', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     const expression: StudioExpression = {
       operator: 'datediff',
       inputs: [
@@ -286,7 +286,7 @@ describe('<ExpressionBuilder /> literal value accessible name', () => {
   });
 
   it('translates the name under a non-English locale', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     renderLiteral({ type: 'number', value: 3 } as StudioExpression, {
       providerProps: { localeText: frLocaleText },
     });

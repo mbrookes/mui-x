@@ -19,7 +19,7 @@
  * dropped (logged, not applied) rather than corrupting state.
  */
 import { parseStateMutation } from '@mui/x-studio-schema';
-import type { StudioController } from '../../store/StudioController';
+import type { StudioController } from '@mui/x-studio-core/store';
 
 /**
  * Validates and applies a single wire-sourced `state-mutation` event to the local

@@ -69,7 +69,7 @@ export type { StudioPivotWidgetProps } from './components/widgets/StudioPivotWid
 // ─── StudioMapWidget ──────────────────────────────────────────────────────────
 export { StudioMapWidget } from './components/widgets/StudioMapWidget';
 export type { StudioMapWidgetProps } from './components/widgets/StudioMapWidget';
-export type { GeographyLoader, StudioMapGeographyDefinition } from './internals/geographyLoaders';
+export type { GeographyLoader, StudioMapGeographyDefinition } from '@mui/x-studio-core/engine';
 
 // ─── StudioDataDrawer ─────────────────────────────────────────────────────────
 export { StudioDataDrawer } from './components/StudioDataDrawer/StudioDataDrawer';
@@ -113,13 +113,13 @@ export type { StudioLocaleText, ResolvedStudioFeatures } from './internals/Studi
 export { DEFAULT_STUDIO_LOCALE_TEXT } from './internals/StudioUIConfigContext';
 
 // ─── Locales ─────────────────────────────────────────────────────────────────
-export { ptBRLocaleText, ptBR } from './locales/ptBR';
-export { enUS } from './locales/enUS';
-export { frLocaleText, fr } from './locales/fr';
-export { deLocaleText, de } from './locales/de';
-export { esLocaleText, es } from './locales/es';
-export type { Localization } from './locales/utils/getStudioLocalization';
-export { getStudioLocalization } from './locales/utils/getStudioLocalization';
+export { ptBRLocaleText, ptBR } from '@mui/x-studio-core/locales';
+export { enUS } from '@mui/x-studio-core/locales';
+export { frLocaleText, fr } from '@mui/x-studio-core/locales';
+export { deLocaleText, de } from '@mui/x-studio-core/locales';
+export { esLocaleText, es } from '@mui/x-studio-core/locales';
+export type { Localization } from '@mui/x-studio-core/locales';
+export { getStudioLocalization } from '@mui/x-studio-core/locales';
 
 // ─── Selectors ────────────────────────────────────────────────────────────────
 export {
@@ -161,10 +161,10 @@ export { useStudioKeyboardShortcuts } from './internals/useStudioKeyboardShortcu
 
 // ─── Widget utilities (composable API helpers) ────────────────────────────────
 export { WIDGET_TYPES } from './internals/widgetPresentation';
-export { createDefaultWidget } from './internals/widgetUtils';
+export { createDefaultWidget } from '@mui/x-studio-core/engine';
 
 // ─── Controller ───────────────────────────────────────────────────────────────
-export { StudioController, createStudioController } from './store/StudioController';
+export { StudioController, createStudioController } from '@mui/x-studio-core/store';
 export { createDefaultStudioState, normalizeGridColumn } from './models';
 
 // ─── State persistence ────────────────────────────────────────────────────────
@@ -227,10 +227,10 @@ export type {
 } from './models';
 
 // ─── Utility types ────────────────────────────────────────────────────────────
-export type { RelativeDateValue, RelativeDateUnit } from './internals/filterTypes';
+export type { RelativeDateValue, RelativeDateUnit } from '@mui/x-studio-core/engine';
 
 // ─── Dashboard date range ──────────────────────────────────────────────────────
-export { computeDateRangePreset } from './store/StudioController';
+export { computeDateRangePreset } from '@mui/x-studio-core/store';
 
 // ─── Schema version ───────────────────────────────────────────────────────────
 export { CURRENT_SCHEMA_VERSION } from '@mui/x-studio-schema';
@@ -259,9 +259,9 @@ export type {
   StudioAIToolName,
   StudioAIState,
   StudioAIChatThread,
-} from './models/aiTypes';
+} from '@mui/x-studio-core/models';
 // ─── Server adapter utilities ─────────────────────────────────────────────────
-export { createBatchingAdapter } from './server/createBatchingAdapter';
-export type { BatchingAdapterOptions } from './server/createBatchingAdapter';
-export { createSimpleAdapter } from './server/createSimpleAdapter';
-export type { SimpleAdapterOptions } from './server/createSimpleAdapter';
+export { createBatchingAdapter } from '@mui/x-studio-core/adapter';
+export type { BatchingAdapterOptions } from '@mui/x-studio-core/adapter';
+export { createSimpleAdapter } from '@mui/x-studio-core/adapter';
+export type { SimpleAdapterOptions } from '@mui/x-studio-core/adapter';

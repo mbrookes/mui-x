@@ -11,9 +11,8 @@
  * there's no need to render the JSX to observe the memoization.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { DEFAULT_STUDIO_LOCALE_TEXT, setActiveStudioLocale } from '@mui/x-studio-core/engine';
 import type { StudioChartType, StudioDataSource, StudioWidgetConfig } from '../../../models';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../../internals/localeText';
-import { setActiveStudioLocale } from '../../../internals/studioLocale';
 
 const {
   aggregateHeatmapSpy,
@@ -43,8 +42,14 @@ const {
   computeAggregateSpy: vi.fn(() => 42),
 }));
 
-vi.mock('../../../internals/chartAggregation', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../internals/chartAggregation')>();
+// ONE mock for the whole engine barrel. These used to be two `vi.mock` calls against two
+// different modules (`chartAggregation` and `chartShapes/*`); now that both resolve through
+// `@mui/x-studio-core/engine`, a second `vi.mock` of the same specifier silently REPLACES the
+// first rather than merging with it — so every spy in the earlier call goes unused and its
+// assertions fail with "expected 1 call, got 0". Mocking a barrel is coarser than mocking a
+// module: all the doubles for one specifier have to be declared together.
+vi.mock('@mui/x-studio-core/engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@mui/x-studio-core/engine')>();
   return {
     ...actual,
     aggregateHeatmap: aggregateHeatmapSpy,
@@ -52,12 +57,8 @@ vi.mock('../../../internals/chartAggregation', async (importOriginal) => {
     buildFunnelStages: buildFunnelStagesSpy,
     aggregateSankey: aggregateSankeySpy,
     buildGanttItems: buildGanttItemsSpy,
+    computeAggregate: computeAggregateSpy,
   };
-});
-
-vi.mock('../StudioKpiWidget/kpiUtils', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../StudioKpiWidget/kpiUtils')>();
-  return { ...actual, computeAggregate: computeAggregateSpy };
 });
 
 // eslint-disable-next-line import/first -- must follow the vi.mock calls above

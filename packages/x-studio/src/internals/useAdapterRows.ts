@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import { buildWidgetQueryDescriptor, studioRequestCache } from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
   StudioExpressionField,
@@ -8,8 +9,6 @@ import type {
   StudioRelationship,
   StudioWidget,
 } from '../models';
-import { buildWidgetQueryDescriptor } from './queryDescriptor';
-import { studioRequestCache } from './StudioRequestCache';
 import { useStudioLocaleText } from '../context';
 
 type Row = Record<string, unknown>;

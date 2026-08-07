@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { act, createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
+import { createDefaultWidget } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../internals/test-utils';
-import { createDefaultWidget } from '../../internals/widgetUtils';
 import type { StudioCustomWidgetDef } from '../../models';
 import { StudioComposeDrawer } from './StudioComposeDrawer';
 

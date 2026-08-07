@@ -2,7 +2,12 @@
 import * as React from 'react';
 import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import dayjs from 'dayjs';
-import type { StudioWidgetOf, StudioDataSource } from '../../../models';
+import {
+  getCachedEnrichedRows,
+  getCachedNormalizedDataSource,
+  getDataSourceRowState,
+  isAwaitingDataSourceRows,
+} from '@mui/x-studio-core/engine';
 import {
   useStudioController,
   useStudioLocaleText,
@@ -12,12 +17,7 @@ import {
   makeSelectExpressionFieldsForSource,
   makeSelectActiveInteractiveFilter,
 } from '../../../context';
-import { getCachedEnrichedRows } from '../../../internals/enrichedRowsCache';
-import { getCachedNormalizedDataSource } from '../../../internals/normalizedRowsCache';
-import {
-  getDataSourceRowState,
-  isAwaitingDataSourceRows,
-} from '../../../internals/dataSourceRowState';
+import type { StudioWidgetOf, StudioDataSource } from '../../../models';
 
 import {
   DateRangeControl,

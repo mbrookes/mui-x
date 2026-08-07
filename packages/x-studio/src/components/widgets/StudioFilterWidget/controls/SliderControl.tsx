@@ -1,8 +1,8 @@
 'use client';
 import * as React from 'react';
 import { Box, Slider } from '@mui/material';
+import { getStudioLocale } from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../../../internals/StudioUIConfigContext';
-import { getStudioLocale } from '../../../../internals/studioLocale';
 
 export interface StudioFilterSliderControlProps {
   label: string;

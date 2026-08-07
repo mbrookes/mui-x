@@ -11,10 +11,10 @@
 import * as React from 'react';
 import { createRenderer, screen, fireEvent, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { createDefaultStudioState } from '../../models/stateTypes';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
+import { frLocaleText } from '@mui/x-studio-core/locales';
 import type { StudioState } from '../../models';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
-import { frLocaleText } from '../../locales/fr';
 import {
   mockUseStudioSelector,
   mockUseStudioController,

@@ -10,6 +10,8 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { buildFieldCatalog } from '@mui/x-studio-core/engine';
+import { fieldHasCapability } from '@mui/x-studio-core/utils';
 import {
   useStudioController,
   useStudioSelector,
@@ -25,8 +27,6 @@ import type {
   StudioWidgetConfig,
   StudioWidgetConfigForKind,
 } from '../../models';
-import { buildFieldCatalog } from '../../internals/fieldCatalog';
-import { fieldHasCapability } from '../../utils/fieldCapabilities';
 import { DataSourceFieldSelect } from './DataSourceFieldSelect';
 import { collectStaleWidgetFilterIds } from './collectStaleWidgetFilterIds';
 import { useBufferedInput } from './useBufferedInput';

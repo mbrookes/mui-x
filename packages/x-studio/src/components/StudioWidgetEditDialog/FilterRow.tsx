@@ -12,17 +12,15 @@ import {
   Tooltip,
 } from '@mui/material';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import type { StudioDataField, StudioFilterOperator, StudioFilterState } from '../../models';
-import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import {
   getOperatorLabel,
   getOperatorsForFieldType,
-} from '../StudioFiltersDrawer/filterOperatorMetadata';
-import {
   isRelativeDateValue,
   needsOperatorValueReset,
-} from '../StudioFiltersDrawer/filterDrawerUtils';
-import { formatDateFilterLabel } from '../../internals/widgetUtils';
+  formatDateFilterLabel,
+} from '@mui/x-studio-core/engine';
+import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
+import type { StudioDataField, StudioFilterOperator, StudioFilterState } from '../../models';
 
 export interface FieldOption {
   id: string;

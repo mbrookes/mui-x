@@ -1,7 +1,7 @@
 'use client';
 import { Box, Chip, FormControl, MenuItem, Select, Stack } from '@mui/material';
+import type { RelativeDateUnit, RelativeDateValue } from '@mui/x-studio-core/engine';
 import { NumberField } from '../../internals/NumberField';
-import type { RelativeDateUnit, RelativeDateValue } from '../../internals/filterTypes';
 import { useStudioLocaleText } from '../../context';
 
 function getRelativeUnits(localeText: ReturnType<typeof useStudioLocaleText>) {

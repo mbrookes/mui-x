@@ -10,10 +10,10 @@ import {
   TextField,
 } from '@mui/material';
 import FunctionsIcon from '@mui/icons-material/Functions';
+import { fieldHasCapability, type FieldCapability } from '@mui/x-studio-core/utils';
 import { FieldOption } from './FieldOption';
 import { FieldTypeIcon, type FieldType } from '../../internals/FieldTypeIcon';
 import type { StudioDataSource, StudioDataField, StudioExpressionField } from '../../models';
-import { fieldHasCapability, type FieldCapability } from '../../utils/fieldCapabilities';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
 import { useStudioController } from '../../context';
 import { StudioExpressionFieldDialog } from '../StudioExpressionFieldDialog';

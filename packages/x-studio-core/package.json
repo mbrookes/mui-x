@@ -1,0 +1,34 @@
+{
+  "name": "@mui/x-studio-core",
+  "version": "8.25.0",
+  "description": "Framework-agnostic engine for MUI X Studio: document controller, row pipeline, filters, aggregation and the query adapter — no React",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./adapter": "./src/adapter/index.ts",
+    "./engine": "./src/engine/index.ts",
+    "./locales": "./src/locales/index.ts",
+    "./models": "./src/models/index.ts",
+    "./store": "./src/store/index.ts",
+    "./utils": "./src/utils/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "typescript": "tsc -p tsconfig.json",
+    "build": "echo 'build not yet implemented'",
+    "test:unit": "vitest --config vitest.config.node.mts"
+  },
+  "dependencies": {
+    "@mui/x-internals": "workspace:*",
+    "@mui/x-studio-schema": "workspace:*",
+    "dayjs": "catalog:",
+    "topojson-client": "^3.1.0",
+    "us-atlas": "^3.0.1",
+    "world-atlas": "^2.0.2"
+  },
+  "devDependencies": {
+    "@mui/x-charts-vendor": "workspace:^"
+  }
+}

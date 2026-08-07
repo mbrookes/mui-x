@@ -1,13 +1,13 @@
 import * as React from 'react';
 import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioRelationship, StudioWidget, StudioWidgetConfig } from '../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../test/studioContextMock';
-import { StudioController } from '../../store/StudioController';
 import {
   StudioUIConfigContext,
   DEFAULT_STUDIO_LOCALE_TEXT,

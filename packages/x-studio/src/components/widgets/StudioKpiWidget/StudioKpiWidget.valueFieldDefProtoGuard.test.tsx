@@ -19,8 +19,8 @@ import { resolveKpiValueFieldDef } from './StudioKpiWidget';
 // `chartSupport.ts`'s own `hasRowLevelField` — so `analyzeChartSupport` is stubbed here to
 // return the malicious owner id directly, isolating exactly the one guarded line this fix
 // touches (`StudioKpiWidget.tsx`, `resolveKpiValueFieldDef`).
-vi.mock('../../../internals/chartAggregation', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../internals/chartAggregation')>();
+vi.mock('@mui/x-studio-core/engine', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@mui/x-studio-core/engine')>();
   return {
     ...actual,
     analyzeChartSupport: vi.fn(() => ({

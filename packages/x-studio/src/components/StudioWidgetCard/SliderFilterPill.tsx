@@ -2,9 +2,8 @@
 import { Chip } from '@mui/material';
 import CancelIcon from '@mui/icons-material/Cancel';
 
+import { formatFieldValue, getStudioLocale } from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
-import { formatFieldValue } from '../../internals/numberFormat';
-import { getStudioLocale } from '../../internals/studioLocale';
 import { resolveFieldDef } from '../widgets/StudioChartWidget/chartWidgetHelpers';
 import type { StudioDataSource, StudioExpressionField } from '../../models';
 

@@ -12,8 +12,8 @@ import { DataSourceSection } from './DataSourceSection';
 // try/catch can be pinned against a future evaluator change that does introduce one.
 let shouldThrowInEvaluateMeasure = false;
 
-vi.mock('../../utils/expressionEvaluator', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../utils/expressionEvaluator')>();
+vi.mock('@mui/x-studio-core/utils', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@mui/x-studio-core/utils')>();
   return {
     ...actual,
     evaluateMeasure: (...args: Parameters<typeof actual.evaluateMeasure>) => {

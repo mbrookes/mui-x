@@ -15,11 +15,11 @@ import {
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
 import CloseIcon from '@mui/icons-material/Close';
+import type { FieldType } from '@mui/x-studio-core/engine';
+import { needsOperatorValueReset } from '@mui/x-studio-core/engine';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
-import type { FieldType } from './filterDrawerTypes';
 import { FilterValueInput } from './FilterValueInput';
 import { useStudioLocaleText } from '../../context';
-import { needsOperatorValueReset } from './filterDrawerUtils';
 
 interface SecondConditionProps {
   filter: StudioFilterState;

@@ -1,8 +1,8 @@
 'use client';
 import * as React from 'react';
 import { FormControl, InputLabel, MenuItem, Select, Stack, TextField } from '@mui/material';
+import { fieldsForCapability } from '@mui/x-studio-core/utils';
 import { useStudioController, useStudioLocaleText } from '../../../context';
-import { fieldsForCapability } from '../../../utils/fieldCapabilities';
 import type {
   StudioChartConfigOfType,
   StudioFilterState,

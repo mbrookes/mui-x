@@ -11,7 +11,7 @@
 import * as React from 'react';
 import { createRenderer, screen, fireEvent, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { StudioMessageActions } from './StudioMessageActions';
 import {
   StudioChatTurnMutationContext,

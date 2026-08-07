@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { StudioChartAnnotation } from '../../models/widgetTypes';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import type { StudioChartAnnotation } from '@mui/x-studio-core/models';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import {
   buildInsightPrompt,
   buildAnomalyExplainPrompt,

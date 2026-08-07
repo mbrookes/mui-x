@@ -2,7 +2,7 @@ import * as React from 'react';
 import { describe, it, expect } from 'vitest';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { STUDIO_AI_TOOL_REGISTRY } from '@mui/x-studio-schema';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import {
   STUDIO_TOOL_ICONS,
   STUDIO_TOOL_LABEL_KEYS,

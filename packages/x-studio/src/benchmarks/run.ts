@@ -9,22 +9,22 @@
  */
 
 import { performance } from 'node:perf_hooks';
-import { normalizeDataSourceRows } from '../internals/temporalUtils';
-import { resolveRows } from '../internals/dataSourceGraph';
 import {
+  normalizeDataSourceRows,
+  resolveRows,
   resolveChartRowsForAggregation,
   aggregateByField,
   aggregateByTwoFields,
   aggregateMultipleSeries,
-} from '../internals/chartAggregation';
-import { resolveRowsCached } from '../internals/resolvedRowsCache';
-import { getCachedEnrichedRows } from '../internals/enrichedRowsCache';
-import { getCachedNormalizedDataSource } from '../internals/normalizedRowsCache';
-import { enrichRowsWithExpressions } from '../utils/expressionEvaluator';
-import { buildQueryDescriptor } from '../internals/queryDescriptor';
-import { StudioRequestCache } from '../internals/StudioRequestCache';
+  resolveRowsCached,
+  getCachedEnrichedRows,
+  getCachedNormalizedDataSource,
+  buildQueryDescriptor,
+  StudioRequestCache,
+} from '@mui/x-studio-core/engine';
+import { enrichRowsWithExpressions } from '@mui/x-studio-core/utils';
 import { buildScenario } from './syntheticData';
-import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models/index';
+import type { StudioDataSource, StudioFilterState, StudioWidget } from '../models';
 
 // ─── Timing utility ───────────────────────────────────────────────────────────
 

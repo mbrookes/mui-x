@@ -17,9 +17,9 @@ import NoteAltIcon from '@mui/icons-material/NoteAlt';
 import StorageIcon from '@mui/icons-material/Storage';
 import TitleIcon from '@mui/icons-material/Title';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
+import type { StudioLocaleText } from '@mui/x-studio-core/engine';
+import { lookup } from '@mui/x-studio-core/utils';
 import { useStudioLocaleText } from '../../internals/StudioUIConfigContext';
-import type { StudioLocaleText } from '../../internals/localeText';
-import { lookup } from '../../utils/safeLookup';
 import type { StudioAIToolName } from './studioAITools';
 
 // ── Per-tool icon map ─────────────────────────────────────────────────────────

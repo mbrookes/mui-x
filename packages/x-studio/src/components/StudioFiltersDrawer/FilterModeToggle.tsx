@@ -1,7 +1,7 @@
 'use client';
 import { ToggleButton, ToggleButtonGroup } from '@mui/material';
+import type { FilterMode } from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../context';
-import type { FilterMode } from './filterDrawerTypes';
 
 export function FilterModeToggle({
   mode,

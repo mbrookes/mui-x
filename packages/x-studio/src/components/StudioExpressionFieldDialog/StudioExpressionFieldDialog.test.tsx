@@ -475,7 +475,7 @@ describe('StudioExpressionFieldDialog', () => {
   // used to be hardcoded English even though the rest of this dialog resolves strings
   // through `useStudioLocaleText`.
   it('renders the "Output type" caption translated under a non-English locale', async () => {
-    const { frLocaleText } = await import('../../locales/fr');
+    const { frLocaleText } = await import('@mui/x-studio-core/locales');
     const { wrapper } = createStudioHarness({
       providerProps: { localeText: frLocaleText },
     });
@@ -576,7 +576,7 @@ describe('StudioExpressionFieldDialog', () => {
     });
 
     it('renders them translated under a non-English locale', async () => {
-      const { frLocaleText } = await import('../../locales/fr');
+      const { frLocaleText } = await import('@mui/x-studio-core/locales');
       const { wrapper } = createStudioHarness({
         providerProps: { localeText: frLocaleText },
       });

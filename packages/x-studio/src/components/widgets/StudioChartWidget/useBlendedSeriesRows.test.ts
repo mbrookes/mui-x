@@ -16,6 +16,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor } from '@mui/internal-test-utils';
+import { studioRequestCache, resolveRows } from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
   StudioExpressionField,
@@ -24,8 +25,6 @@ import type {
   StudioState,
   StudioWidgetOf,
 } from '../../../models';
-import { studioRequestCache } from '../../../internals/StudioRequestCache';
-import { resolveRows } from '../../../internals/dataSourceGraph';
 import {
   mockUseStudioSelector,
   mockUseStudioController,

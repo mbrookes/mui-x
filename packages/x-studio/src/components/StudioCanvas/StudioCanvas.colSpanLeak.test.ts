@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { StudioController } from '../../store/StudioController';
+import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioWidget } from '../../models';
 import { GRID_COLS } from './canvasGridConstants';
 

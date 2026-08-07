@@ -14,17 +14,20 @@ import {
   type GridSortModel,
 } from '@mui/x-data-grid-premium';
 
-import type {
-  StudioConditionalFormat,
-  StudioDataField,
-  StudioDataSource,
-  StudioDoc,
-  StudioExpressionField,
-  StudioGridSummaryAggregation,
-  StudioRelationship,
-  StudioWidgetConfig,
-  StudioWidgetOf,
-} from '../../../models';
+import {
+  formatFieldValue,
+  sanitizeCssColor,
+  isSafeFontWeightKeyword,
+  sanitizeCssIdentifierToken,
+  sanitizeFiniteNumber,
+  getRowIdentity,
+  buildManyToOneRelationshipIndex,
+  getReachableSourceIds,
+  normalizeJoinKey,
+} from '@mui/x-studio-core/engine';
+
+import { columnAggKey, computeGridSummary, aggregateValues } from '@mui/x-studio-core/utils';
+import { useWidgetRows } from '../../../internals/useWidgetRows';
 import {
   useStudioController,
   useStudioSelector,
@@ -36,23 +39,17 @@ import {
   makeSelectExpressionFieldsForSources,
   makeSelectWidgetActiveCrossFilter,
 } from '../../../context';
-import { formatFieldValue } from '../../../internals/numberFormat';
-import {
-  sanitizeCssColor,
-  isSafeFontWeightKeyword,
-  sanitizeCssIdentifierToken,
-  sanitizeFiniteNumber,
-} from '../../../internals/cssValueValidation';
-
-import { columnAggKey, computeGridSummary } from '../../../utils/gridSummary';
-import { aggregateValues } from '../../../utils/gridGrouping';
-import { useWidgetRows } from '../../../internals/useWidgetRows';
-import { getRowIdentity } from '../../../internals/rowIdentity';
-import {
-  buildManyToOneRelationshipIndex,
-  getReachableSourceIds,
-} from '../../../internals/dataSourceGraph';
-import { normalizeJoinKey } from '../../../internals/joinKeys';
+import type {
+  StudioConditionalFormat,
+  StudioDataField,
+  StudioDataSource,
+  StudioDoc,
+  StudioExpressionField,
+  StudioGridSummaryAggregation,
+  StudioRelationship,
+  StudioWidgetConfig,
+  StudioWidgetOf,
+} from '../../../models';
 import { StudioNoDataOverlay } from '../../../internals/StudioNoDataOverlay';
 import { StudioWidgetErrorOverlay } from '../../../internals/StudioWidgetErrorOverlay';
 import { crossFilterValueEquals } from '../StudioChartWidget/chartWidgetHelpers';

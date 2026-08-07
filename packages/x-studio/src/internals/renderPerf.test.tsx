@@ -30,6 +30,8 @@ import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 // Imported first: the vi.mock factory below references these, and they must be
 // initialized before any import (e.g. ../context/selectors) loads the mocked context.
+import { StudioController } from '@mui/x-studio-core/store';
+import { studioRequestCache, createDefaultWidget } from '@mui/x-studio-core/engine';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
@@ -41,10 +43,7 @@ import type {
   StudioState,
   StudioWidgetOf,
 } from '../models';
-import { StudioController } from '../store/StudioController';
 import { selectPartitionedFilters, selectPartitionedBaseFilters } from '../context/selectors';
-import { studioRequestCache } from './StudioRequestCache';
-import { createDefaultWidget } from './widgetFactory';
 import { StudioKpiWidget } from '../components/widgets/StudioKpiWidget';
 import { StudioWidgetCard } from '../components/StudioWidgetCard';
 

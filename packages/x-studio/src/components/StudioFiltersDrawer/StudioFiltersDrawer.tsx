@@ -23,6 +23,16 @@ import SearchIcon from '@mui/icons-material/Search';
 import type { SxProps, Theme } from '@mui/material/styles';
 import { createFilterId } from '@mui/x-studio-schema';
 import {
+  getReachableSourceIds,
+  buildFieldCatalog,
+  buildFieldLabelMap,
+  buildRankFilterWidgetPageIndex,
+  buildFieldOptions,
+  filterMutationRejectionMessage,
+  summarizeFilter,
+} from '@mui/x-studio-core/engine';
+import type { SimpleField } from '@mui/x-studio-core/engine';
+import {
   useStudioController,
   useStudioSelector,
   useStudioFeatures,
@@ -38,18 +48,9 @@ import {
   selectCrossFilterAllPages,
 } from '../../context';
 import { useWidgetDefMap } from '../widgets/builtinWidgetDefs';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import { buildFieldCatalog, buildFieldLabelMap } from '../../internals/fieldCatalog';
-import { buildRankFilterWidgetPageIndex } from '../../internals/rankFilterScope';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { isWidgetOfKind } from '../../models';
 import type { StudioChartConfig, StudioFilterState } from '../../models';
-import type { SimpleField } from './filterDrawerTypes';
-import {
-  buildFieldOptions,
-  filterMutationRejectionMessage,
-  summarizeFilter,
-} from './filterDrawerUtils';
 import { FilterSection, WidgetFilterSection } from './FilterSection';
 import { InteractiveFilterSection } from './InteractiveFilterSection';
 import { CrossFilterSection } from './CrossFilterSection';

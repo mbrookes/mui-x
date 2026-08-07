@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRenderer, screen, waitFor, act, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { studioRequestCache } from '@mui/x-studio-core/engine';
 import type {
   CreateDefaultStudioStateOverrides,
   StudioDataSource,
@@ -8,7 +9,6 @@ import type {
   StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
-import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import { makeSelectWidget, useStudioSelector } from '../../../context';
 import { StudioGridWidget } from './StudioGridWidget';
 

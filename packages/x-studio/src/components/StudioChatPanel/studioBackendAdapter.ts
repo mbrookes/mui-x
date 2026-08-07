@@ -16,8 +16,8 @@ import {
   MAX_TOOL_OUTPUT_CHARS,
   MAX_CONVERSATION_CHARS,
 } from '@mui/x-studio-schema';
+import type { StudioController } from '@mui/x-studio-core/store';
 import type { StudioAIConfig } from '../../models/aiConfig';
-import type { StudioController } from '../../store/StudioController';
 import type { StudioCustomWidgetDef } from '../../models';
 import { applyStateMutation } from './applyStateMutation';
 import { buildWidgetDataSummary } from './generateInsight';

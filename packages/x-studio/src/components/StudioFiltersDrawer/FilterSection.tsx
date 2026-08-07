@@ -1,9 +1,12 @@
 'use client';
 import { Stack, Typography } from '@mui/material';
+import type {
+  FieldOption,
+  SimpleField,
+  RankFilterWidgetPageIndex,
+} from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../context';
 import type { StudioDataSource, StudioFilterState } from '../../models';
-import type { FieldOption, SimpleField } from './filterDrawerTypes';
-import type { RankFilterWidgetPageIndex } from '../../internals/rankFilterScope';
 import type { AvailableSeries } from './RankFilterInput';
 import { PageFilterRow } from './PageFilterRow';
 import { WidgetFilterRow } from './WidgetFilterRow';

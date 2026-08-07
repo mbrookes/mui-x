@@ -16,6 +16,8 @@ import CloseIcon from '@mui/icons-material/Close';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import AccountTreeIcon from '@mui/icons-material/AccountTree';
 import type { SxProps, Theme } from '@mui/material/styles';
+import { lookup } from '@mui/x-studio-core/utils';
+import { getDataSourceRowState, isAwaitingDataSourceRows } from '@mui/x-studio-core/engine';
 import {
   useStudioSelector,
   selectDataSources,
@@ -25,11 +27,6 @@ import {
   useStudioLocaleText,
 } from '../../context';
 import type { StudioDataSource } from '../../models';
-import { lookup } from '../../utils/safeLookup';
-import {
-  getDataSourceRowState,
-  isAwaitingDataSourceRows,
-} from '../../internals/dataSourceRowState';
 import { DataSourceSection } from './DataSourceSection';
 import { RelationshipPanel } from './RelationshipPanel';
 import { DataLineageGraph } from './DataLineageGraph';

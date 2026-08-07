@@ -4,8 +4,7 @@ import { alpha } from '@mui/material/styles';
 import TrendingUpIcon from '@mui/icons-material/TrendingUp';
 import TrendingDownIcon from '@mui/icons-material/TrendingDown';
 import TrendingFlatIcon from '@mui/icons-material/TrendingFlat';
-import { formatPeriodShort, formatDateRangeLong } from './kpiUtils';
-import { formatPercent } from '../../../internals/numberFormat';
+import { formatPeriodShort, formatDateRangeLong, formatPercent } from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 
 export interface KpiTrendResult {

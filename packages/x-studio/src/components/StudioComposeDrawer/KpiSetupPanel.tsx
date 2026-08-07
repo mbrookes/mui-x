@@ -12,6 +12,9 @@ import {
   Switch,
   TextField,
 } from '@mui/material';
+import { fieldHasCapability } from '@mui/x-studio-core/utils';
+import { getReachableSourceIds, buildFieldCatalog } from '@mui/x-studio-core/engine';
+import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
 import {
   useStudioController,
   useStudioSelector,
@@ -22,10 +25,6 @@ import {
   selectRelationships,
   useStudioLocaleText,
 } from '../../context';
-import { fieldHasCapability } from '../../utils/fieldCapabilities';
-import { useStudioFeatures } from '../../internals/StudioUIConfigContext';
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
-import { buildFieldCatalog } from '../../internals/fieldCatalog';
 import type {
   StudioKpiAggregation,
   StudioDateRangePreset,
@@ -387,7 +386,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
             countOnly,
           );
           const currentAggValid = newAggOptions.some((a) => a.value === config.kpiAggregation);
-          const configUpdate: Partial<import('../../models').StudioWidgetConfig> = {
+          const configUpdate: Partial<import('@mui/x-studio-core/models').StudioWidgetConfig> = {
             kpiValueField: fieldId,
             // Reset aggregation when the current one isn't valid for the new field type
             ...(!currentAggValid && { kpiAggregation: newAggOptions[0].value }),
@@ -546,7 +545,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
                 widgetId,
                 field.id,
                 field.sourceId,
-                field.type as import('../../models').StudioDataField['type'],
+                field.type as import('@mui/x-studio-core/models').StudioDataField['type'],
                 'last_12_months',
               );
             }
@@ -560,7 +559,8 @@ export function KpiSetupPanel(props: { widgetId: string }) {
                 widgetId,
                 fieldId || null,
                 fSourceId || null,
-                (field?.type as import('../../models').StudioDataField['type']) ?? null,
+                (field?.type as import('@mui/x-studio-core/models').StudioDataField['type']) ??
+                  null,
                 activeDatePreset === 'all_time' ? null : activeDatePreset,
               );
             }}
@@ -584,7 +584,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
                     widgetId,
                     activeDateFieldId,
                     activeDateFieldSourceId,
-                    activeDateFieldType as import('../../models').StudioDataField['type'],
+                    activeDateFieldType as import('@mui/x-studio-core/models').StudioDataField['type'],
                     preset,
                   );
                 }

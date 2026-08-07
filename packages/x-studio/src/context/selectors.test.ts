@@ -8,7 +8,7 @@
  * memoization that prevents needless re-renders — was untested.
  */
 import { describe, it, expect } from 'vitest';
-import { createDefaultStudioState, type StudioFilterState } from '../models/stateTypes';
+import { createDefaultStudioState, type StudioFilterState } from '@mui/x-studio-core/models';
 import type {
   StudioState,
   StudioSession,

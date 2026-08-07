@@ -9,6 +9,8 @@ import {
   MAX_CONVERSATION_CHARS,
   UNSAFE_KEYS,
 } from '@mui/x-studio-schema';
+import { createDefaultStudioState } from '@mui/x-studio-core/models';
+import type { StudioController } from '@mui/x-studio-core/store';
 import {
   createBackendChatAdapter,
   MAX_TOOL_ID_LENGTH,
@@ -24,9 +26,7 @@ import {
   MAX_TURN_TOOL_OUTPUT_SIZE,
   TOOL_OUTPUT_TRUNCATED_SUFFIX,
 } from './studioBackendAdapter';
-import { createDefaultStudioState } from '../../models/stateTypes';
 import type { CreateDefaultStudioStateOverrides } from '../../models';
-import type { StudioController } from '../../store/StudioController';
 import type { StudioAIConfig } from './studioBackendAdapter';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

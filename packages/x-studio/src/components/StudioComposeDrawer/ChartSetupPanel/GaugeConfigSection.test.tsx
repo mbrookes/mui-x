@@ -1,12 +1,12 @@
 import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioChartConfigOfType, StudioWidget } from '../../../models';
 import {
   mockUseStudioSelector,
   mockUseStudioController,
   configureStudioContextMock,
 } from '../../../../test/studioContextMock';
-import { StudioController } from '../../../store/StudioController';
 import { GaugeConfigSection } from './GaugeConfigSection';
 import type { DataSourceFieldEntry } from '../DataSourceFieldSelect';
 

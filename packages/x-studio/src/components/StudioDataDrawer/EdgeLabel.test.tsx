@@ -177,7 +177,7 @@ describe('EdgeLabel', () => {
     });
 
     it('translates the accessible name under a non-English locale', async () => {
-      const { frLocaleText } = await import('../../locales/fr');
+      const { frLocaleText } = await import('@mui/x-studio-core/locales');
       setup(REL, DATA_SOURCES, { providerProps: { localeText: frLocaleText } });
 
       const label = screen.getAllByRole('button')[0].getAttribute('aria-label') ?? '';

@@ -3,6 +3,7 @@ import { createRenderer, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { selectFiltersForWidget, shouldApplyWidgetRankAtL3 } from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
   StudioState,
@@ -17,8 +18,6 @@ import {
   configureStudioContextMock,
   getConfiguredStudioState,
 } from '../../../../test/studioContextMock';
-import { selectFiltersForWidget } from '../../../internals/filterScoping';
-import { shouldApplyWidgetRankAtL3 } from '../../../internals/StudioPipeline';
 import {
   StudioUIConfigContext,
   DEFAULT_STUDIO_LOCALE_TEXT,

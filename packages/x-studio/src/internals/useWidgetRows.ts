@@ -1,13 +1,18 @@
 'use client';
 
 import * as React from 'react';
-import type {
-  StudioDataSource,
-  StudioFilterState,
-  StudioWidget,
-  StudioWidgetConfig,
-} from '../models';
-import { isWidgetOfKind } from '../models';
+import {
+  resolveRowsCached,
+  collectSelectFields,
+  getCachedEnrichedRows,
+  selectFiltersForWidget,
+  selectAdapterResidualFilters,
+  getCachedNormalizedDataSource,
+  shouldApplyWidgetRankAtL3,
+  enrichWithCrossSourceFields,
+} from '@mui/x-studio-core/engine';
+import type { CrossSourceFieldRef } from '@mui/x-studio-core/engine';
+import { useAdapterRows } from './useAdapterRows';
 import {
   useStudioSelector,
   selectFilters,
@@ -19,15 +24,13 @@ import {
   selectGlobalCrossFilterMode,
   selectCrossFilterAllPages,
 } from '../context';
-import { resolveRowsCached } from './resolvedRowsCache';
-import { collectSelectFields } from './queryDescriptor';
-import { getCachedEnrichedRows } from './enrichedRowsCache';
-import { selectFiltersForWidget, selectAdapterResidualFilters } from './filterScoping';
-import { getCachedNormalizedDataSource } from './normalizedRowsCache';
-import { shouldApplyWidgetRankAtL3 } from './StudioPipeline';
-import { useAdapterRows } from './useAdapterRows';
-import { enrichWithCrossSourceFields } from './crossSourceEnrichment';
-import type { CrossSourceFieldRef } from './crossSourceEnrichment';
+import { isWidgetOfKind } from '../models';
+import type {
+  StudioDataSource,
+  StudioFilterState,
+  StudioWidget,
+  StudioWidgetConfig,
+} from '../models';
 
 type Row = Record<string, unknown>;
 

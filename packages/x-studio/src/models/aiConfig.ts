@@ -6,7 +6,7 @@
  * needs the type. With the interface declared inside `components/StudioChatPanel/`, that was the
  * package's last upward layer edge: `internals/` reaching into `components/`.
  */
-import type { StudioAIToolName, SerializableSkill } from './aiTypes';
+import type { StudioAIToolName, SerializableSkill } from '@mui/x-studio-core/models';
 
 /**
  * Configuration for the x-studio AI assistant.

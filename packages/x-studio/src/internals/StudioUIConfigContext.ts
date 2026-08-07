@@ -16,6 +16,13 @@
 // `internals/StudioUIConfigContext` keeps resolving unchanged (compatibility façade).
 
 import * as React from 'react';
+import {
+  getBuiltInGeographyDefinitions,
+  type StudioMapGeographyDefinition,
+  StudioLocaleText,
+} from '@mui/x-studio-core/engine';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
+import type { StudioAIConfig } from '../models/aiConfig';
 import type {
   StudioFeatureFlags,
   KpiFeatureFlags,
@@ -23,13 +30,6 @@ import type {
   GridFeatureFlags,
   StudioCustomWidgetDef,
 } from '../models';
-import type { StudioAIConfig } from '../models/aiConfig';
-import {
-  getBuiltInGeographyDefinitions,
-  type StudioMapGeographyDefinition,
-} from './geographyLoaders';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from './localeText';
-import type { StudioLocaleText } from './localeText';
 
 // ── Compatibility façade re-exports ─────────────────────────────────────────
 export { DEFAULT_STUDIO_LOCALE_TEXT };

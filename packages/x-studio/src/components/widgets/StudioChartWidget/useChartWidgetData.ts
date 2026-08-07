@@ -3,12 +3,6 @@
 import * as React from 'react';
 import { blueberryTwilightPalette } from '@mui/x-charts';
 import { useTheme, useColorScheme } from '@mui/material';
-import type {
-  StudioChartConfig,
-  StudioDataSource,
-  StudioWidgetConfig,
-  StudioWidgetOf,
-} from '../../../models';
 import {
   aggregateBlendedSeries,
   aggregateByField,
@@ -24,7 +18,15 @@ import {
   applyRankToAggregated,
   applyRankToMultiSeries,
   applyRankToSeriesFieldData,
-} from '../../../internals/chartAggregation';
+} from '@mui/x-studio-core/engine';
+import { emptyBucketLabel, usePageChartColors, cachedCompute } from '@mui/x-studio-core/engine';
+import { lookup } from '@mui/x-studio-core/utils';
+import type {
+  StudioChartConfig,
+  StudioDataSource,
+  StudioWidgetConfig,
+  StudioWidgetOf,
+} from '../../../models';
 import {
   useStudioSelector,
   selectDataSources,
@@ -33,12 +35,8 @@ import {
   selectGlobalCrossFilterMode,
 } from '../../../context';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
-import { emptyBucketLabel } from '../../../internals/chartValues';
-import { usePageChartColors } from '../../../internals/usePageChartColors';
-import { cachedCompute } from '../../../internals/computedCache';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
-import { lookup } from '../../../utils/safeLookup';
 import { useBlendedSeriesRows } from './useBlendedSeriesRows';
 
 export function useChartWidgetData(

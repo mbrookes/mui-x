@@ -1,12 +1,13 @@
 'use client';
 import * as React from 'react';
 import { Box } from '@mui/material';
+import type { BuiltinStudioWidgetKind } from '@mui/x-studio-core/models';
+import { sanitizeFiniteNumber } from '@mui/x-studio-core/engine';
 import type {
   StudioCustomWidgetDef,
   StudioCustomWidgetSetupPanelProps,
   StudioWidgetOf,
 } from '../../models';
-import type { BuiltinStudioWidgetKind } from '../../models/baseTypes';
 import {
   useStudioUIConfig,
   type StudioWidgetDef,
@@ -41,7 +42,6 @@ import { TextSetupPanel } from '../StudioComposeDrawer/TextSetupPanel';
 import { FilterSetupPanel } from '../StudioComposeDrawer/FilterSetupPanel';
 import { PivotSetupPanel } from '../StudioComposeDrawer/PivotSetupPanel';
 import { MapSetupPanel } from '../StudioComposeDrawer/MapSetupPanel';
-import { sanitizeFiniteNumber } from '../../internals/cssValueValidation';
 
 const KPI_WIDGET_MIN_HEIGHT = 160;
 const FILTER_WIDGET_MIN_HEIGHT = KPI_WIDGET_MIN_HEIGHT / 2;

@@ -1,4 +1,4 @@
-import { getReachableSourceIds } from '../../internals/dataSourceGraph';
+import { getReachableSourceIds } from '@mui/x-studio-core/engine';
 import type { StudioFilterState, StudioRelationship } from '../../models';
 
 /**

@@ -1,10 +1,10 @@
 'use client';
 import { Box } from '@mui/material';
 import { SankeyChart } from '@mui/x-charts-pro/SankeyChart';
-import { formatNumber } from '../../../internals/numberFormat';
+import { formatNumber } from '@mui/x-studio-core/engine';
+import type { SankeyAggregateData } from '@mui/x-studio-core/engine';
 import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import type { StudioNumberFormat } from '../../../models';
-import type { SankeyAggregateData } from '../../../internals/chartAggregation';
 
 // Cap on how many links get spelled out in the `aria-label` text alternative.
 const ARIA_LABEL_MAX_LINKS = 15;

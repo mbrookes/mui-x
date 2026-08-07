@@ -1,8 +1,8 @@
 'use client';
 
 import * as React from 'react';
+import type { StudioController } from '@mui/x-studio-core/store';
 import type { StudioDoc } from '../../models';
-import type { StudioController } from '../../store/StudioController';
 
 /**
  * Per-assistant-turn record of the `state-mutation` events that actually changed

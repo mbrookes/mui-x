@@ -1,9 +1,9 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
+import { frLocaleText } from '@mui/x-studio-core/locales';
 import { createStudioHarness } from '../../internals/test-utils';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
-import { frLocaleText } from '../../locales/fr';
 import { StudioCanvas } from './StudioCanvas';
 
 const { render } = createRenderer();

@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../internals/test-utils';
 import { StudioContent } from './StudioContent';
 

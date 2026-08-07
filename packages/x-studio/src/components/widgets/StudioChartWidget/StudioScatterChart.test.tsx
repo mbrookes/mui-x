@@ -2,7 +2,7 @@ import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ScatterDataPoint, ScatterSeriesData } from '../../../internals/chartAggregation';
+import type { ScatterDataPoint, ScatterSeriesData } from '@mui/x-studio-core/engine';
 
 const scatterSpy = vi.fn();
 

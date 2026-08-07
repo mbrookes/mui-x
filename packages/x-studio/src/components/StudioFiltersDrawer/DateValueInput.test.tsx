@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
 import dayjs from 'dayjs';
-import type { RelativeDateValue } from '../../internals/filterTypes';
+import type { RelativeDateValue } from '@mui/x-studio-core/engine';
 import { DateValueInput } from './DateValueInput';
 
 const { render } = createRenderer();

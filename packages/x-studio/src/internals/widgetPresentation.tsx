@@ -7,15 +7,18 @@
  * imported without React — see `widgetUtils.ts`.
  */
 import * as React from 'react';
+import { createDefaultWidget, buildCsvContent } from '@mui/x-studio-core/engine';
 import type {
-  StudioCustomWidgetDef,
   StudioChartConfig,
+  StudioCustomWidgetDef,
+  StudioDataField,
+  StudioDataSource,
+  StudioExpressionField,
   StudioWidget,
   StudioWidgetKind,
   StudioWidgetOf,
 } from '../models';
 import { isWidgetOfKind } from '../models';
-import { createDefaultWidget } from './widgetFactory';
 import { TextWidgetIcon } from '../icons/TextWidgetIcon';
 import { KpiWidgetIcon } from '../icons/KpiWidgetIcon';
 import { TableWidgetIcon } from '../icons/TableWidgetIcon';
@@ -469,4 +472,69 @@ export function exportChartToPng(
 
   img.src = url;
   return true;
+}
+
+// ── CSV download ─────────────────────────────────────────────────────────────
+// These need a DOM: `downloadCsv` creates an anchor and clicks it. `buildCsvContent`, which
+// produces the string they write, stays in the engine — it is pure.
+
+/**
+ * Sanitize a filename for download: strips every non-alphanumeric character from
+ * the name (collapsing each to `_`), preserving the final `.ext` untouched. This
+ * is the "safer" of the two filename-sanitization behaviors previously found
+ * across the two CSV export call sites — the grid path stripped non-alphanumeric
+ * characters from its filename, the pivot path didn't sanitize `widget.title` at
+ * all. Applying it once inside the shared {@link downloadCsv}
+ * keeps every current and future caller consistent without each one having to
+ * remember to sanitize its own title.
+ */
+function sanitizeDownloadFilename(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.');
+  if (dotIndex <= 0) {
+    return filename.replace(/[^a-z0-9]/gi, '_');
+  }
+  return `${filename.slice(0, dotIndex).replace(/[^a-z0-9]/gi, '_')}${filename.slice(dotIndex)}`;
+}
+
+/**
+ * Trigger a browser download of `csv` as a file named `filename` (sanitized via
+ * {@link sanitizeDownloadFilename}).
+ *
+ * Shared by grid CSV export ({@link exportGridToCsv}) and the pivot widget's CSV
+ * export (`StudioPivotWidget/pivotUtils.ts`'s `downloadCsv` re-export) — the
+ * Blob/`createObjectURL`/anchor-click dance was previously duplicated
+ * near-line-for-line in both places, with inconsistent filename sanitization
+ * between the two.
+ */
+export function downloadCsv(csv: string, filename: string): void {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = sanitizeDownloadFilename(filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+export function exportGridToCsv(
+  widget: StudioWidget,
+  dataSource: StudioDataSource | undefined,
+  rows: Record<string, unknown>[],
+  expressionFields: StudioExpressionField[] = [],
+  crossSourceFieldDefs: StudioDataField[] = [],
+): void {
+  if (!dataSource) {
+    return;
+  }
+
+  const csvContent = buildCsvContent(
+    widget,
+    dataSource,
+    rows,
+    expressionFields,
+    crossSourceFieldDefs,
+  );
+  downloadCsv(csvContent, `${widget.title}_export.csv`);
 }

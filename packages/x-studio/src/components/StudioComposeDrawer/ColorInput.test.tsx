@@ -1,7 +1,7 @@
 import * as React from 'react';
 import { act, createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { ColorInput } from './ColorInput';
 
 const { render } = createRenderer();

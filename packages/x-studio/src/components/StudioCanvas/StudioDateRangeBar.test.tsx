@@ -1,8 +1,8 @@
 import * as React from 'react';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, afterEach } from 'vitest';
+import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { createStudioHarness } from '../../internals/test-utils';
-import { DEFAULT_STUDIO_LOCALE_TEXT } from '../../internals/localeText';
 import type { StudioDataSource, StudioFilterState } from '../../models';
 import { StudioDateRangeBar } from './StudioDateRangeBar';
 

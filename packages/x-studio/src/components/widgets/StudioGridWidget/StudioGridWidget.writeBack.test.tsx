@@ -1,6 +1,7 @@
 import * as React from 'react';
 import { createRenderer, fireEvent, screen, waitFor } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { studioRequestCache } from '@mui/x-studio-core/engine';
 import type {
   ClientMutationDescriptor,
   ClientMutationResult,
@@ -9,7 +10,6 @@ import type {
   StudioWidgetOf,
 } from '../../../models';
 import { createStudioHarness } from '../../../internals/test-utils';
-import { studioRequestCache } from '../../../internals/StudioRequestCache';
 import { StudioGridWidget } from './StudioGridWidget';
 
 // ─── Write-back (processRowUpdate) — mutation error handling regression ──────

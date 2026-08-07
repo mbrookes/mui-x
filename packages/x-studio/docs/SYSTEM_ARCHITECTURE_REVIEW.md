@@ -19,7 +19,7 @@
 - [Method, and why the previous assessments missed this](#method-and-why-the-previous-assessments-missed-this)
 - [What the product is supposed to be](#what-the-product-is-supposed-to-be)
 - [Verdict](#verdict)
-- [A1 — The package boundary does not serve the multi-framework requirement](#a1--the-package-boundary-does-not-serve-the-multi-framework-requirement)
+- [A1 — The package boundary does not serve the multi-framework requirement (CLOSED)](#a1--the-package-boundary-does-not-serve-the-multi-framework-requirement)
 - [A2 — There is no commercial tiering seam](#a2--there-is-no-commercial-tiering-seam)
 - [A3 — The largest subsystem is the one the MVP excludes](#a3--the-largest-subsystem-is-the-one-the-mvp-excludes)
 - [A4 — The semantic model has no home of its own](#a4--the-semantic-model-has-no-home-of-its-own)
@@ -50,7 +50,7 @@ From `AG_STUDIO_CLONE_REQUIREMENTS.md`, the parts that constrain structure:
 
 |       | Requirement                                                                                                               | Status in the codebase                                                  |
 | :---- | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------- |
-| §2.1  | "Framework-ready embedding strategy for React, **Angular, Vue 3, and vanilla JavaScript** hosts"                          | Not addressed — see A1                                                  |
+| §2.1  | "Framework-ready embedding strategy for React, **Angular, Vue 3, and vanilla JavaScript** hosts"                          | Unblocked — `@mui/x-studio-core` is the framework-agnostic half (A1)    |
 | §8.4  | "Angular: wrapper/integration package. Vue 3: wrapper/integration package. JavaScript: framework-agnostic embedding API." | Not addressed                                                           |
 | §9    | "MVP **excludes**: AI assistant."                                                                                         | Inverted — see A3                                                       |
 | §2.2  | "Out of scope (MVP): Multi-user real-time collaborative editing."                                                         | Deferred, and the current model forecloses it cheaply enough to be fine |
@@ -77,14 +77,14 @@ framework-agnostic engine, a React component library, and an application shell, 
 three things were written in that order into the same directory. No requirement asked for that
 shape, and one explicit requirement is incompatible with it.
 
-| #   | Finding                                                                   | Severity | Cost now vs. later                                                                      |
-| :-- | :------------------------------------------------------------------------ | :------- | :-------------------------------------------------------------------------------------- |
-| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | **High** | Cheap now — the seam already exists and is clean. Expensive after the public API sets.  |
-| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High** | Cheap now. A breaking API change later.                                                 |
-| A3  | The MVP-excluded subsystem is the largest one built                       | Medium   | Costs nothing to fix — it needs a decision recorded, not code moved                     |
-| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium   | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
-| A5  | Two execution engines with no shared correctness contract                 | Medium   | Moderate, and grows with every pipeline feature                                         |
-| A6  | Host integration is two handlers, not a versioned contract                | Low      | Cheap, and rises sharply at first external adopter                                      |
+| #   | Finding                                                                   | Severity            | Cost now vs. later                                                                      |
+| :-- | :------------------------------------------------------------------------ | :------------------ | :-------------------------------------------------------------------------------------- |
+| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED** | Done — `@mui/x-studio-core` is extracted and React-free.                                |
+| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**            | Cheap now. A breaking API change later.                                                 |
+| A3  | The MVP-excluded subsystem is the largest one built                       | Medium              | Costs nothing to fix — it needs a decision recorded, not code moved                     |
+| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium              | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
+| A5  | Two execution engines with no shared correctness contract                 | Medium              | Moderate, and grows with every pipeline feature                                         |
+| A6  | Host integration is two handlers, not a versioned contract                | Low                 | Cheap, and rises sharply at first external adopter                                      |
 
 ## A1 — The package boundary does not serve the multi-framework requirement
 
@@ -129,32 +129,62 @@ components/ 35,365   134 .tsx files — the React layer
 already documented as "the non-React pipeline façade". The engine and the UI are already
 separable; nobody has drawn the package line where the code already divides.
 
-> **Status: steps 1–3 done — the field is green.**
+> **Status: CLOSED. `@mui/x-studio-core` exists.**
 >
 > Two edges were doing all the blocking, and neither was essential:
 >
 > 1. **Locale text routed through a React module.** `DEFAULT_STUDIO_LOCALE_TEXT` and
->    `StudioLocaleText` live in `internals/localeText.ts`, which is pure — but 34 files imported
->    them from `StudioUIConfigContext.ts`, which merely re-exports them and is a React context.
->    Redirecting those imports to the real source freed `locales/` (4,244 lines of i18n data) and
->    three engine modules. No logic changed.
+>    `StudioLocaleText` live in `localeText.ts`, which is pure — but 34 files imported them from
+>    `StudioUIConfigContext.ts`, which merely re-exports them and is a React context. Redirecting
+>    those imports to the real source freed `locales/` (4,244 lines of i18n data) and three engine
+>    modules. No logic changed.
 > 2. **`widgetUtils.tsx` mixed pure helpers with icon components.** `StudioController` reaches
 >    `inferWidgetTitles` through `widgetConfigSanitization`, and that helper shared a 1,098-line
 >    file with `WIDGET_TYPES` and thirty icon imports — so the controller, and therefore the whole
 >    engine, could not load without React. Split into `widgetUtils.ts` (22 pure declarations) and
->    `widgetPresentation.tsx` (8 that render or need a DOM node). No declaration was needed by
->    both halves, so the split required no duplication.
->
-> **`StudioController`, `StudioPipeline`, `createBatchingAdapter` and `widgetConfigSanitization`
-> are now all runtime-clean.** 4,782 tests pass; two module mocks needed repointing, which is the
-> only test change.
+>    `widgetPresentation.tsx` (8 that render or need a DOM node). No declaration was needed by both
+>    halves, so the split required no duplication.
 >
 > Both fixes are ones a code-structure review would ask for on their own merits — a file with two
 > concerns, an import path pointing at a re-exporter. They happened to be the two things standing
 > between this package and a stated product requirement.
 >
-> What remains for the package split itself is the widget-kind descriptor/renderer decision below,
-> then scaffolding and moving files that no longer need editing.
+> **The package then followed.** 128 modules moved. `internals/` became `engine/` and `server/`
+> became `adapter/`, since neither name means anything in a package that _is_ the engine:
+>
+> ```text
+> packages/x-studio-core/src/       31,473 code lines, 87 files
+>   engine/    17,717   the four-layer pipeline, caches, aggregation, chart shapes, StudioPipeline
+>   locales/    4,923   i18n data
+>   store/      3,617   StudioController, MutationHistory, runtimeTransforms
+>   adapter/    3,215   createSimpleAdapter, createBatchingAdapter, aggregationPushdown
+>   utils/      1,827
+>   models/       135   re-exports of @mui/x-studio-schema
+> ```
+>
+> Zero React, `@mui/material` or `@emotion` imports in its source. Its vitest config runs
+> `environment: 'node'` deliberately, so the boundary is enforced on every commit rather than
+> asserted in a doc — and it earned that immediately, catching `downloadCsv`/`exportGridToCsv`
+> reaching for `document`. Those went back to the binding; the pure `buildCsvContent` stayed.
+>
+> Three decisions worth recording, because none was obvious going in:
+>
+> - **The widget-kind descriptor went to `x-studio-schema`, not to core.** The AI middleware
+>   already carried a hand-maintained copy of the same shape, documented as something the client's
+>   values "structurally satisfy at the app boundary". Both packages already depend on the schema,
+>   so that — not core — is the one place both can read. `StudioCustomWidgetDef` extends
+>   `StudioWidgetKindDescriptor` and adds only `component`/`setupPanel`/`icon`, so the public
+>   `customWidgets` shape is unchanged.
+> - **Six curated subdirectory barrels, not deep paths.** The repo's eslint bans `@mui/*/*/*`, so
+>   one subpath segment is the most an import may carry. 428 import sites collapsed onto them.
+> - **A barrel surfaces collisions a directory hides.** `isRelativeDateValue` existed twice with
+>   deliberately different strictness — loose on the evaluation path, strict on the authoring path.
+>   They coexisted only because they sat in different files. The authoring one is now
+>   `isStrictRelativeDateValue`, and the divergence is documented rather than accidental.
+>
+> `store/StudioController.crossLayer.test.ts` pins the two rules the binding still re-derives
+> (`getWidgetMinSpan`, `createChatTurnMutationLedger`) against core's own answer. tsc clean across
+> all five studio packages, eslint clean, 8,682 tests passing.
 
 **What this costs.** Today: nothing visible, which is exactly why it has survived. At the first
 Angular or Vue integration: a choice between shipping React inside a non-React host, or

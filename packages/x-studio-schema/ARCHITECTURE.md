@@ -63,7 +63,8 @@ public API.
 src/
   baseTypes.ts            Widget-kind/mode/format/operator unions — the "base" primitives
   dataTypes.ts            Data sources, fields, relationships, query/mutation descriptors, adapter contract
-  widgetTypes.ts          StudioWidget union, per-kind + per-chart-family config interfaces, StudioPage
+  widgetTypes.ts          StudioWidget union, per-kind + per-chart-family config interfaces, StudioPage,
+                          StudioWidgetKindDescriptor
   expressionTypes.ts      StudioExpression AST + StudioExpressionField
   stateTypes.ts           Filters/scopes, dashboard/shell state, StudioDoc/Session/Runtime, CURRENT_SCHEMA_VERSION
   mutationTypes.ts        StateMutation union, MutationEnvelope, SerializableSkill, OptionalWidgetField
@@ -154,6 +155,15 @@ caller, not the file.
     `StudioWidgetConfigForKind<K>`, `StudioWidgetOf<K>`, `StudioWidget`.
   - `StudioPageTheme`, `StudioPage` (`id`, `title`, `widgetRows: string[][]` — a 2D layout grid
     of widget ids — `widgetColSpans?`, `theme?`, `stackBreakpoint?`).
+  - `StudioWidgetKindDescriptor` — what a widget kind IS, as data: `kind`, `label`,
+    `description?`, `requiresDataSource?`, `aiInsight?`, `export?`, `defaultConfig?`. It lives
+    here rather than in the client because it was previously declared twice: the AI middleware
+    carried a hand-maintained copy whose own doc admitted the client's values "structurally
+    satisfy this subset at the app boundary" — structural typing across a package boundary held
+    in agreement by a comment. Both packages already depend on this one, so this is the only
+    place both can read. The client's `StudioCustomWidgetDef` **extends** it with `component`,
+    `setupPanel` and `icon`; those need a React type to express, which is exactly why they are
+    not here.
 
   > `crossFilterMode: 'none'` suppresses cross-filters contributed by OTHER widgets only. An
   > interactive filter-widget selection is a hard filter, not a cross-filter, and deliberately
@@ -2256,17 +2266,22 @@ stored shape to the clean target name instead.
 
 ## Consumers
 
-- **`@mui/x-studio`** — `src/models/index.ts` re-exports this package wholesale, alongside the
-  package's own React-dependent `customWidgetTypes.ts` and UI-only `featureFlags.ts`.
-  `StudioController.applyExternalMutation` calls `applyMutation` directly; its undo/redo
+- **`@mui/x-studio-core`** — the React-free engine. `src/models/index.ts` re-exports this package
+  wholesale. `StudioController.applyExternalMutation` calls `applyMutation` directly; its undo/redo
   snapshotting calls `serializeDoc`; `carryTransientDocState` carries interactive filters forward
-  across undo/redo. `canvasGridConstants.ts` and `StudioController` both **import** `GRID_COLS`/
-  `MIN_SPAN` from here, and `internals/rankFilterScope.ts` re-exports `resolveRankFilterPageId`/
-  `hasConflictingRankFilter` rather than hand-syncing a copy — the dependency arrow runs
-  `x-studio` → `x-studio-schema`, never the reverse. `utils/fieldCapabilities` re-exports
-  `FieldCapability`.
+  across undo/redo. `StudioController` **imports** `GRID_COLS`/`MIN_SPAN` from here, and
+  `engine/rankFilterScope.ts` re-exports `resolveRankFilterPageId`/`hasConflictingRankFilter`
+  rather than hand-syncing a copy. `utils/fieldCapabilities` re-exports `FieldCapability`.
+- **`@mui/x-studio`** — the React binding, reaching this package through the engine.
+  `src/models/index.ts` re-exports `@mui/x-studio-core/models` alongside its own
+  React-dependent `customWidgetTypes.ts` and UI-only `featureFlags.ts`;
+  `StudioCustomWidgetDef` **extends** `StudioWidgetKindDescriptor` from here, adding only the
+  fields (`component`, `setupPanel`, `icon`) that need a React type to express.
+  `canvasGridConstants.ts` imports `GRID_COLS`/`MIN_SPAN`. The dependency arrow runs
+  `x-studio` → `x-studio-core` → `x-studio-schema`, never the reverse.
 - **`@mui/x-studio-ai-middleware`** — `src/models/studioTypes.ts` thinly re-exports the
-  state/widget/data types plus the server-local `StudioCustomWidgetDef`; `src/widgetFactory.ts`
+  state/widget/data types, and gets `StudioCustomWidgetDef` as an alias of
+  `StudioWidgetKindDescriptor` rather than the hand-maintained local copy it used to carry; `src/widgetFactory.ts`
   re-exports `createDefaultWidget` through it (a shim preserving a pre-existing import path);
   `src/models/aiTypes.ts` re-exports the shared AI-protocol types alongside its server-only
   additions. `src/executeToolOnState.ts` is the sole producer of the `pageId`/`threadId`-targeted

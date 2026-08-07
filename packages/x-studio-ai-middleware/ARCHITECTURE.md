@@ -122,7 +122,7 @@ One line per module. Details live in the sections that follow.
 | `internal/llmFetch.ts`         | `linkAbortSignal` and `readBodyWithTimeout` — deadlines backed by a real abort, not only a raced promise.                                                                                                                          |
 | `models/aiTypes.ts`            | Re-exports shared protocol types; defines the server-only types (skills, data config, query params, rate-limit/usage, enriched context).                                                                                           |
 | `models/protocol.ts`           | Wire protocol: `StudioAIRequest`, `StudioAISSEEvent`.                                                                                                                                                                              |
-| `models/studioTypes.ts`        | Thin re-export of `@mui/x-studio-schema`, plus the server-local `StudioCustomWidgetDef`.                                                                                                                                           |
+| `models/studioTypes.ts`        | Thin re-export of `@mui/x-studio-schema`, including `StudioCustomWidgetDef` (an alias of the schema's `StudioWidgetKindDescriptor`).                                                                                               |
 
 Four module-level design points are worth stating up front:
 
@@ -190,7 +190,7 @@ Data-model types (`baseTypes`/`dataTypes`/`widgetTypes`/`expressionTypes`/`state
 - **`getAllowedConfigKeys`/`validateConfigKeysForKind`, `getAllowedChartConfigKeys`/`validateChartConfigKeysForType`, `isWidgetOfKind`, `resolveChartType`/`isChartConfigOfType`/`isStudioChartType`/`STUDIO_CHART_TYPES`** — the write-side allow-lists and runtime narrowing helpers. See [Write-side config validation](#write-side-config-validation).
 - **`applyMutation`, `mutationLabel`** — below.
 
-Server-only AI types (`StudioAISkill` with its `execute`, `SkillExecuteResult`, `StudioAIDataConfig`, rate-limit/usage/enriched-context, query types) are NOT shared — they live in `models/aiTypes.ts`. `models/studioTypes.ts` and `widgetFactory.ts` are thin re-export shims so pre-existing import paths keep working.
+Server-only AI types (`StudioAISkill` with its `execute`, `SkillExecuteResult`, `StudioAIDataConfig`, rate-limit/usage/enriched-context, query types) are NOT shared — they live in `models/aiTypes.ts`. `models/studioTypes.ts` and `widgetFactory.ts` are thin re-export shims so pre-existing import paths keep working. `StudioCustomWidgetDef` used to be a hand-maintained local interface here, documented as something the client's values "structurally satisfy at the app boundary"; it is now `StudioWidgetKindDescriptor` from the schema package, which the client's own `StudioCustomWidgetDef` extends — one declaration, checked by the compiler rather than by a comment.
 
 ### `applyMutation` — the single mutation reducer
 

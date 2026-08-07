@@ -642,7 +642,6 @@ export default defineConfig(
     // `mui/straight-quotes` would flag (and could auto-fix-corrupt) them, so it is
     // disabled for the locale files only.
     files: [
-      `packages/x-studio/src/locales/**/*${EXTENSION_TS}`,
       `packages/x-studio-core/src/locales/**/*${EXTENSION_TS}`,
       `packages/x-studio-core/src/engine/localeText${EXTENSION_TS}`,
     ],

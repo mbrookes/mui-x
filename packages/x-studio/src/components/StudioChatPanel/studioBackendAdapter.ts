@@ -15,6 +15,7 @@ import {
   MAX_STRING_LENGTH,
   MAX_TOOL_OUTPUT_CHARS,
   MAX_CONVERSATION_CHARS,
+  STUDIO_AI_WIRE_VERSION,
 } from '@mui/x-studio-schema';
 import type { StudioController } from '@mui/x-studio-core/store';
 import type { StudioAIConfig } from '../../models/aiConfig';
@@ -871,6 +872,10 @@ export function createBackendChatAdapter(
                 ...extraHeaders,
               },
               body: JSON.stringify({
+                // Stamped so a version mismatch with the host's `@mui/x-studio-ai-middleware` is
+                // refused up front, naming both versions, rather than surfacing later as a tool
+                // call rejected for an argument the server has never heard of.
+                protocolVersion: STUDIO_AI_WIRE_VERSION,
                 messages: input.messages,
                 dashboardState: serializableState,
                 customWidgets: serializableCustomWidgets,

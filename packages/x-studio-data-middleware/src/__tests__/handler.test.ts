@@ -7,6 +7,7 @@
  */
 import { describe, it, expect, vi } from 'vitest';
 import { createHmac } from 'node:crypto';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import { handleBatchQuery, MAX_CONCURRENT_WIDGET_QUERIES, MAX_WIDGETS_PER_BATCH } from '../handler';
 import { MAX_ROWS_PER_REQUEST } from '../router/execute';
 import {
@@ -341,6 +342,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a referenced table with no entry in the column allowlist', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region'] }],
     };
@@ -357,6 +359,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
 
   it('supports an explicit "*" wildcard to opt a table out of column checks', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region', 'amount'] }],
     };
@@ -378,19 +381,23 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   ])(
     'a NO-columns widget (%s) does not bypass the allowlist (finding 1.1)',
     async (_shape, widget) => {
-      const result = await handleBatchQuery({ pageId: 'p1', widgets: [widget] }, ACME_CLAIMS, {
-        db: makeDb(),
-        schemaAllowlist: ['sales'],
-        tenancy: SINGLE_TENANT,
-        columnAllowlist: { sales: ['region', 'amount'] },
-        // Use a fresh cache provider (rather than the shared default-cache
-        // singleton) so this test is hermetic. This is NOT working around a
-        // `columnAllowlist` cache-key gap — `compileSecurityPolicy` folds
-        // `columnAllowlist` into `policy.digest`, which threads into
-        // `generateCacheKey` (`handler.ts:152`) — it just keeps this test's
-        // entries from lingering across runs / sibling tests.
-        cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
-      });
+      const result = await handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [widget] },
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+          columnAllowlist: { sales: ['region', 'amount'] },
+          // Use a fresh cache provider (rather than the shared default-cache
+          // singleton) so this test is hermetic. This is NOT working around a
+          // `columnAllowlist` cache-key gap — `compileSecurityPolicy` folds
+          // `columnAllowlist` into `policy.digest`, which threads into
+          // `generateCacheKey` (`handler.ts:152`) — it just keeps this test's
+          // entries from lingering across runs / sibling tests.
+          cacheProvider: new LRUCacheProvider({ ttlMs: 5000 }),
+        },
+      );
       const rows = result.results[0].rows;
       expect(result.results[0].error).toBeUndefined();
       expect(rows.length).toBeGreaterThan(0);
@@ -408,6 +415,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a NO-columns widget whose table has no allowlist entry (finding 1.1)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -424,7 +432,11 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
 
   it('a ["*"] wildcard still opts a NO-columns widget into SELECT *', async () => {
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      },
       ACME_CLAIMS,
       {
         db: makeDb(),
@@ -442,7 +454,11 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
 
   it('no allowlist + no columns is unchanged (SELECT *)', async () => {
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      },
       ACME_CLAIMS,
       {
         db: makeDb(),
@@ -460,6 +476,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a non-asc/desc ORDER BY direction (finding 1.3)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -485,6 +502,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('validates both sides of every join.on pair against the allowlist', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -515,6 +533,7 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     // against the primary allowlist) while Knex resolves it against the joined
     // table at execution time. It must now be validated against `join.table`.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -577,12 +596,16 @@ describe('handleBatchQuery — column allowlist is fail-closed', () => {
     'rejects a columnAliases target that is not in the column allowlist (%s)',
     async (_context, widget) => {
       await expectWidgetError(
-        handleBatchQuery({ pageId: 'p1', widgets: [widget] }, ACME_CLAIMS, {
-          db: makeDb(),
-          schemaAllowlist: ['sales', 'customers'],
-          tenancy: SINGLE_TENANT,
-          columnAllowlist: { sales: ['region', 'revenue', 'customer_id'], customers: [] },
-        }),
+        handleBatchQuery(
+          { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [widget] },
+          ACME_CLAIMS,
+          {
+            db: makeDb(),
+            schemaAllowlist: ['sales', 'customers'],
+            tenancy: SINGLE_TENANT,
+            columnAllowlist: { sales: ['region', 'revenue', 'customer_id'], customers: [] },
+          },
+        ),
         /is not in the column allowlist/,
       );
     },
@@ -597,6 +620,7 @@ describe('handleBatchQuery — empty-region scope (regionIds: []) is fail-closed
     { id: 2, tenant_id: 'acme', region_id: 2, product: 'b' },
   ];
   const body: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
     pageId: 'p1',
     widgets: [{ id: 'w1', table: 'orders', columns: ['id'] }],
   };
@@ -650,6 +674,7 @@ describe('handleBatchQuery — TEXT-typed region column matches a numeric region
     { id: 2, tenant_id: 'acme', region_id: '6', product: 'b' },
   ];
   const body: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
     pageId: 'p1',
     widgets: [{ id: 'w1', table: 'orders', columns: ['id', 'product'] }],
   };
@@ -712,11 +737,15 @@ describe('handleBatchQuery — malformed request body guard', () => {
 
   it('rejects a body whose "widgets" is not an array', async () => {
     await expect(
-      handleBatchQuery({ pageId: 'p1', widgets: 42 } as any, ACME_CLAIMS, {
-        db: makeDb(),
-        schemaAllowlist: ['sales'],
-        tenancy: SINGLE_TENANT,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: 42 } as any,
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+        },
+      ),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed batch query request/);
   });
 
@@ -730,38 +759,54 @@ describe('handleBatchQuery — malformed request body guard', () => {
   // onto, so the whole request is rejected up front instead.
   it('rejects a null element in "widgets" with a sanitized MUI X error instead of a raw TypeError', async () => {
     await expect(
-      handleBatchQuery({ pageId: 'p1', widgets: [null] } as any, ACME_CLAIMS, {
-        db: makeDb(),
-        schemaAllowlist: ['sales'],
-        tenancy: SINGLE_TENANT,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [null] } as any,
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+        },
+      ),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[0\]/);
   });
 
   it('rejects a non-object element (e.g. a string) in "widgets"', async () => {
     await expect(
-      handleBatchQuery({ pageId: 'p1', widgets: ['oops'] } as any, ACME_CLAIMS, {
-        db: makeDb(),
-        schemaAllowlist: ['sales'],
-        tenancy: SINGLE_TENANT,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: ['oops'] } as any,
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+        },
+      ),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[0\]/);
   });
 
   it('rejects a widget descriptor missing "table"', async () => {
     await expect(
-      handleBatchQuery({ pageId: 'p1', widgets: [{ id: 'w1' }] } as any, ACME_CLAIMS, {
-        db: makeDb(),
-        schemaAllowlist: ['sales'],
-        tenancy: SINGLE_TENANT,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [{ id: 'w1' }] } as any,
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+        },
+      ),
     ).rejects.toThrow(/^MUI X Studio Server: Malformed widget descriptor at widgets\[0\]/);
   });
 
   it('reports the correct index for a malformed element among otherwise-valid widgets', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }, null] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales' }, null],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -776,7 +821,11 @@ describe('handleBatchQuery — malformed request body guard', () => {
   it('rejects a widget whose "filters" is not an array', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters: {} }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', filters: {} }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -788,7 +837,11 @@ describe('handleBatchQuery — malformed request body guard', () => {
   it('rejects a widget whose "orderBy" is not an array', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', orderBy: 'region' }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', orderBy: 'region' }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -800,7 +853,11 @@ describe('handleBatchQuery — malformed request body guard', () => {
   it('rejects a widget whose "aggregations" is not an array', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', aggregations: 5 }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', aggregations: 5 }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -812,7 +869,11 @@ describe('handleBatchQuery — malformed request body guard', () => {
   it('rejects a widget whose "joins" is not an array', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', joins: {} }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', joins: {} }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -824,7 +885,11 @@ describe('handleBatchQuery — malformed request body guard', () => {
   it('rejects a widget whose "columns" is not an array', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columns: {} }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', columns: {} }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -836,7 +901,11 @@ describe('handleBatchQuery — malformed request body guard', () => {
   it('rejects a widget whose "having" is not an array', async () => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', having: {} }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', having: {} }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -856,11 +925,15 @@ describe('handleBatchQuery — widget fan-out cap (finding T3)', () => {
       table: 'sales',
     }));
     await expect(
-      handleBatchQuery({ pageId: 'p1', widgets }, ACME_CLAIMS, {
-        db: makeDb(),
-        schemaAllowlist: ['sales'],
-        tenancy: SINGLE_TENANT,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets },
+        ACME_CLAIMS,
+        {
+          db: makeDb(),
+          schemaAllowlist: ['sales'],
+          tenancy: SINGLE_TENANT,
+        },
+      ),
     ).rejects.toThrow(
       new RegExp(`exceeds the maximum of ${MAX_WIDGETS_PER_BATCH} allowed per request`),
     );
@@ -871,11 +944,15 @@ describe('handleBatchQuery — widget fan-out cap (finding T3)', () => {
       id: `w${i}`,
       table: 'sales',
     }));
-    const result = await handleBatchQuery({ pageId: 'p1', widgets }, ACME_CLAIMS, {
-      db: makeDb(),
-      schemaAllowlist: ['sales'],
-      tenancy: SINGLE_TENANT,
-    });
+    const result = await handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+      },
+    );
     expect(result.results).toHaveLength(MAX_WIDGETS_PER_BATCH);
   });
 });
@@ -892,7 +969,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
       const oversized = Array.from({ length: MAX_ARRAY_ITEMS_PER_DESCRIPTOR + 1 }, () => ({}));
       await expect(
         handleBatchQuery(
-          { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', [field]: oversized }] } as any,
+          {
+            protocolVersion: STUDIO_DATA_WIRE_VERSION,
+            pageId: 'p1',
+            widgets: [{ id: 'w1', table: 'sales', [field]: oversized }],
+          } as any,
           ACME_CLAIMS,
           { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
         ),
@@ -909,6 +990,7 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -931,7 +1013,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
       value: 'west',
     }));
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', filters }],
+      },
       ACME_CLAIMS,
       { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
     );
@@ -951,6 +1037,7 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [{ id: 'w1', table: 'sales', joins: [{ table: 'customers', on: oversizedOn }] }],
         } as any,
@@ -977,6 +1064,7 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     const on: [string, string][] = [['sales.customer_id', 'customers.id']];
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [{ id: 'w1', table: 'sales', joins: [{ table: 'customers', on }] }],
       },
@@ -999,7 +1087,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     );
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columnAliases }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', columnAliases }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -1018,7 +1110,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
       ]),
     );
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columnAliases }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', columnAliases }],
+      },
       ACME_CLAIMS,
       { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
     );
@@ -1035,7 +1131,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
   ])('rejects a widget whose "columnAliases" is %s', async (_description, columnAliases) => {
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columnAliases }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', columnAliases }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -1060,7 +1160,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     }));
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', filters }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -1079,7 +1183,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
       value: perFilterValues,
     }));
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', filters }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', filters }],
+      },
       ACME_CLAIMS,
       { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
     );
@@ -1123,7 +1231,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     ];
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', semiJoins }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', semiJoins }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales', 'orders'], tenancy: SINGLE_TENANT },
       ),
@@ -1142,6 +1254,7 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     }));
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -1186,7 +1299,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
     // MAX_ARRAY_ITEMS_PER_DESCRIPTOR (200) individually.
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', joins }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', joins }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
       ),
@@ -1212,7 +1329,11 @@ describe('handleBatchQuery — per-array size caps (finding Tier3 resource exhau
       { table: 'customers', on: perJoinOn },
     ];
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', joins }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', joins }],
+      },
       ACME_CLAIMS,
       { db: joinCapableDb, schemaAllowlist: ['sales', 'customers'], tenancy: SINGLE_TENANT },
     );
@@ -1232,7 +1353,11 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     const oversizedTable = 'a'.repeat(MAX_STRING_LENGTH + 1);
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: oversizedTable }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: oversizedTable }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -1247,7 +1372,11 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     const oversizedId = 'w'.repeat(MAX_STRING_LENGTH + 1);
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: oversizedId, table: 'sales' }] } as any,
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: oversizedId, table: 'sales' }],
+        } as any,
         ACME_CLAIMS,
         { db: makeDb(), schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
       ),
@@ -1263,6 +1392,7 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [{ id: 'w1', table: 'sales', columnAliases: { revenue: oversizedValue } }],
         } as any,
@@ -1279,6 +1409,7 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [{ id: 'w1', table: 'sales', columnAliases: { [oversizedKey]: 'amount' } }],
         } as any,
@@ -1295,6 +1426,7 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -1317,6 +1449,7 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -1338,6 +1471,7 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     const value = 'v'.repeat(MAX_STRING_VALUE_LENGTH);
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           { id: 'w1', table: 'sales', filters: [{ column: 'region', operator: 'eq', value }] },
@@ -1357,6 +1491,7 @@ describe('handleBatchQuery — per-string length caps (finding Tier2 resource ex
     const oversizedColumn = 'c'.repeat(MAX_STRING_LENGTH + 1);
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           { id: 'bad', table: 'sales', columns: [oversizedColumn] },
@@ -1379,6 +1514,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error when a requested table is not in the allowlist', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'users' }],
     };
@@ -1405,6 +1541,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     await expectWidgetError(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -1434,6 +1571,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     await expectWidgetError(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -1456,6 +1594,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     // exactly as an INNER one does.
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -1484,6 +1623,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     // down its well-formed siblings. The bad widget gets `{ error }`; the good
     // widget still returns rows — the whole batch resolves.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         { id: 'bad', table: 'users' }, // not in the allowlist
@@ -1516,6 +1656,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     // an unregistered table. `assertQualifiedColumnsAllowed` now catches it here
     // regardless of `columnAllowlist`.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1539,6 +1680,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a qualified PROJECTION column naming a table outside the schema allowlist, even with no columnAllowlist configured', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['payroll.salary'] }],
     };
@@ -1556,6 +1698,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a qualified columnAliases physical target naming a table outside the schema allowlist', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1580,6 +1723,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a qualified AGGREGATIONS column naming a table outside the schema allowlist, even with no columnAllowlist configured (finding 2.2)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1603,6 +1747,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a qualified JOIN "on" left-side column naming a table outside the schema allowlist (finding 2.2)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1626,6 +1771,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a qualified JOIN "on" right-side column naming a table outside the schema allowlist (finding 2.2)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1653,6 +1799,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a filter column reference with more than one dot ("schema.table.column")', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1683,6 +1830,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a null filters[] element with a clean MUI X error instead of a raw TypeError', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', filters: [null as any] }],
     };
@@ -1706,6 +1854,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects a null joins[] element with a clean MUI X error instead of a raw TypeError', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', joins: [null as any] }],
     };
@@ -1725,6 +1874,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
     // table stage — an unsafe ORDER BY direction on one widget must not fail a
     // sibling whose plan is valid.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1754,6 +1904,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
 
   it('allows tables in the allowlist', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -1772,6 +1923,7 @@ describe('handleBatchQuery — schema allowlist enforcement', () => {
 describe('handleBatchQuery — tenant isolation', () => {
   it('acme tenant only sees acme rows', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -1793,6 +1945,7 @@ describe('handleBatchQuery — tenant isolation', () => {
 
   it('globex tenant only sees globex rows', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -1817,6 +1970,7 @@ describe('handleBatchQuery — tenant isolation', () => {
 describe('handleBatchQuery — user filter predicates', () => {
   it('applies eq filter on region', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1844,6 +1998,7 @@ describe('handleBatchQuery — user filter predicates', () => {
 
   it('applies in filter on product', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1869,6 +2024,7 @@ describe('handleBatchQuery — user filter predicates', () => {
 
   it('applies neq filter', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1893,6 +2049,7 @@ describe('handleBatchQuery — user filter predicates', () => {
 
   it('applies gte filter on amount', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1929,6 +2086,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a non-string "like" value (array)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1951,6 +2109,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a non-scalar "eq" value (array)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1973,6 +2132,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a non-scalar "gte" value (object)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -1995,6 +2155,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a negative "limit"', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: -1 }],
     };
@@ -2011,6 +2172,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a non-integer "limit"', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: 1.5 as any }],
     };
@@ -2027,6 +2189,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('returns a per-widget error for a non-numeric "limit"', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: '10' as any }],
     };
@@ -2042,6 +2205,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
 
   it('still accepts a valid string "like", scalar comparison, and integer "limit"', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2065,6 +2229,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
 
   it('still accepts "limit: 0" (return zero rows) as distinct from no limit', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['region'], limit: 0 }],
     };
@@ -2091,6 +2256,7 @@ describe('handleBatchQuery — value-shape guards (finding 3.1)', () => {
 describe('handleBatchQuery — columnAliases success path', () => {
   it('SELECTs the physical column AS the logical id (client/server tier)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2138,6 +2304,7 @@ describe('handleBatchQuery — columnAliases success path', () => {
 describe('handleBatchQuery — batch', () => {
   it('returns results for all widgets', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'dashboard-1',
       widgets: [
         { id: 'chart-1', table: 'sales' },
@@ -2169,6 +2336,7 @@ describe('handleBatchQuery — cache', () => {
   it('returns cached result on second identical request', async () => {
     const cache = new LRUCacheProvider({ ttlMs: 5000 });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2196,6 +2364,7 @@ describe('handleBatchQuery — cache', () => {
   it('a cache hit reports the tier that produced the cached rows (not a hardcoded server)', async () => {
     const cache = new LRUCacheProvider({ ttlMs: 5000 });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2226,6 +2395,7 @@ describe('handleBatchQuery — cache', () => {
       return qb;
     };
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2249,6 +2419,7 @@ describe('handleBatchQuery — cache', () => {
   it('different tenants do not share cache entries', async () => {
     const cache = new LRUCacheProvider({ ttlMs: 5000 });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2274,6 +2445,7 @@ describe('handleBatchQuery — cache', () => {
     // rowCount must reflect the preflight total (4) on BOTH the cold miss and the
     // subsequent cache hit — not flip to rows.length (2) on the hit.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', limit: 2 }],
     };
@@ -2300,6 +2472,7 @@ describe('handleBatchQuery — cache', () => {
   // limit" and returned every scoped row instead. Fixed to `!== undefined`.
   it('returns ZERO rows for "limit: 0" instead of treating it as unlimited', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', limit: 0 }],
     };
@@ -2318,6 +2491,7 @@ describe('handleBatchQuery — tier routing cache', () => {
   it('populates tier cache on cold miss', async () => {
     const tierCache = new MapTierCacheProvider();
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2338,6 +2512,7 @@ describe('handleBatchQuery — tier routing cache', () => {
     // Pre-populate the data cache so the second call uses the data cache
     // (not relevant here — we test that tier is reused when data cache is empty)
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2375,6 +2550,7 @@ describe('handleBatchQuery — tier routing cache', () => {
   it('tier cache is bypassed when tierCacheTtlMs is 0', async () => {
     const tierCache = new MapTierCacheProvider();
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2427,6 +2603,7 @@ describe('handleBatchQuery — data cache and tier cache never collide on a shar
     };
 
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2497,6 +2674,7 @@ describe('handleBatchQuery — cache failures do not poison results (finding 2.6
       },
     });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2519,6 +2697,7 @@ describe('handleBatchQuery — cache failures do not poison results (finding 2.6
       },
     });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2571,6 +2750,7 @@ describe('handleBatchQuery — missing HMAC secret degrades to a per-widget erro
   it('resolves with a structured per-widget error instead of rejecting the whole batch', async () =>
     withoutHmacSecrets(async () => {
       const body: BatchQueryRequest = {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [{ id: 'w1', table: 'sales' }],
       };
@@ -2596,6 +2776,7 @@ describe('handleBatchQuery — missing HMAC secret degrades to a per-widget erro
   it('isolates the failure per widget: every widget in the batch gets its own error result, not a rejected Promise.all', async () =>
     withoutHmacSecrets(async () => {
       const body: BatchQueryRequest = {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           { id: 'w1', table: 'sales' },
@@ -2634,6 +2815,7 @@ describe('handleBatchQuery — pathologically nested filter value (defense-in-de
       deeplyNested = { nested: deeplyNested };
     }
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2699,6 +2881,7 @@ describe('handleBatchQuery — tier-cache failures do not poison results (findin
       },
     });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2723,6 +2906,7 @@ describe('handleBatchQuery — tier-cache failures do not poison results (findin
       },
     });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -2747,6 +2931,7 @@ describe('handleBatchQuery — tier-cache failures do not poison results (findin
       },
     });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         { id: 'w1', table: 'sales' },
@@ -2772,6 +2957,7 @@ describe('handleBatchQuery — tier-cache failures do not poison results (findin
 describe('handleBatchQuery — aggregation push-down', () => {
   it('forces db tier for aggregation queries regardless of row count', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2795,6 +2981,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
 
   it('groups rows by the specified column and sums amounts', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2836,6 +3023,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // never also a GROUP BY dimension.
   it('counts occurrences per group by counting a non-dimension column', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2871,6 +3059,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // did not group purely according to how the alias happened to be named.
   it('treats a column that is both projected and aggregated as a measure, not a dimension (F1)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2900,6 +3089,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // carrying a per-value total, silently at the wrong grain.
   it('groups by the dimension only when the measure is aliased differently (F1)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2930,6 +3120,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
 
   it('global aggregation (no columns) returns a single summary row', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2962,6 +3153,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
 
   it('rowCount equals number of result groups, not raw row count', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -2986,6 +3178,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
 
   it('applies limit to aggregation results', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3012,6 +3205,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   it('does NOT populate tier cache for aggregation queries (bypassed to avoid stale entries)', async () => {
     const tierCache = new MapTierCacheProvider();
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3043,6 +3237,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // aggregation shape — must keep working once `columnAllowlist` is configured.
   it('an ORDER BY on an aggregation alias succeeds under a columnAllowlist (finding 1.1)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3078,6 +3273,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('still rejects an ORDER BY on a non-allowlisted, non-alias column under a columnAllowlist (finding 1.1)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3112,6 +3308,7 @@ describe('handleBatchQuery — aggregation push-down', () => {
   // uniformly scope a failure to the offending widget.
   it('rejects an aggregation with an unsupported "func" instead of silently dropping it (finding 2.4)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3149,6 +3346,7 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
 
   it('routes a plain (non-aggregation) query to the db tier under tiny thresholds', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -3174,6 +3372,7 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
   it('caches a non-aggregation db-tier result — a second call is a cache hit (no re-execution)', async () => {
     const cache = new LRUCacheProvider({ ttlMs: 5000 });
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales' }],
     };
@@ -3212,6 +3411,7 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
     // Watching `set()` cannot miss the write, whatever key it lands under.
     const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3239,7 +3439,11 @@ describe('handleBatchQuery — non-aggregation db-tier caching (finding 3.2)', (
     // Guards against "caches nothing, ever" satisfying the assertion above.
     const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
     await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columns: ['region'] }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales', columns: ['region'] }],
+      },
       ACME_CLAIMS,
       {
         db: makeDb(),
@@ -3286,7 +3490,11 @@ describe('handleBatchQuery — a failing invalidation-epoch check falls back to 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const result = await handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales' }],
+        },
         ACME_CLAIMS,
         {
           db: makeDb(),
@@ -3312,16 +3520,24 @@ describe('handleBatchQuery — a failing invalidation-epoch check falls back to 
     // The other side of the gate: "never caches" must not be what makes the
     // assertion above pass.
     const { provider, setKeys } = watchCacheWrites(new LRUCacheProvider({ ttlMs: 5000 }));
-    await handleBatchQuery({ pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] }, ACME_CLAIMS, {
-      db: makeDb(),
-      schemaAllowlist: ['sales'],
-      tenancy: SINGLE_TENANT,
-      cacheProvider: {
-        ...provider,
-        wereTagsInvalidatedSince: async () => false,
-      } as never,
-      tierCacheProvider: new MapTierCacheProvider(),
-    });
+    await handleBatchQuery(
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: SINGLE_TENANT,
+        cacheProvider: {
+          ...provider,
+          wereTagsInvalidatedSince: async () => false,
+        } as never,
+        tierCacheProvider: new MapTierCacheProvider(),
+      },
+    );
     expect(setKeys).toHaveLength(1);
   });
 });
@@ -3336,6 +3552,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
 
   it('single gt HAVING predicate filters groups', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3363,6 +3580,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
 
   it('two HAVING conditions are both enforced (AND logic)', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3394,6 +3612,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('HAVING alias not in aggregations returns a per-widget security error', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3423,6 +3642,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     // allowlist is configured. Without this, HAVING becomes an arbitrary-column
     // comparison oracle.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3449,6 +3669,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
   it('rejects HAVING when the descriptor declares no aggregations at all', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3482,6 +3703,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     // into the SQL projection as an identifier — it must be constrained to a safe
     // identifier charset and rejected fail-closed otherwise.
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3506,6 +3728,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
 
   it('accepts a normal snake_case aggregation alias', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3543,6 +3766,7 @@ describe('handleBatchQuery — HAVING predicates', () => {
     };
 
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3592,6 +3816,7 @@ describe('handleBatchQuery — JOIN with ambiguous column names', () => {
     };
 
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3646,6 +3871,7 @@ describe('handleBatchQuery — JOIN with ambiguous column names', () => {
 
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -3681,6 +3907,7 @@ describe('handleBatchQuery — JOIN with an empty `on` is rejected before query 
     const dbSpy = vi.fn((table: string) => realDb(table));
 
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3704,6 +3931,7 @@ describe('handleBatchQuery — JOIN with an empty `on` is rejected before query 
 
   it('isolates an empty-`on`-join widget from a well-formed sibling', async () => {
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         { id: 'bad', table: 'sales', joins: [{ table: 'customers', on: [] }] },
@@ -3795,6 +4023,7 @@ describe('handleBatchQuery — partial batch failure recovery', () => {
     };
 
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         { id: 'ok-widget', table: 'sales' },
@@ -3888,6 +4117,7 @@ describe('handleBatchQuery — per-request resource governors (finding H2)', () 
   it('single-flights identical widgets: N duplicates run ONE preflight and ONE query', async () => {
     const { db, tablesQueried } = trackingDb(makeDb());
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         { id: 'w1', table: 'sales' },
@@ -3915,6 +4145,7 @@ describe('handleBatchQuery — per-request resource governors (finding H2)', () 
   it('does NOT dedup widgets whose query shape differs', async () => {
     const { db, tablesQueried } = trackingDb(makeDb());
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [
         {
@@ -3944,7 +4175,7 @@ describe('handleBatchQuery — per-request resource governors (finding H2)', () 
       limit: i + 1,
     }));
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets },
       ACME_CLAIMS,
       isolatedOptions(db),
     );
@@ -3981,7 +4212,7 @@ describe('handleBatchQuery — per-request resource governors (finding H2)', () 
       filters: [{ column: 'amount', operator: 'gte' as const, value: i }],
     }));
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets },
       ACME_CLAIMS,
       isolatedOptions(db),
     );
@@ -4052,7 +4283,11 @@ describe('handleBatchQuery — malformed cache entry degrades to a DB fetch (fin
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     try {
       const result = await handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales' }],
+        },
         ACME_CLAIMS,
         {
           db: makeDb(),
@@ -4075,7 +4310,11 @@ describe('handleBatchQuery — malformed cache entry degrades to a DB fetch (fin
   it('still serves a WELL-FORMED cache entry from the cache', async () => {
     const cachedRows = [{ id: 99, product: 'from-cache' }];
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      },
       ACME_CLAIMS,
       {
         db: makeDb(),
@@ -4101,7 +4340,11 @@ describe('handleBatchQuery — malformed cache entry degrades to a DB fetch (fin
     // guard must reject only a field that is PRESENT and invalid.
     const cachedRows = [{ id: 99, product: 'from-cache' }];
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      },
       ACME_CLAIMS,
       {
         db: makeDb(),
@@ -4163,7 +4406,11 @@ describe('handleBatchQuery — both cache planes derive the reported tier from r
     };
   }
 
-  const BODY: BatchQueryRequest = { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] };
+  const BODY: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
+    pageId: 'p1',
+    widgets: [{ id: 'w1', table: 'sales' }],
+  };
   // `sales` holds 4 acme rows, so the preflight COUNT(*) is 4 on every run.
   // Node A's thresholds put 4 rows comfortably in the 'client' tier; node B's
   // (mid-rollout, tightened) put them in 'server'.
@@ -4282,12 +4529,16 @@ describe('handleBatchQuery — both cache planes derive the reported tier from r
 // malformed. That is the exact outcome the up-front guards exist to prevent.
 describe('handleBatchQuery — malformed having/aggregation elements (finding L1)', () => {
   function run(widget: Record<string, unknown>) {
-    return handleBatchQuery({ pageId: 'p1', widgets: [widget as any] }, ACME_CLAIMS, {
-      db: makeDb(),
-      schemaAllowlist: ['sales'],
-      tenancy: MULTI_TENANT,
-      tierCacheTtlMs: 0,
-    });
+    return handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [widget as any] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: MULTI_TENANT,
+        tierCacheTtlMs: 0,
+      },
+    );
   }
 
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
@@ -4373,12 +4624,16 @@ describe('handleBatchQuery — implicit " as " column references are rejected (f
   // `checkColumnAgainstAllowlist` would reject the reference for a different
   // reason). The guard must therefore be unconditional.
   function run(widget: Record<string, unknown>) {
-    return handleBatchQuery({ pageId: 'p1', widgets: [widget as any] }, ACME_CLAIMS, {
-      db: makeDb(),
-      schemaAllowlist: ['sales'],
-      tenancy: MULTI_TENANT,
-      tierCacheTtlMs: 0,
-    });
+    return handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [widget as any] },
+      ACME_CLAIMS,
+      {
+        db: makeDb(),
+        schemaAllowlist: ['sales'],
+        tenancy: MULTI_TENANT,
+        tierCacheTtlMs: 0,
+      },
+    );
   }
 
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the expectWidgetError helper
@@ -4445,6 +4700,7 @@ describe('handleBatchQuery — like / between filters return the matching rows',
   it('"like" matches on the pattern and excludes non-matching rows', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4466,6 +4722,7 @@ describe('handleBatchQuery — like / between filters return the matching rows',
   it('"like" on a QUALIFIED column resolves against the same rows', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4485,6 +4742,7 @@ describe('handleBatchQuery — like / between filters return the matching rows',
   it('"between" bounds the result inclusively and excludes rows outside the range', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4506,6 +4764,7 @@ describe('handleBatchQuery — like / between filters return the matching rows',
   it('"between" returns no rows when nothing falls inside the range (not "everything")', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4566,6 +4825,7 @@ describe('handleBatchQuery — wildcard projections', () => {
     await expectWidgetError(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -4588,6 +4848,7 @@ describe('handleBatchQuery — wildcard projections', () => {
     await expectWidgetError(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -4608,6 +4869,7 @@ describe('handleBatchQuery — wildcard projections', () => {
   it('accepts a wildcard that is the entire projection', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [{ id: 'w1', table: 'sales', columns: ['sales.*'] }],
       },
@@ -4627,6 +4889,7 @@ describe('handleBatchQuery — wildcard projections', () => {
     const { db, projections } = joinCapableDb();
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4648,7 +4911,11 @@ describe('handleBatchQuery — wildcard projections', () => {
   it('leaves an IMPLICIT projection alone for a single-table widget (SELECT * is unambiguous)', async () => {
     const { db, projections } = joinCapableDb();
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] },
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'p1',
+        widgets: [{ id: 'w1', table: 'sales' }],
+      },
       ACME_CLAIMS,
       { db, schemaAllowlist: ['sales'], tenancy: SINGLE_TENANT },
     );
@@ -4677,6 +4944,7 @@ describe('handleBatchQuery — the returned rows array is not the cached array',
       cacheProvider,
     };
     const body: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'sales', columns: ['id', 'amount'] }],
     };
@@ -4708,14 +4976,22 @@ describe('handleBatchQuery — host allowlist shape is validated at runtime', ()
   it('rejects a STRING schemaAllowlist instead of substring-matching against it', async () => {
     const dbSpy = vi.fn((table: string) => makeDb()(table));
     await expect(
-      handleBatchQuery({ pageId: 'p1', widgets: [{ id: 'w1', table: 'sales' }] }, ACME_CLAIMS, {
-        db: dbSpy,
-        // `'sales_public'.includes('sales')` is TRUE — the pre-fix code admitted
-        // `sales`, a table this deployment never allowlisted, and emitted
-        // `select * from "sales" …`.
-        schemaAllowlist: 'sales_public' as unknown as string[],
-        tenancy: SINGLE_TENANT,
-      }),
+      handleBatchQuery(
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales' }],
+        },
+        ACME_CLAIMS,
+        {
+          db: dbSpy,
+          // `'sales_public'.includes('sales')` is TRUE — the pre-fix code admitted
+          // `sales`, a table this deployment never allowlisted, and emitted
+          // `select * from "sales" …`.
+          schemaAllowlist: 'sales_public' as unknown as string[],
+          tenancy: SINGLE_TENANT,
+        },
+      ),
     ).rejects.toThrow(/schemaAllowlist must be an array of strings/);
     // Nothing reached query construction.
     expect(dbSpy).not.toHaveBeenCalled();
@@ -4725,7 +5001,11 @@ describe('handleBatchQuery — host allowlist shape is validated at runtime', ()
     const dbSpy = vi.fn((table: string) => makeDb()(table));
     await expect(
       handleBatchQuery(
-        { pageId: 'p1', widgets: [{ id: 'w1', table: 'sales', columns: ['id'] }] },
+        {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
+          pageId: 'p1',
+          widgets: [{ id: 'w1', table: 'sales', columns: ['id'] }],
+        },
         ACME_CLAIMS,
         {
           db: dbSpy,
@@ -4817,6 +5097,7 @@ describe('handleBatchQuery — semi-joins', () => {
   async function sumLifetimeValue(semiJoins: unknown, claims = ACME_CLAIMS) {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4892,6 +5173,7 @@ describe('handleBatchQuery — semi-joins', () => {
   it('filters raw (non-aggregation) rows without duplicating them', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4915,6 +5197,7 @@ describe('handleBatchQuery — semi-joins', () => {
   it('applies the semi-join to the preflight COUNT(*) too, so the reported rowCount matches', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           { id: 'grid', table: 'customers', columns: ['id'], semiJoins: [SHIPPED_SEMI_JOIN] },
@@ -4934,6 +5217,7 @@ describe('handleBatchQuery — semi-joins', () => {
     await expectWidgetError(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -4954,6 +5238,7 @@ describe('handleBatchQuery — semi-joins', () => {
   it('rejects a NESTED semi-join table that is not in the schema allowlist', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -4984,6 +5269,7 @@ describe('handleBatchQuery — semi-joins', () => {
   it('rejects a qualified subquery filter column naming a non-allowlisted table', async () => {
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -5024,6 +5310,7 @@ describe('handleBatchQuery — semi-joins', () => {
     // a table it was never granted, one request at a time.
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -5072,6 +5359,7 @@ describe('handleBatchQuery — semi-joins', () => {
     };
     await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -5109,6 +5397,7 @@ describe('handleBatchQuery — semi-joins', () => {
     };
     await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -5171,6 +5460,7 @@ describe('handleBatchQuery — semi-joins', () => {
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [{ id: 'w1', table: 'customers', semiJoins: wide }],
         } as unknown as BatchQueryRequest,
@@ -5199,6 +5489,7 @@ describe('handleBatchQuery — semi-joins', () => {
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [
             {
@@ -5238,6 +5529,7 @@ describe('handleBatchQuery — semi-joins', () => {
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [{ id: 'w1', table: 'customers', semiJoins }],
         } as unknown as BatchQueryRequest,
@@ -5255,6 +5547,7 @@ describe('handleBatchQuery — semi-joins', () => {
     await expect(
       handleBatchQuery(
         {
+          protocolVersion: STUDIO_DATA_WIRE_VERSION,
           pageId: 'p1',
           widgets: [{ id: 'w1', table: 'customers', semiJoins: 'nope' }],
         } as unknown as BatchQueryRequest,

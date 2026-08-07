@@ -54,6 +54,7 @@
  * });
  * ```
  */
+import { checkStudioWireVersion } from '@mui/x-studio-schema';
 import { runAgenticLoop } from './agenticLoop';
 import type { PendingApproval } from './agenticLoop/toolDispatch';
 import type { ToolPolicy } from './toolPolicy';
@@ -562,6 +563,21 @@ export function validateStudioAIRequestBody(body: unknown): string | undefined {
       'state it needs to run. Pass the parsed JSON request body — an object shaped like ' +
       '`{ messages, dashboardState, ... }` (see `StudioAIRequest`) — as the first argument.'
     );
+  }
+  // The WIRE VERSION is checked here — AFTER the "is this a request body at all" frame check
+  // above, and BEFORE every field check below. The ordering is deliberate in both directions.
+  //
+  // After the frame check, because an absent or non-object body is best diagnosed as exactly that;
+  // telling a host with a broken route handler that their client is too old sends them to upgrade
+  // a package that was never the problem.
+  //
+  // Before the field checks, because a version skew CANNOT break the frame — a client one release
+  // ahead still sends `{ messages, dashboardState, ... }` — but it very much can fail a field
+  // check, and "your dashboardState is malformed" is the wrong diagnosis for a stale deployment.
+  // Checking here catches the skew while it still looks like a skew.
+  const versionCheck = checkStudioWireVersion('ai', body.protocolVersion);
+  if (!versionCheck.compatible) {
+    return versionCheck.message;
   }
   if (!Array.isArray(body.messages)) {
     return (

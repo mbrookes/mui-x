@@ -1,6 +1,6 @@
 # Architecture
 
-Internal reference for how `@mui/x-studio` is put together. For install/quick-start, see [`README.md`](./README.md).
+Internal reference for how `@mui/x-studio` is put together. For install/quick-start, see [`README.md`](./README.md). This document covers **how the code works**; for **why the system is shaped this way** — the package boundaries, the tiering question, where the semantic model lives — see [`docs/decisions/`](./docs/decisions/).
 
 ## Contents
 

@@ -28,6 +28,7 @@
  *    own — the case an explicit `cacheScope` still has to cover is pinned too.
  */
 import { describe, it, expect } from 'vitest';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import { handleBatchQuery } from '../handler';
 import { MAX_ROWS_PER_REQUEST } from '../router/execute';
 import type { CacheEntry, CacheProvider, CacheSetOpts } from '../cache/types';
@@ -254,6 +255,7 @@ describe('createRowSourceDb models predicates instead of ignoring them', () => {
     const { provider } = createRecordingCache();
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           { id: 'all', table: 'sales' },
@@ -281,6 +283,7 @@ describe('createRowSourceDb models predicates instead of ignoring them', () => {
     const { provider } = createRecordingCache();
     const result = await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         pageId: 'p1',
         widgets: [
           {
@@ -313,7 +316,7 @@ describe('handleBatchQuery — budget-degraded results are never cached (finding
   const STARVING_TABLE_ROWS = MAX_ROWS_PER_REQUEST + 20_000;
 
   function starvingBatch(): BatchQueryRequest {
-    return { pageId: 'p1', widgets: distinctWidgets(2) };
+    return { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: distinctWidgets(2) };
   }
 
   it('fails a starved widget with an error instead of an empty, complete-looking result', async () => {
@@ -353,7 +356,7 @@ describe('handleBatchQuery — budget-degraded results are never cached (finding
     // comfortably afford the real answer — and kept doing so for the whole TTL,
     // across users, since the key is scoped per security PROFILE, not per user.
     const second = await handleBatchQuery(
-      { pageId: 'p1', widgets: [batch.widgets[1]] },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [batch.widgets[1]] },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -366,7 +369,7 @@ describe('handleBatchQuery — budget-degraded results are never cached (finding
     const { db } = createRowSourceDb(30_000);
     const { provider, entries } = createRecordingCache();
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: distinctWidgets(6) },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: distinctWidgets(6) },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -393,7 +396,7 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
     const { db } = createRowSourceDb(30_000);
     const { provider } = createRecordingCache();
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: distinctWidgets(6) },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: distinctWidgets(6) },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -412,7 +415,7 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
     const { db, appliedLimits } = createRowSourceDb(3_000);
     const { provider } = createRecordingCache();
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: identicalWidgets(50) },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: identicalWidgets(50) },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -440,7 +443,7 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
     for (const half of [widgets.slice(0, 10), widgets.slice(10)]) {
       // eslint-disable-next-line no-await-in-loop
       const warm = await handleBatchQuery(
-        { pageId: 'p1', widgets: half },
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: half },
         CLAIMS,
         baseOptions(db, provider),
       );
@@ -450,7 +453,7 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
 
     // All 20 in ONE request now: 20 x 6,000 = 120,000 rows of cache hits.
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -468,7 +471,7 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
       { id: 'small', table: 'sales', limit: 10 },
     ];
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -501,7 +504,7 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
     // charges MAX_ROWS_PER_REQUEST and leaves `remaining` at 0. Every widget the
     // worker pool pulls after that — widgets 6..11 — is starved before it starts.
     const result = await handleBatchQuery(
-      { pageId: 'p1', widgets: distinctWidgets(12) },
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: distinctWidgets(12) },
       CLAIMS,
       baseOptions(db, provider),
     );
@@ -521,7 +524,11 @@ describe('handleBatchQuery — the row budget bounds the whole response (finding
 // ─── Finding 3 — data sources sharing one cache do not collide ────────────────
 describe('handleBatchQuery — cache separation between data sources (finding 3)', () => {
   const DESCRIPTOR: BatchWidgetDescriptor = { id: 'w1', table: 'sales', limit: 5 };
-  const BATCH: BatchQueryRequest = { pageId: 'p1', widgets: [DESCRIPTOR] };
+  const BATCH: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
+    pageId: 'p1',
+    widgets: [DESCRIPTOR],
+  };
 
   it("does not serve one database's rows for another when their table sets differ", async () => {
     // The shape of the zero-config failure: two option sets, two `db` connections,

@@ -25,6 +25,7 @@ import { describe, it, expect, vi } from 'vitest';
  * source import keeps the coupling confined to this one test file.
  */
 /* eslint-disable import/no-relative-packages */
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import {
   createBatchingAdapter,
   MAX_BATCH_WIDGETS_PER_REQUEST,
@@ -60,6 +61,7 @@ function uid(): string {
 }
 
 interface CapturedBody {
+  protocolVersion: number;
   pageId: string;
   widgets: BatchWidgetDescriptor[];
 }
@@ -1067,14 +1069,101 @@ async function runHandler(
   body: CapturedBody,
   table: string,
 ): Promise<HandlerResponse> {
-  return (await handleBatchQuery({ pageId: body.pageId, widgets: body.widgets }, DEV_CLAIMS, {
-    db: db as never,
-    schemaAllowlist: [table],
-    tenancy: { mode: 'single-tenant' },
-    cacheProvider: new LRUCacheProvider(),
-    tierCacheProvider: new MapTierCacheProvider(),
-  })) as HandlerResponse;
+  // The captured body's OWN version is forwarded, not a freshly-stamped one. Re-stamping here
+  // would make every seam test pass whether or not the client stamps anything, which defeats the
+  // point of running the real adapter's real POST body through the real handler.
+  return (await handleBatchQuery(
+    { protocolVersion: body.protocolVersion, pageId: body.pageId, widgets: body.widgets },
+    DEV_CLAIMS,
+    {
+      db: db as never,
+      schemaAllowlist: [table],
+      tenancy: { mode: 'single-tenant' },
+      cacheProvider: new LRUCacheProvider(),
+      tierCacheProvider: new MapTierCacheProvider(),
+    },
+  )) as HandlerResponse;
 }
+
+describe('seam — wire version', () => {
+  it('the real client stamps the version this build speaks', async () => {
+    // Asserted against the adapter's ACTUAL POST body rather than against the constant, because
+    // the failure this guards is "the client forgot to stamp it" — which reading the constant
+    // back cannot see.
+    const bodies = await captureWireBodies([
+      descriptor({ sourceId: 'v', tableName: 'v', widgetId: 'w1', cacheKey: 'v-a' }),
+    ]);
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0].protocolVersion).toBe(STUDIO_DATA_WIRE_VERSION);
+  });
+
+  it('the server refuses a body with no version, before it looks at anything else', async () => {
+    // The ordering is the finding. A pre-versioning client sends a body whose `widgets` array is
+    // perfectly well-formed, so a shape-first handler answers with a `widgets`-shaped complaint
+    // and sends the host to debug a field that was never wrong.
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: [] } as never, DEV_CLAIMS, {
+        db: createMockDb({ v: [] }) as never,
+        schemaAllowlist: ['v'],
+        tenancy: { mode: 'single-tenant' },
+      }),
+    ).rejects.toThrow(/protocolVersion/);
+  });
+
+  it('lets the frame check win for a body that is not a request at all', async () => {
+    // The ordering that was rejected: version-first told a host with a broken route handler that
+    // their CLIENT was too old, sending them to upgrade a package that was never the problem. A
+    // version skew cannot produce this body — a client one release ahead still sends
+    // `{ pageId, widgets: [...] }` — so nothing is lost by diagnosing the frame first.
+    await expect(
+      handleBatchQuery({ pageId: 'p1' } as never, DEV_CLAIMS, {
+        db: createMockDb({ v: [] }) as never,
+        schemaAllowlist: ['v'],
+        tenancy: { mode: 'single-tenant' },
+      }),
+    ).rejects.toThrow(/expected an object with a "widgets" array/);
+  });
+
+  it('refuses the version BEFORE any per-widget descriptor check', async () => {
+    // The half of the ordering that IS load-bearing: a skewed client sends a well-framed body
+    // whose descriptors may not validate, and "malformed widget descriptor at widgets[0]" is the
+    // wrong diagnosis for a stale deployment.
+    await expect(
+      handleBatchQuery({ pageId: 'p1', widgets: [null] } as never, DEV_CLAIMS, {
+        db: createMockDb({ v: [] }) as never,
+        schemaAllowlist: ['v'],
+        tenancy: { mode: 'single-tenant' },
+      }),
+    ).rejects.toThrow(/protocolVersion/);
+  });
+
+  it('refuses a client NEWER than the server, naming which side to upgrade', async () => {
+    await expect(
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION + 1, pageId: 'p1', widgets: [] },
+        DEV_CLAIMS,
+        {
+          db: createMockDb({ v: [] }) as never,
+          schemaAllowlist: ['v'],
+          tenancy: { mode: 'single-tenant' },
+        },
+      ),
+    ).rejects.toThrow(/@mui\/x-studio-data-middleware/);
+  });
+
+  it('stamps its own version on the response', async () => {
+    const result = await handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, pageId: 'p1', widgets: [] },
+      DEV_CLAIMS,
+      {
+        db: createMockDb({ v: [] }) as never,
+        schemaAllowlist: ['v'],
+        tenancy: { mode: 'single-tenant' },
+      },
+    );
+    expect(result.protocolVersion).toBe(STUDIO_DATA_WIRE_VERSION);
+  });
+});
 
 describe('seam — batch size', () => {
   it("the client's cap IS the server's cap — one constant, not two", () => {

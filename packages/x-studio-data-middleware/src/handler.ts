@@ -43,6 +43,7 @@
  * - Providing a configured Knex instance
  * - Writing the response to the HTTP response object
  */
+import { STUDIO_DATA_WIRE_VERSION, checkStudioWireVersion } from '@mui/x-studio-schema';
 import type {
   JwtSecurityClaims,
   BatchQueryRequest,
@@ -372,6 +373,24 @@ function assertValidBatchQueryRequest(body: BatchQueryRequest): void {
         `Send a body shaped like { pageId: string, widgets: BatchWidgetDescriptor[] }.`,
     );
   }
+  // The WIRE VERSION is checked here — AFTER the "is this a request body at all" frame check
+  // above, and BEFORE every per-widget check below. The ordering is deliberate in both directions.
+  //
+  // After the frame check, because an absent or shapeless body is best diagnosed as exactly that;
+  // telling a host with a broken route handler that their client is too old sends them to upgrade
+  // a package that was never the problem.
+  //
+  // Before the descriptor checks, because a version skew CANNOT break the frame — a client one
+  // release ahead still sends `{ pageId, widgets: [...] }` — but it very much can fail a
+  // descriptor check, and "malformed widget descriptor at widgets[3]" is the wrong diagnosis for a
+  // stale deployment. Checking here catches the skew while it still looks like a skew.
+  //
+  // `handleAIChat`'s validator carries the same comment for the same reason: the two wires must
+  // not disagree about where in validation a version is decided.
+  const versionCheck = checkStudioWireVersion('data', body.protocolVersion);
+  if (!versionCheck.compatible) {
+    throw new Error(versionCheck.message);
+  }
   if (body.widgets.length > MAX_WIDGETS_PER_BATCH) {
     throw new Error(
       `MUI X Studio Server: Batch query request contains ${body.widgets.length} widgets, which exceeds the maximum of ${MAX_WIDGETS_PER_BATCH} allowed per request. ` +
@@ -663,6 +682,7 @@ export async function handleBatchQuery(
   );
 
   return {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
     pageId: body.pageId,
     results,
   };

@@ -143,6 +143,21 @@ export { pruneDependsOnAgainstSelf } from './dependsOnCascade';
 export { isSameManagedFilterContent } from './docTransforms';
 export { UNSAFE_KEYS, isSafeKey } from './unsafeKeys';
 export { MAX_ARRAY_LENGTH, MAX_STRING_LENGTH } from './wireLimits';
+// Wire versioning, published for the same reason as the caps above: the client stamps it and both
+// servers check it, so the number and the compatibility rule must have one definition. See
+// `wireProtocol.ts` for why there are two counters and when to bump each.
+export {
+  STUDIO_AI_WIRE_VERSION,
+  MIN_SUPPORTED_STUDIO_AI_WIRE_VERSION,
+  STUDIO_DATA_WIRE_VERSION,
+  MIN_SUPPORTED_STUDIO_DATA_WIRE_VERSION,
+  checkStudioWireVersion,
+} from './wireProtocol';
+export type {
+  StudioWireName,
+  StudioWireVersionCheck,
+  StudioWireVersionRejection,
+} from './wireProtocol';
 // The AI-chat wire budgets, published for the same reason: the server enforces them and the
 // client mirrors them, and a mirror that is only a comment drifts. See `aiWireLimits.ts`.
 export { MAX_TOOL_OUTPUT_CHARS, MAX_CONVERSATION_CHARS } from './aiWireLimits';

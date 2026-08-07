@@ -16,6 +16,7 @@
  * of returning the stale cached rows.
  */
 import { describe, it, expect } from 'vitest';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import { handleBatchQuery } from '../handler';
 import { handleMutation } from '../mutations/handleMutation';
 import type { BatchQueryRequest, BatchMutationRequest, JwtSecurityClaims } from '../security/types';
@@ -109,6 +110,7 @@ describe('default-cache sharing between handleBatchQuery and handleMutation (fin
   it('a mutation with no cacheProvider invalidates the read path default cache, so a subsequent read observes the write', async () => {
     const db = createSharedMutableDb([{ id: 1, status: 'pending' }]);
     const readBody: BatchQueryRequest = {
+      protocolVersion: STUDIO_DATA_WIRE_VERSION,
       pageId: 'p1',
       widgets: [{ id: 'w1', table: 'default_cache_regression' }],
     };

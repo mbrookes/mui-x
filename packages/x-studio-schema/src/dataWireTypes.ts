@@ -340,6 +340,16 @@ export interface OrderBy {
 
 /** Batch request body — what the client DataLoader POSTs to the server */
 export interface BatchQueryRequest {
+  /**
+   * Data-wire version this client speaks — `STUDIO_DATA_WIRE_VERSION` from `wireProtocol.ts`.
+   *
+   * The FIRST thing `handleBatchQuery` reads, before any other validation. A host upgrades
+   * `@mui/x-studio` and `@mui/x-studio-data-middleware` separately, so a mismatch is the normal
+   * failure here — and without this field it surfaced as a field-level validation error deep in
+   * request handling, which reads as a malformed payload rather than as two versions talking past
+   * each other. Required: a request without it is refused as coming from a pre-versioning client.
+   */
+  protocolVersion: number;
   pageId: string;
   widgets: BatchWidgetDescriptor[];
 }
@@ -399,6 +409,14 @@ export interface WidgetQueryResult {
  * contract on `WidgetQueryResult.rows`.
  */
 export interface BatchQueryResponse {
+  /**
+   * Data-wire version this SERVER speaks — stamped so the mismatch is legible from either end.
+   *
+   * The request check already refuses an incompatible client, so this is not how compatibility is
+   * enforced. It is what lets a host log or assert the server's version from a captured response,
+   * which is the only artifact available when the failing side is someone else's deployment.
+   */
+  protocolVersion: number;
   pageId: string;
   results: WidgetQueryResult[];
 }

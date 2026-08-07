@@ -9,6 +9,7 @@
  * forwarding the conversation, surfacing errors, and closing the stream.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { STUDIO_AI_WIRE_VERSION } from '@mui/x-studio-schema';
 import {
   handleAIChat,
   CONTEXT_ENRICHER_TIMEOUT_MS,
@@ -100,11 +101,64 @@ const OPTIONS: StudioAIHandlerOptions = {
 
 function makeBody(overrides: Partial<StudioAIRequest> = {}): StudioAIRequest {
   return {
+    protocolVersion: STUDIO_AI_WIRE_VERSION,
     messages: [{ id: 'm1', role: 'user', parts: [{ type: 'text', text: 'Hi there' }] }],
     dashboardState: createDefaultStudioState(),
     ...overrides,
   } as unknown as StudioAIRequest;
 }
+
+describe('wire version', () => {
+  beforeEach(() => {
+    vi.spyOn(global, 'fetch');
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  /** Pull the `error` frame out of a stream, or `undefined` if the request got through. */
+  async function errorMessage(body: unknown): Promise<string | undefined> {
+    const events = parseEvents(await readAll(handleAIChat(body as StudioAIRequest, OPTIONS)));
+    return events.find(
+      (event): event is { type: 'error'; message: string } => event.type === 'error',
+    )?.message;
+  }
+
+  it('refuses a body with no version and never calls the provider', async () => {
+    const { protocolVersion, ...withoutVersion } = makeBody();
+    const message = await errorMessage(withoutVersion);
+    expect(message).toMatch(/^MUI X Studio:/);
+    expect(message).toMatch(/protocolVersion/);
+    // The point of checking before anything else: no token is spent diagnosing a deployment skew.
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('lets the frame check win for a body that is not a request at all', async () => {
+    // The ordering that was rejected: version-first told a host with a broken route handler that
+    // their CLIENT was too old. A version skew cannot produce a non-object body, so nothing is
+    // lost by diagnosing the frame first.
+    const message = await errorMessage(undefined);
+    expect(message).toMatch(/missing or non-object request body/);
+  });
+
+  it('refuses the version BEFORE any field check', async () => {
+    // The half of the ordering that IS load-bearing: a skewed client sends a well-framed body
+    // whose fields may not validate, and "missing a `messages` array" is the wrong diagnosis for a
+    // stale deployment.
+    const message = await errorMessage({ messages: 'not-an-array', dashboardState: null });
+    expect(message).toMatch(/protocolVersion/);
+  });
+
+  it('refuses a client NEWER than the server, naming the package to upgrade', async () => {
+    const message = await errorMessage(
+      makeBody({ protocolVersion: STUDIO_AI_WIRE_VERSION + 1 } as Partial<StudioAIRequest>),
+    );
+    expect(message).toMatch(/NEWER than the server/);
+    expect(message).toContain('@mui/x-studio-ai-middleware');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+});
 
 /** A dashboard state with a single widget, so `remove_widget` produces a real mutation. */
 function seedWidgetState() {

@@ -29,6 +29,7 @@
  */
 
 import { performance } from 'node:perf_hooks';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import { generateCacheKey } from '../security/cacheKey';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
 import { MapTierCacheProvider } from '../cache/MapTierCacheProvider';
@@ -258,6 +259,7 @@ for (const scale of SCALES) {
   const { rows, tenantId, tableKey } = buildScenario(scale);
   const db = createMockDb({ [tableKey]: rows });
   const body: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
     pageId: 'bench-page',
     widgets: [makeDescriptor({ filters: [makeFilter('completed')] })],
   };
@@ -290,6 +292,7 @@ for (const scale of SCALES) {
   const { rows, tenantId, tableKey } = buildScenario(scale);
   const db = createMockDb({ [tableKey]: rows });
   const body: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
     pageId: 'bench-page',
     widgets: [makeDescriptor({ filters: [makeFilter('completed')] })],
   };
@@ -337,6 +340,7 @@ for (const scale of SCALES) {
   const { rows, tenantId, tableKey } = buildScenario(scale);
   const db = createMockDb({ [tableKey]: rows });
   const body: BatchQueryRequest = {
+    protocolVersion: STUDIO_DATA_WIRE_VERSION,
     pageId: 'bench-page',
     widgets: [makeDescriptor({ filters: [makeFilter('completed')] })],
   };

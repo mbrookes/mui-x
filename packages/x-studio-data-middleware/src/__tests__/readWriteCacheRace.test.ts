@@ -28,6 +28,7 @@
  * invalidated since — skipping the `set()` if so.
  */
 import { describe, it, expect } from 'vitest';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import { handleBatchQuery } from '../handler';
 import { handleMutation } from '../mutations/handleMutation';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
@@ -41,7 +42,11 @@ const CLAIMS: JwtSecurityClaims = { tenantId: 'acme', userId: 'u1', roleIds: ['a
 const SINGLE_TENANT = { mode: 'single-tenant' } as const;
 const TABLE = 'race_regression';
 
-const READ_BODY: BatchQueryRequest = { pageId: 'p1', widgets: [{ id: 'w1', table: TABLE }] };
+const READ_BODY: BatchQueryRequest = {
+  protocolVersion: STUDIO_DATA_WIRE_VERSION,
+  pageId: 'p1',
+  widgets: [{ id: 'w1', table: TABLE }],
+};
 const MUTATION_BODY: BatchMutationRequest = {
   mutations: [{ id: 'm1', operation: 'insert', table: TABLE, values: { id: 2, status: 'new' } }],
 };

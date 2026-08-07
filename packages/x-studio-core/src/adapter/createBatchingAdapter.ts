@@ -43,7 +43,7 @@ import type {
   JoinDescriptor,
   SemiJoinDescriptor,
 } from '../models';
-import { MAX_ITEMS_PER_BATCH } from '../models';
+import { MAX_ITEMS_PER_BATCH, STUDIO_DATA_WIRE_VERSION } from '../models';
 import {
   applyFilters,
   isConditionComplete,
@@ -574,6 +574,12 @@ export function createBatchingAdapter(
       const batchWarnDedupe = new Set<string>();
 
       const body = {
+        // Stamped so a version mismatch with the host's `@mui/x-studio-data-middleware` is a
+        // refused handshake naming both versions, rather than a field-level validation error deep
+        // inside request handling. `createSimpleAdapter` deliberately does NOT stamp one: it POSTs
+        // a bare `StudioQueryDescriptor` to a host that speaks the descriptor natively, so its
+        // wire is the host's own protocol and this version would be meaningless on it.
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         // NOT a page id. `StudioQueryDescriptor` carries no page identifier, so what goes
         // under the protocol's `pageId` key is the FIRST widget's SOURCE id. It is inert —
         // the middleware only echoes it back on `BatchQueryResponse.pageId`, and never routes,

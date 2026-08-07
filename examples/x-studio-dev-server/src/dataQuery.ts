@@ -9,6 +9,7 @@
 
 import type { Knex } from 'knex';
 import { handleBatchQuery } from '@mui/x-studio-data-middleware';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import type { BatchWidgetDescriptor } from '@mui/x-studio-data-middleware';
 import type { StudioDataQueryParams } from '@mui/x-studio-ai-middleware';
 import type { resolveClaims } from './middleware/claims.js';
@@ -63,7 +64,15 @@ export function makeQueryDataSource(
     };
 
     const response = await handleBatchQuery(
-      { pageId: 'query-data-source', widgets: [descriptor] },
+      // Server-to-server: this call originates HERE, not from a browser client, so it stamps the
+      // version of the middleware it was built against. There is no skew to detect on this path,
+      // but the field is required and the check is unconditional — a handler that exempted its own
+      // in-process callers would be a hole in the very guarantee it exists to make.
+      {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
+        pageId: 'query-data-source',
+        widgets: [descriptor],
+      },
       claims,
       {
         db: targetDb,

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { STUDIO_AI_WIRE_VERSION } from '@mui/x-studio-schema';
 import { executeToolOnState } from './executeToolOnState';
 import { installUnscreened, makeState } from './internal/testFixtures';
 import { capIncomingDashboardState } from './internal/requestCaps';
@@ -3162,6 +3163,7 @@ describe('handleAIChat', () => {
     const state = makeState();
     const stream = handleAIChat(
       {
+        protocolVersion: STUDIO_AI_WIRE_VERSION,
         messages: [{ id: 'msg-1', role: 'user', parts: [{ type: 'text', text: 'Hi' }] }],
         dashboardState: state,
       },

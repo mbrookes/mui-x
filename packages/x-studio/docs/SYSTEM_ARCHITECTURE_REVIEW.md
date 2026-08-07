@@ -24,7 +24,7 @@
 - [A3 — The largest subsystem is the one the MVP excludes](#a3--the-largest-subsystem-is-the-one-the-mvp-excludes)
 - [A4 — The semantic model has no home of its own](#a4--the-semantic-model-has-no-home-of-its-own)
 - [A5 — Two execution engines, one missing contract](#a5--two-execution-engines-one-missing-contract)
-- [A6 — Integration is two handlers, not a versioned contract](#a6--integration-is-two-handlers-not-a-versioned-contract)
+- [A6 — Integration is two handlers, not a versioned contract (CLOSED)](#a6--integration-is-two-handlers-not-a-versioned-contract)
 - [What is genuinely well-architected](#what-is-genuinely-well-architected)
 - [The root cause: no decisions are recorded](#the-root-cause-no-decisions-are-recorded)
 - [Recommended order](#recommended-order)
@@ -84,7 +84,7 @@ shape, and one explicit requirement is incompatible with it.
 | A3  | The MVP-excluded subsystem is the largest one built                       | Medium              | Costs nothing to fix — it needs a decision recorded, not code moved                     |
 | A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium              | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
 | A5  | Two execution engines with no shared correctness contract                 | Medium              | Moderate, and grows with every pipeline feature                                         |
-| A6  | Host integration is two handlers, not a versioned contract                | Low                 | Cheap, and rises sharply at first external adopter                                      |
+| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**  | Done — both wires carry a version and a compatibility rule.                             |
 
 ## A1 — The package boundary does not serve the multi-framework requirement
 
@@ -342,6 +342,23 @@ Low severity because nothing is broken and the fix is small — a version field 
 envelope plus a compatibility rule. It rises sharply the moment there is one external adopter,
 because at that point the two sides genuinely do version independently.
 
+> **Status: CLOSED.** `packages/x-studio-schema/src/wireProtocol.ts` owns two independent counters
+> (`STUDIO_AI_WIRE_VERSION`, `STUDIO_DATA_WIRE_VERSION` — the wires change separately and are
+> consumed by different servers), a `MIN_SUPPORTED`/`CURRENT` range rule, and one
+> `checkStudioWireVersion` both handlers build their refusal from, so the two cannot drift in what
+> they tell a host.
+>
+> A client NEWER than the server is refused, not accepted: it may send a field this server drops
+> silently, which renders a dashboard from an incomplete query rather than failing visibly.
+>
+> The check runs after the "is this a request body at all" frame check and before every field
+> check. Both halves of that ordering were chosen against a concrete failure — version-first
+> misdiagnosed a host's broken route handler as a stale client, while field-first misdiagnosed a
+> real skew as a malformed descriptor. `createSimpleAdapter` deliberately stamps nothing: its wire
+> is the host's own protocol.
+>
+> Recorded as [ADR 0006](./decisions/0006-wire-protocol-versioning.md).
+
 ## What is genuinely well-architected
 
 Stated plainly, because the findings above are about seams and could otherwise read as a negative
@@ -388,6 +405,13 @@ can only find mechanism problems, because mechanism is all that is written down.
 decision, each stating the forces, the alternatives, the choice and its consequences. Six of them
 retroactively, for the findings above. It is the cheapest possible intervention and it is the one
 that makes the next architecture review possible.
+
+> **Status: started.** [`docs/decisions/`](./decisions/) now holds six records — two Accepted (the
+> engine/binding split, wire versioning) and four Open. An `Open` ADR is deliberate rather than a
+> placeholder: it states the forces and every branch that was genuinely on the table, and says that
+> nobody has chosen. That is worth far more than silence, because it is the artifact that stops the
+> question being re-discovered from scratch by the next reviewer — which is what happened three
+> times before this review.
 
 ## Recommended order
 

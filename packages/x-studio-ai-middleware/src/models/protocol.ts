@@ -15,6 +15,20 @@ export type { StateMutation, MutationEnvelope, SerializableSkill } from './aiTyp
 
 /** POST body sent by the client to the AI backend endpoint. */
 export interface StudioAIRequest {
+  /**
+   * AI-wire version this client speaks — `STUDIO_AI_WIRE_VERSION` from `@mui/x-studio-schema`.
+   *
+   * The FIRST thing `handleAIChat` reads. A host upgrades `@mui/x-studio` and this package
+   * separately — that is the normal case for a library whose integration story is "run this
+   * handler in your backend" — so a mismatch is the expected failure, and without this field it
+   * surfaced as a tool call rejected for an argument the server had never heard of, which reads as
+   * a model error rather than as a stale deployment. Required: a request without it is refused as
+   * coming from a pre-versioning client.
+   *
+   * Refusal arrives as an SSE `error` event rather than a thrown exception, because the response
+   * has already begun as a stream by the time the handler is called.
+   */
+  protocolVersion: number;
   /** Full conversation history, including previous assistant and tool messages. */
   messages: import('@mui/x-chat-headless').ChatMessage[];
   /**

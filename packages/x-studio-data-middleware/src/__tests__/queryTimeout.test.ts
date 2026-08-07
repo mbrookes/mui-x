@@ -23,6 +23,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import Knex from 'knex';
+import { STUDIO_DATA_WIRE_VERSION } from '@mui/x-studio-schema';
 import { handleBatchQuery } from '../handler';
 import { handleMutation } from '../mutations/handleMutation';
 import { DEFAULT_QUERY_TIMEOUT_MS, applyQueryTimeout } from '../shared/queryTimeout';
@@ -160,12 +161,16 @@ function isolatedCaches() {
 describe('read path — every round-trip is timed (F2)', () => {
   it('applies the default timeout to BOTH the preflight COUNT(*) and the data query', async () => {
     const { db, timeouts } = createTimeoutRecordingDb();
-    const res = await handleBatchQuery({ widgets: [WIDGET] } as any, CLAIMS, {
-      db,
-      schemaAllowlist: ['orders'],
-      tenancy: SINGLE_TENANT,
-      ...isolatedCaches(),
-    });
+    const res = await handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, widgets: [WIDGET] } as any,
+      CLAIMS,
+      {
+        db,
+        schemaAllowlist: ['orders'],
+        tenancy: SINGLE_TENANT,
+        ...isolatedCaches(),
+      },
+    );
     expect(res.results[0].error).toBeUndefined();
     expect(timeouts.map((t) => t.kind).sort()).toEqual(['data', 'preflight']);
     for (const call of timeouts) {
@@ -175,13 +180,17 @@ describe('read path — every round-trip is timed (F2)', () => {
 
   it('honors a host-configured queryTimeoutMs on both round-trips', async () => {
     const { db, timeouts } = createTimeoutRecordingDb();
-    await handleBatchQuery({ widgets: [WIDGET] } as any, CLAIMS, {
-      db,
-      schemaAllowlist: ['orders'],
-      tenancy: SINGLE_TENANT,
-      queryTimeoutMs: 1234,
-      ...isolatedCaches(),
-    });
+    await handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, widgets: [WIDGET] } as any,
+      CLAIMS,
+      {
+        db,
+        schemaAllowlist: ['orders'],
+        tenancy: SINGLE_TENANT,
+        queryTimeoutMs: 1234,
+        ...isolatedCaches(),
+      },
+    );
     expect(timeouts).toHaveLength(2);
     expect(timeouts.every((t) => t.ms === 1234)).toBe(true);
   });
@@ -190,6 +199,7 @@ describe('read path — every round-trip is timed (F2)', () => {
     const { db, timeouts } = createTimeoutRecordingDb();
     await handleBatchQuery(
       {
+        protocolVersion: STUDIO_DATA_WIRE_VERSION,
         widgets: [
           {
             id: 'w1',
@@ -215,33 +225,45 @@ describe('read path — every round-trip is timed (F2)', () => {
 
   it('lets a host disable the timeout with queryTimeoutMs: 0', async () => {
     const { db, timeouts } = createTimeoutRecordingDb();
-    await handleBatchQuery({ widgets: [WIDGET] } as any, CLAIMS, {
-      db,
-      schemaAllowlist: ['orders'],
-      tenancy: SINGLE_TENANT,
-      queryTimeoutMs: 0,
-      ...isolatedCaches(),
-    });
+    await handleBatchQuery(
+      { protocolVersion: STUDIO_DATA_WIRE_VERSION, widgets: [WIDGET] } as any,
+      CLAIMS,
+      {
+        db,
+        schemaAllowlist: ['orders'],
+        tenancy: SINGLE_TENANT,
+        queryTimeoutMs: 0,
+        ...isolatedCaches(),
+      },
+    );
     expect(timeouts).toHaveLength(0);
   });
 
   it('rejects the WHOLE request for an invalid queryTimeoutMs (host misconfiguration)', async () => {
     const { db } = createTimeoutRecordingDb();
     await expect(
-      handleBatchQuery({ widgets: [WIDGET] } as any, CLAIMS, {
-        db,
-        schemaAllowlist: ['orders'],
-        tenancy: SINGLE_TENANT,
-        queryTimeoutMs: -5,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, widgets: [WIDGET] } as any,
+        CLAIMS,
+        {
+          db,
+          schemaAllowlist: ['orders'],
+          tenancy: SINGLE_TENANT,
+          queryTimeoutMs: -5,
+        },
+      ),
     ).rejects.toThrow(/^MUI X Studio Server: "queryTimeoutMs" must be/);
     await expect(
-      handleBatchQuery({ widgets: [WIDGET] } as any, CLAIMS, {
-        db,
-        schemaAllowlist: ['orders'],
-        tenancy: SINGLE_TENANT,
-        queryTimeoutMs: '30s' as any,
-      }),
+      handleBatchQuery(
+        { protocolVersion: STUDIO_DATA_WIRE_VERSION, widgets: [WIDGET] } as any,
+        CLAIMS,
+        {
+          db,
+          schemaAllowlist: ['orders'],
+          tenancy: SINGLE_TENANT,
+          queryTimeoutMs: '30s' as any,
+        },
+      ),
     ).rejects.toThrow(/^MUI X Studio Server: "queryTimeoutMs" must be/);
   });
 });

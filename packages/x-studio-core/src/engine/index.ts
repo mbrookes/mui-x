@@ -27,6 +27,7 @@ export * from './enrichedRowsCache';
 export * from './executeLocalQuery';
 export * from './expressionRefs';
 export * from './fieldCatalog';
+export * from './fieldSuggestions';
 export * from './filterDrawerTypes';
 export * from './filterDrawerUtils';
 export * from './filterOperatorMetadata';

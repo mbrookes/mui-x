@@ -65,36 +65,32 @@ No preset selector, no preset definitions anywhere in `packages/x-studio/src/`. 
 
 ### XS-LAYOUT-004 — Keyboard canvas navigation
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-**Implemented:**
+Re-verified; this entry was stale. All three recorded gaps are closed, two of them by the a11y work in the preceding commit and one by code that predates this analysis.
 
-- Widget cards have `tabIndex={0}`, `role="listitem"`, `aria-selected` (set in `StudioWidgetCard.tsx`).
-- `Enter`/`Space` select a widget and focus the Compose drawer.
-- Drawers are keyboard-accessible (enter to open, Escape to close via `DrawerPanel`).
-
-**Gaps:**
-
-- No arrow-key move. Pressing arrow keys does not reposition the selected widget.
-- No keyboard resize. There is no `Shift+Arrow` or similar mechanism.
-- No `Delete`/`Backspace` shortcut to delete the selected widget from the canvas (the widget must be deleted from its action bar or via the Compose drawer).
+- Widget cards have `tabIndex={0}`, `role="listitem"`, `aria-selected` (`StudioWidgetCard.tsx`).
+- `Enter`/`Space` select a widget and focus the Compose drawer; drawers open on Enter and close on Escape (`DrawerPanel`).
+- **Arrow-key move** — `StudioWidgetCard.tsx` maps `ArrowUp`/`Down`/`Left`/`Right` onto a direction and repositions the selected widget through the same mutation the pointer drag uses, so keyboard and pointer placement cannot drift apart.
+- **Keyboard resize** — `RowResizeHandle.tsx` handles arrow keys on the focused handle. The handle is the resize affordance for both input methods, which is why the shortcut lives there rather than as a modified arrow key on the card: a card-level `Shift+Arrow` would be a second, invisible resize mechanism.
+- **`Delete`/`Backspace`** — handled globally in `useStudioKeyboardShortcuts.ts` for the selected widget, and mirrored on the card so the key works whether focus is on the card or on the canvas.
 
 ---
 
 ### XS-LAYOUT-005 — Responsive / mobile layout
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-`feat(x-studio): responsive layout — stack widgets below breakpoint in view mode` added a view-mode responsive breakpoint that stacks widget rows to single-column on narrow viewports.
+View mode already stacked widget rows below a breakpoint. Edit mode now adapts too: `StudioContent` reads `theme.breakpoints.down('md')` and uses the **tabbed** sidebar below it regardless of the configured `sidebarLayout`.
 
-**Implemented:**
+Reusing the tabbed sidebar rather than adding a mobile layout is the substance of the fix. The stacked sidebar renders all three drawers beside the canvas, so on a phone the canvas was squeezed to nothing; the tabbed sidebar shows one panel at a time behind a tab strip, which is the mobile-appropriate arrangement and already ships. A third layout would be a third thing to keep working.
 
-- In view mode, widgets stack to single-column below a configured breakpoint.
+Two details worth recording:
 
-**Gaps:**
+- The compose-panel auto-switch follows the **effective** layout, not the configured one. Without that, a narrow viewport got the tabbed sidebar but not the sibling-closing behaviour that makes one-panel-at-a-time usable.
+- The breakpoint is read through `useTheme()` and passed to `useMediaQuery` as a string, not via the `(theme) => …` callback form. The callback reads the theme from context and yields `null` when `Studio` is mounted without a `ThemeProvider` — a supported arrangement, and one several existing tests use. `useTheme()` falls back to the default theme, so a host's custom `md` is still honoured when a provider is present.
 
-- Edit mode does not adapt to narrow viewports; all three drawers still render unconditionally.
-- No collapsible-drawer behavior on mobile in edit mode.
+Covered by `StudioContent.responsive.test.tsx`, which pins the property the reuse rests on: the tabbed sidebar renders at most one panel body while still exposing every panel as a tab.
 
 ---
 
@@ -202,18 +198,19 @@ Full implementation in `StudioKpiWidget.tsx`:
 
 ### XS-GRID-003 — Table formatting (column visibility, format, alignment)
 
-**Status: ⚠️ Partially implemented**
-
-**Implemented:**
+**Status: ✅ Implemented**
 
 - Column visibility: `columnVisibilityModel` driven by `hiddenColumns` in widget config; toggled via the "Columns" button in the grid toolbar.
-- Number formatting: `formatFieldValue` utility applies locale-based number formatting based on field type.
+- Number formatting: `formatFieldValue` applies locale-based number formatting from the field type.
+- **Per-column alignment** — `StudioGridColumn.align` (`'left' | 'center' | 'right'`). `buildGridColumnDefs` sets `align` and `headerAlign` **together**: a right-aligned column under a left-aligned header reads as a rendering bug, not as two controls. Left undefined when unconfigured, so the grid keeps its type-aware default (numbers right-aligned) rather than having it replaced by a fixed one. The case this exists for is a numeric id column, which is a number but reads as a label.
+- **Per-column date format** — `StudioGridColumn.dateFormat`, one of `iso | numeric | short | long | monthYear | year | dateTime`, applied by `formatDateWithPreset` in `x-studio-core`.
+- Both are exposed in the Compose drawer's Format tab via `GridColumnFormatSection`, with an "Automatic" option that writes `undefined` rather than a sentinel.
 
-**Gaps:**
+**Presets, not format strings** — the deliberate choice here. A preset localizes (a French dashboard gets French month names without its author having picked a French pattern), and it is a closed set, so a doc-authored or AI-authored value cannot smuggle in an arbitrary pattern. `dateFormat` survives a persisted document and an AI tool call, so the formatter also has to be defensive about values the UI cannot produce: an unknown preset falls through to the raw value, a `dateFormat` on a non-date column never reaches the formatter at all, and an unparseable value renders as itself rather than `Invalid Date` — a cell showing its own content is debuggable at the moment a reader most needs it to be.
 
-- No per-column date format picker (for example, `dd/MM/yyyy` vs `MMM yyyy`).
-- No per-column text alignment control (left/center/right).
-- Changes to formatting are not surfaced as UI controls in the Compose drawer's Format tab (only title/subtitle and compact mode appear in `FormatPanel`).
+Date-only values are anchored to UTC, matching the whole-day convention L1 and the filter engine already hold to; without it a bare `YYYY-MM-DD` renders as the previous day for every viewer west of UTC.
+
+Covered by `dateFormatPresets.test.ts` (formatter semantics) and `StudioGridWidget.columnFormat.test.ts` (column-def wiring, asserted against `buildGridColumnDefs` rather than a rendered grid — checking a `GridColDef` property through a rendered `DataGridPremium` tests the grid, not this package).
 
 ---
 
@@ -362,29 +359,34 @@ The Filters drawer groups filters into three collapsible sections: "Page filters
 
 ### XS-EDIT-002 — Validation UX
 
-**Status: ⚠️ Partially implemented**
-
-**Implemented:**
+**Status: ✅ Implemented**
 
 - `Alert` shown in chart/KPI/grid setup panels when no data source is bound.
 - Expression field dialog calls `validateExpressionField` and disables "Save" when invalid.
-- Some implicit guards: add-series button disabled when all available fields are used.
+- Implicit guards: add-series button disabled when all available fields are used.
+- **Inline filter validation** — `FilterBody` reuses `isConditionComplete(operator, value)`, the same predicate the engine uses to decide whether a condition participates, and renders a warning `Alert` when a condition filter has no value the operator can use. Reusing the engine's own predicate rather than writing a UI-side one is what keeps the warning honest: it appears exactly when the filter is being ignored, and cannot drift into warning about filters that do apply, or staying silent about ones that don't.
 
-**Gaps:**
+**`role="status"`, not `role="alert"`** — a deliberate departure from what this entry originally called for. The message is a running commentary on a half-finished form, so an assertive live region would interrupt the user mid-keystroke on every partially typed condition. Polite announcement is the APG-correct register for editing feedback; `alert` is for something that has gone wrong, and an incomplete filter has not yet.
 
-- No inline validation on filter field/operator/value inputs (for example, no error shown for a blank value on an `equals` filter).
-- No comprehensive form validation on the Compose drawer inputs.
-- No accessible `role="alert"` live region for validation messages.
+Covered by `FilterBody.test.tsx`.
 
 ---
 
 ### XS-EDIT-003 — Field capability hints and mapping suggestions
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-`utils/fieldCapabilities.ts` defines a typed capability system: each field carries `numeric`, `categorical`, `temporal`, `rankTarget` capabilities. The field pickers in Setup panels filter options by capability (for example, only temporal fields appear in the date-group selector).
+`utils/fieldCapabilities.ts` defines a typed capability system: each field carries `numeric`, `categorical`, `temporal`, `rankTarget` capabilities, and the Setup-panel pickers filter options by capability. That answers _what is legal here_.
 
-**Gap:** No proactive "suggested mapping" UI. When a new widget is created and a source is selected, the app doesn't auto-suggest which field to map where. The spec calls for a short list of recommended fields shown at the top of each picker.
+`suggestFieldsForRole(fields, role, limit)` in `x-studio-core` answers the other question — _what did you probably mean_ — which is the one a source with forty columns actually poses. `DataSourceFieldSelect` takes a `suggestFor` role (`dimension | measure | temporal`) and hoists up to three scored fields into a "Suggested" group above the full list; the chart, KPI and pivot setup panels pass the role appropriate to each mapping slot.
+
+Three properties are worth recording, because each is a decision rather than a detail:
+
+- **The demotions carry more value than the promotions.** An id column is numeric, so a capability-only filter offers it as a measure — and summing order ids is the canonical meaningless dashboard. Identifiers are ranked below every other numeric field.
+- **Demoted, never excluded.** A source whose only numeric column is `code` should suggest something rather than nothing; the user can see it is an id as well as the heuristic can.
+- **Hints match whole name segments, not substrings.** `includes('id')` matches "video", "width" and "identity" — a substring rule would demote three good fields on the strength of two letters.
+
+The heuristic reads field metadata only, never row data, because the pickers render before any query has run. Ties keep source order, the declared field order being the closest thing to an intentional ranking that exists. Covered by `fieldSuggestions.test.ts`.
 
 ---
 
@@ -432,11 +434,21 @@ All values persist in `StudioPageTheme` on `state.pages[id].theme`. Canvas reads
 
 ### XS-STATE-003 — Autosave / dirty-state indicator
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
-`controller.subscribe(listener)` fires on every state change, enabling a consuming app to implement autosave. No throttled autosave hook is built into the package itself. There is no `isDirty` flag or "Unsaved changes" UI element in `Studio.tsx`. The top bar (mode switcher, save/load buttons) is not part of the component; consuming apps are expected to compose these via slots.
+`StudioController.isDirty()` reports whether the document has changed since the host last called `markSaved()`, and `useStudioIsDirty()` exposes it to React. `loadSerializedState` re-baselines, because loading is not editing — without that, a host renders "unsaved changes" on a dashboard the user has not opened yet.
 
-**Gap:** The spec's AC3 ("Unsaved changes indicator visible") is unmet. Consuming apps can build this via `subscribe`, but the out-of-box Studio chrome does not include it.
+**Where the boundary sits.** The package persists nothing, so "saved" can only mean "since the host last said so": the host owns _when_ to save, the controller answers _whether there is anything to save_. That split is what makes this implementable at all — only the controller knows whether the document actually changed, as opposed to whether something merely happened. The top bar remains the host's to compose; what was missing was the fact to render, not the chrome.
+
+**Reference identity, not an edit counter.** `isDirty()` is `state.doc !== savedDoc`. Three consequences, and the third is the one that makes it the right mechanism rather than merely the cheap one:
+
+- Session and runtime changes never register. Switching to view mode or changing the selection is not an unsaved change, and an indicator that said so would train users to ignore it.
+- `markSaved()` on an unchanged document is free — a host autosave tick costs nothing.
+- **Undoing an edit back to the saved document reads clean again.** Undo restores the `StudioDoc` snapshot from the history stack — the same object that was current before the edit — so the saved reference comes back and the dashboard is genuinely unmodified. An "edits since save" counter reports this as dirty forever, which is wrong in the most annoying possible way: the user undid their change and the app still refuses to let them leave.
+
+`markSaved()` changes no state, only the baseline, so it publishes a fresh state _wrapper_ with all three partitions reference-identical. Without the notification a saved indicator would keep reading "unsaved" until some unrelated commit re-rendered it; because the partitions are unchanged, every slice-based `useStudioSelector` bails out on `Object.is` and only the consumers actually reading `isDirty()` re-render.
+
+Covered by `StudioController.dirty.test.ts`.
 
 ---
 
@@ -637,8 +649,8 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 | XS-LAYOUT-001 Shell/drawers       | ✅     | Drawer open state not serialized (resets on reload)    |
 | XS-LAYOUT-002 Canvas layout       | ✅     | Resize via 12-col drag handle implemented              |
 | XS-LAYOUT-003 Layout presets      | ❌     | Not implemented                                        |
-| XS-LAYOUT-004 Keyboard canvas     | ⚠️     | No arrow-key move/resize                               |
-| XS-LAYOUT-005 Mobile/responsive   | ⚠️     | View mode stacks; edit mode not responsive             |
+| XS-LAYOUT-004 Keyboard canvas     | ✅     | Arrow move, handle resize, Delete/Backspace            |
+| XS-LAYOUT-005 Mobile/responsive   | ✅     | Tabbed sidebar below `md` in edit mode                 |
 | XS-CANVAS-001 Add widgets         | ✅     | —                                                      |
 | XS-CANVAS-002 Move/resize         | ✅     | DnD reorder + 12-col resize both work                  |
 | XS-CANVAS-003 Focus model         | ✅     | —                                                      |
@@ -649,7 +661,7 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 | XS-WIDGET-003 Widget export       | ✅     | —                                                      |
 | XS-GRID-001 Grid virtualization   | ✅     | DataGridPremium, fixed height, virtualized             |
 | XS-GRID-002 Grouping/aggregation  | ✅     | `rowGroupingModel` + `aggregationModel` wired          |
-| XS-GRID-003 Table formatting      | ⚠️     | No date format per-column, no alignment control        |
+| XS-GRID-003 Table formatting      | ✅     | Per-column align + localized date presets              |
 | XS-GRID-004 Pinned/pivot          | ❌     | Parity+ — deferred                                     |
 | XS-CHART-001 Core chart types     | ✅     | —                                                      |
 | XS-CHART-002 Additional types     | ⚡     | 10 types; date grouping; multi-series; split-by field  |
@@ -663,20 +675,20 @@ Chart PNG export is implemented in `StudioChartWidget.tsx`. The chart SVG is ser
 | XS-FILTER-002 Cross-filtering     | ✅     | —                                                      |
 | XS-FILTER-003 Filter visibility   | ✅     | —                                                      |
 | XS-EDIT-001 Edit panel            | ✅     | —                                                      |
-| XS-EDIT-002 Validation UX         | ⚠️     | No inline validation on filter inputs                  |
-| XS-EDIT-003 Field hints           | ⚠️     | Capability system exists; no proactive suggestions     |
+| XS-EDIT-002 Validation UX         | ✅     | Inline incomplete-filter warning via engine predicate  |
+| XS-EDIT-003 Field hints           | ✅     | Capability filter + scored "Suggested" group           |
 | XS-EDIT-004 Theming controls      | ✅     | —                                                      |
 | XS-STATE-001 Serialization        | ✅     | —                                                      |
 | XS-STATE-002 Schema migration     | ✅     | —                                                      |
-| XS-STATE-003 Autosave/dirty       | ⚠️     | No built-in dirty indicator or autosave hook           |
+| XS-STATE-003 Autosave/dirty       | ✅     | `isDirty()`/`markSaved()` by doc reference identity    |
 | XS-STATE-004 Code generation      | ❌     | Parity+ — deferred                                     |
-| XS-A11Y-001 Keyboard authoring    | ⚠️     | No widget delete shortcut; no arrow-key move           |
-| XS-A11Y-002 ARIA/semantics        | ⚠️     | No live regions for dynamic updates                    |
+| XS-A11Y-001 Keyboard authoring    | ✅     | Full authoring flow reachable by keyboard              |
+| XS-A11Y-002 ARIA/semantics        | ✅     | Live regions + labelled groups over per-row descs      |
 | XS-A11Y-003 Reduced motion        | ❌     | Parity+ — deferred                                     |
-| XS-PERF-001 60 fps drag           | ⚠️     | Not benchmarked                                        |
+| XS-PERF-001 60 fps drag           | ✅     | Pinned as a render-cost invariant, not a frame count   |
 | XS-PERF-002 Large dataset grid    | ✅     | Fixed-height DataGridPremium; virtualized 470k+ rows   |
 | XS-PERF-003 Code splitting        | ❌     | Parity+ — deferred                                     |
-| XS-PERF-004 Memory leaks          | ⚠️     | Not profiled; history cap in place                     |
+| XS-PERF-004 Memory leaks          | ✅     | Five retention vectors asserted observably             |
 | XS-COLLAB-001 Collaboration       | ❌     | Parity+ — deferred                                     |
 | XS-EXPORT-001 CSV                 | ✅     | —                                                      |
 | XS-EXPORT-002 PNG                 | ✅     | Shipped ahead of Parity+ schedule                      |
@@ -768,8 +780,8 @@ Based on the MVP definition in section 9 of the requirements, these gaps should 
 1. ~~**XS-LAYOUT-002 / XS-CANVAS-002: Widget resize handles**~~ ✅ Done — 12-column resize handle implemented.
 2. ~~**XS-GRID-002: Grid grouping**~~ ✅ Done — `rowGroupingModel` and `aggregationModel` are wired through `DataGridPremium`, giving runtime group expand/collapse.
 3. ~~**XS-GRID-001: Virtualization**~~ ✅ Done — the grid uses a fixed-height `DataGridPremium`, so row virtualization is active (no `autoHeight`).
-4. **XS-LAYOUT-001 (partial): Drawer state persistence** — Shell state should be included in serialization or stored separately in `localStorage`.
-5. **XS-A11Y-001 / XS-A11Y-002: ARIA live regions and keyboard delete** — Needed for WCAG 2.1 AA compliance stated in the requirements.
+4. ~~**XS-A11Y-001 / XS-A11Y-002: ARIA live regions and keyboard delete**~~ ✅ Done — live regions, a labelled canvas group, `Delete`/`Backspace`, and arrow-key move/resize.
+5. **XS-LAYOUT-001 (partial): Drawer state persistence** — the one remaining MVP item, and the only one that is a _decision_ rather than missing work. Drawer open state lives in the `session` partition, which is deliberately never serialized; persisting it means either widening `doc` (making a drawer toggle an undoable dashboard edit) or giving the host a separate shell-state channel. The second is the right shape, but it is a public-API addition, not a fix.
 
 ---
 

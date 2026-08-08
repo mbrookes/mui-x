@@ -166,12 +166,59 @@ export class StudioController {
    */
   private readonly history = new MutationHistory();
 
+  /**
+   * The `doc` reference as of the last save, for {@link StudioController.isDirty}.
+   *
+   * A REFERENCE, not a hash or a counter, and that is what makes the answer correct rather than
+   * merely plausible. `doc` is immutable and every commit mints a new object, so
+   * `doc === savedDoc` is exactly "nothing has changed since the save".
+   *
+   * The property a counter would get wrong: undo/redo swap in `StudioDoc` snapshots from the
+   * history stacks, which are the SAME objects that were current before. So editing a widget and
+   * then pressing Ctrl+Z restores the saved reference and the dashboard reads clean again — which
+   * is true, and which a "number of edits since save" counter would report as dirty forever.
+   */
+  private savedDoc: StudioDoc;
+
   constructor(initialState?: CreateDefaultStudioStateOverrides) {
     const state = createDefaultStudioState(initialState);
     this.store = Store.create(state);
+    // A freshly-constructed controller is clean: nothing has been authored yet, and a host that
+    // seeded it from persisted state has not changed that state either.
+    this.savedDoc = state.doc;
   }
 
   getState = () => this.store.state;
+
+  /**
+   * Whether the document has unsaved changes.
+   *
+   * "Saved" means whatever the HOST says it means — this package persists nothing itself — so it
+   * is defined as "changed since the last {@link StudioController.markSaved}". A host that never
+   * calls `markSaved` gets "changed since load", which is the useful answer for a read-only embed.
+   * @returns True when the doc differs from the last saved baseline.
+   */
+  isDirty = () => this.store.state.doc !== this.savedDoc;
+
+  /**
+   * Record the current document as saved, clearing {@link StudioController.isDirty}.
+   *
+   * Called by the host after its own persistence succeeds — never by `serializeState`, which is
+   * also how a host builds a preview or an export and would otherwise silently claim a save that
+   * never happened.
+   *
+   * Notifies subscribers so a dirty indicator re-renders. The notification carries a fresh state
+   * WRAPPER whose `doc`/`session`/`runtime` are reference-identical, so every slice-based
+   * `useStudioSelector` bails out on `Object.is` and only a consumer actually reading `isDirty()`
+   * re-renders.
+   */
+  markSaved = () => {
+    if (this.savedDoc === this.store.state.doc) {
+      return;
+    }
+    this.savedDoc = this.store.state.doc;
+    this.store.setState({ ...this.store.state });
+  };
 
   private commitState = (
     nextState: StudioState,
@@ -3119,6 +3166,10 @@ export class StudioController {
         },
         { undoable: false, resetHistory: true },
       );
+      // A just-loaded document has no unsaved changes. Without this the load itself reads as an
+      // edit, so a host that renders a dirty indicator shows "unsaved changes" on a dashboard the
+      // user has not touched — the one moment the indicator is guaranteed to be wrong.
+      this.savedDoc = this.store.state.doc;
     }
 
     return migrationResult;

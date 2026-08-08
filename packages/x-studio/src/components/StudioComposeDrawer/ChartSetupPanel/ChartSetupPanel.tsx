@@ -709,6 +709,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
         <Stack spacing={2}>
           {/* X field */}
           <DataSourceFieldSelect
+            suggestFor="dimension"
             value={config.xField ?? ''}
             // `widgetSourceId` is the natural disambiguator already in scope here
             // (mirrors `selectedXField`'s own own-source-first resolution above) — passing it
@@ -1053,6 +1054,7 @@ export function ChartSetupPanel(props: { widgetId: string }) {
                 ))}
                 {ySeries.length === 0 && (
                   <DataSourceFieldSelect
+                    suggestFor="measure"
                     value=""
                     onChange={(fieldId, sourceId) => {
                       // Picking a measure field re-derives the usual per-field aggregation

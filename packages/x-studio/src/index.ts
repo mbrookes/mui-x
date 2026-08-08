@@ -99,6 +99,7 @@ export {
   StudioProvider,
   useStudioController,
   useStudioSelector,
+  useStudioIsDirty,
   useStudioState,
   useStudioFeatures,
   useStudioUIConfig,

@@ -1201,6 +1201,28 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   canvasWidgetMovedAnnouncement: 'Widget déplacé',
   canvasWidgetAddedAnnouncement: 'Widget ajouté',
   canvasWidgetRemovedAnnouncement: 'Widget supprimé',
+  dataSourceFieldSuggestedGroupLabel: 'Suggérés',
+  filterIncompleteValueWarning: 'Ce filtre n’a pas encore de valeur, il n’est donc pas appliqué.',
+  formatPanelColumnsSectionLabel: 'Colonnes',
+  formatPanelColumnsSectionHelperText:
+    'Alignement et présentation des dates, par colonne. Laissez sur Automatique pour suivre le type du champ.',
+  formatPanelColumnAlignLabel: 'Alignement',
+  formatPanelColumnDateFormatLabel: 'Format de date',
+  formatPanelColumnAutoOption: 'Automatique',
+  formatPanelColumnAlignOption: (align) =>
+    ({ left: 'Gauche', center: 'Centre', right: 'Droite' })[align],
+  formatPanelColumnDateFormatOption: (preset) =>
+    ({
+      iso: 'ISO (2026-03-04)',
+      numeric: '04/03/2026',
+      short: '4 Mar 2026',
+      long: '4 March 2026',
+      monthYear: 'Mar 2026',
+      year: '2026',
+      dateTime: '4 Mar 2026, 14:30',
+    })[preset] ?? preset,
+  formatPanelColumnsEmpty:
+    'Sélectionnez une source de données et ajoutez des colonnes pour les formater.',
   modeChangedAnnouncement: (modeLabel: string) => `Passage en ${modeLabel}`,
   modeEditLabel: 'mode édition',
   modeViewLabel: 'mode consultation',

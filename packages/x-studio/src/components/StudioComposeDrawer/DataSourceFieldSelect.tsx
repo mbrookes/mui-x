@@ -11,6 +11,8 @@ import {
 } from '@mui/material';
 import FunctionsIcon from '@mui/icons-material/Functions';
 import { fieldHasCapability, type FieldCapability } from '@mui/x-studio-core/utils';
+import { suggestFieldsForRole } from '@mui/x-studio-core/engine';
+import type { FieldMappingRole } from '@mui/x-studio-core/engine';
 import { FieldOption } from './FieldOption';
 import { FieldTypeIcon, type FieldType } from '../../internals/FieldTypeIcon';
 import type { StudioDataSource, StudioDataField, StudioExpressionField } from '../../models';
@@ -98,6 +100,15 @@ interface DataSourceFieldSelectProps {
   /** Only include fields with this capability (requires `dataSources`). */
   filterCapability?: FieldCapability;
   /**
+   * The role this picker is filling. When set, the two or three fields most likely to be meant are
+   * lifted into a "Suggested" group at the top of the list (AG_STUDIO_GAP_ANALYSIS XS-EDIT-003).
+   *
+   * Reordering only — nothing is filtered out, because a wrong suggestion costs a glance while a
+   * wrong exclusion costs the user the thing they were trying to build, with no clue why the field
+   * is missing. See `suggestFieldsForRole` for what the heuristic is allowed to know.
+   */
+  suggestFor?: FieldMappingRole;
+  /**
    * Disable individual options (e.g. cross-source incompatibility checks).
    * @param {DataSourceFieldEntry} option - The field entry to evaluate.
    * @returns {boolean} Whether the option should be disabled.
@@ -147,6 +158,7 @@ export function DataSourceFieldSelect({
   fields: fieldsProp,
   dataSources,
   filterCapability,
+  suggestFor,
   getOptionDisabled,
   disabled,
   label,
@@ -229,9 +241,43 @@ export function DataSourceFieldSelect({
     };
   }, [value, selectedOption, valueSourceId, localeText]);
 
-  const options = React.useMemo(
-    () => (unresolvedOption ? [...computedFields, unresolvedOption] : computedFields),
-    [computedFields, unresolvedOption],
+  // Ids to surface first. Computed from the SAME list the picker will show, so a suggestion can
+  // never name a field the user cannot then pick.
+  const suggestedIds = React.useMemo(() => {
+    if (!suggestFor) {
+      return new Set<string>();
+    }
+    return new Set(
+      suggestFieldsForRole(
+        computedFields.map((entry) => ({
+          id: entry.id,
+          label: entry.label,
+          type: entry.type,
+        })) as StudioDataField[],
+        suggestFor,
+      ),
+    );
+  }, [computedFields, suggestFor]);
+
+  const options = React.useMemo(() => {
+    const base = unresolvedOption ? [...computedFields, unresolvedOption] : computedFields;
+    if (suggestedIds.size === 0) {
+      return base;
+    }
+    // MUI's `groupBy` renders headings in ARRAY order and repeats a heading if the group is not
+    // contiguous, so the suggested entries have to be physically first. Everything else keeps its
+    // original relative order, which is the source's declared field order.
+    const suggested = base.filter((entry) => suggestedIds.has(entry.id));
+    const rest = base.filter((entry) => !suggestedIds.has(entry.id));
+    return [...suggested, ...rest];
+  }, [computedFields, unresolvedOption, suggestedIds]);
+
+  const groupForOption = React.useCallback(
+    (option: DataSourceFieldEntry) =>
+      suggestedIds.has(option.id)
+        ? localeText.dataSourceFieldSuggestedGroupLabel
+        : option.sourceLabel,
+    [suggestedIds, localeText],
   );
 
   // Only qualify a field's label with its source when two sources genuinely share
@@ -317,7 +363,7 @@ export function DataSourceFieldSelect({
         size={size}
         fullWidth={fullWidth}
         options={options}
-        groupBy={(option) => option.sourceLabel}
+        groupBy={groupForOption}
         getOptionLabel={getOptionLabel}
         clearText={localeText.dataSourceClearFieldAriaLabel}
         renderOption={(liProps, option) => {

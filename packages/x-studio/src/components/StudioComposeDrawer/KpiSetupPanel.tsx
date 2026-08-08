@@ -426,6 +426,7 @@ export function KpiSetupPanel(props: { widgetId: string }) {
           }
         }}
         fields={allFields}
+        suggestFor="measure"
         label={localeText.kpiSetupValueFieldLabel}
         helperText={localeText.kpiSetupValueFieldHelperText}
         calculatedField={calculatedFieldContext}

@@ -15,6 +15,7 @@ import {
   Switch,
   TextField,
   Tooltip,
+  Typography,
 } from '@mui/material';
 import { inferWidgetTitles, inferKpiDateSubtitle } from '@mui/x-studio-core/engine';
 import type { StudioLocaleText } from '@mui/x-studio-core/engine';
@@ -28,7 +29,13 @@ import {
   selectCrossFilterAllPages,
   useStudioLocaleText,
 } from '../../context';
-import type { StudioWidgetConfig } from '../../models';
+import { STUDIO_COLUMN_ALIGNS, STUDIO_DATE_FORMATS } from '../../models';
+import type {
+  StudioColumnAlign,
+  StudioDateFormat,
+  StudioGridColumn,
+  StudioWidgetConfig,
+} from '../../models';
 import { GridConditionalFormatSection } from './GridConditionalFormatSection';
 import { useBufferedInput } from './useBufferedInput';
 
@@ -369,6 +376,125 @@ export function FormatPanel(props: { widgetId: string }) {
           localeText={localeText}
         />
       )}
+      {widget?.kind === 'grid' && <GridColumnFormatSection widgetId={widgetId} />}
+    </Stack>
+  );
+}
+
+/**
+ * Per-column alignment and date presentation for a grid widget.
+ *
+ * The Format tab previously exposed only title/subtitle and compact mode, so the two
+ * presentation choices a table actually needs — how a column is aligned, and how its dates read —
+ * were reachable from no UI at all (AG_STUDIO_GAP_ANALYSIS XS-GRID-003). They were not stored
+ * either; both fields are new on `StudioGridColumn`.
+ *
+ * Only columns the widget ALREADY has are listed. An unconfigured grid renders every field of its
+ * source, and offering a formatting row per field would turn a wide table's Format tab into a
+ * hundred pickers — the column list is the compose drawer's job, and this formats what that chose.
+ */
+function GridColumnFormatSection({ widgetId }: { widgetId: string }) {
+  const controller = useStudioController();
+  const localeText = useStudioLocaleText();
+  const selectWidget = React.useMemo(() => makeSelectWidget(widgetId), [widgetId]);
+  const widget = useStudioSelector(selectWidget);
+  const dataSources = useStudioSelector(selectDataSources);
+  const columns = (widget?.config as StudioWidgetConfig | undefined)?.columns ?? [];
+  const source = widget?.sourceId ? dataSources[widget.sourceId] : undefined;
+
+  const patchColumn = (fieldId: string, patch: Partial<StudioGridColumn>) => {
+    controller.updateWidgetConfig(widgetId, {
+      columns: columns.map((column) =>
+        column.fieldId === fieldId ? { ...column, ...patch } : column,
+      ),
+    });
+  };
+
+  if (columns.length === 0) {
+    return (
+      <Stack spacing={0.5}>
+        <Typography variant="subtitle2">{localeText.formatPanelColumnsSectionLabel}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {localeText.formatPanelColumnsEmpty}
+        </Typography>
+      </Stack>
+    );
+  }
+
+  return (
+    <Stack spacing={1.5}>
+      <Stack spacing={0.5}>
+        <Typography variant="subtitle2">{localeText.formatPanelColumnsSectionLabel}</Typography>
+        <Typography variant="body2" color="text.secondary">
+          {localeText.formatPanelColumnsSectionHelperText}
+        </Typography>
+      </Stack>
+      {columns.map((column) => {
+        const field = source?.fields.find((candidate) => candidate.id === column.fieldId);
+        const label = column.label ?? field?.label ?? column.fieldId;
+        // The date picker is offered only where it means something. On a non-date column it would
+        // be a control that silently does nothing, which is worse than an absent one.
+        const isDate = field?.type === 'date' || field?.type === 'datetime';
+        return (
+          <Stack key={column.fieldId} spacing={1}>
+            <Typography variant="body2">{label}</Typography>
+            <Stack direction="row" spacing={1}>
+              <FormControl size="small" fullWidth>
+                <InputLabel id={`align-${widgetId}-${column.fieldId}`}>
+                  {localeText.formatPanelColumnAlignLabel}
+                </InputLabel>
+                <Select
+                  labelId={`align-${widgetId}-${column.fieldId}`}
+                  label={localeText.formatPanelColumnAlignLabel}
+                  value={column.align ?? ''}
+                  onChange={(event) =>
+                    patchColumn(column.fieldId, {
+                      // Empty string is the "Automatic" option. Written as `undefined` rather than
+                      // `''` so the stored config carries no key at all — the absence IS the
+                      // "follow the field type" default, and an empty string would be a third
+                      // state the renderer would have to know about.
+                      align: (event.target.value || undefined) as StudioColumnAlign | undefined,
+                    })
+                  }
+                >
+                  <MenuItem value="">{localeText.formatPanelColumnAutoOption}</MenuItem>
+                  {STUDIO_COLUMN_ALIGNS.map((align) => (
+                    <MenuItem key={align} value={align}>
+                      {localeText.formatPanelColumnAlignOption(align)}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+              {isDate && (
+                <FormControl size="small" fullWidth>
+                  <InputLabel id={`datefmt-${widgetId}-${column.fieldId}`}>
+                    {localeText.formatPanelColumnDateFormatLabel}
+                  </InputLabel>
+                  <Select
+                    labelId={`datefmt-${widgetId}-${column.fieldId}`}
+                    label={localeText.formatPanelColumnDateFormatLabel}
+                    value={column.dateFormat ?? ''}
+                    onChange={(event) =>
+                      patchColumn(column.fieldId, {
+                        dateFormat: (event.target.value || undefined) as
+                          | StudioDateFormat
+                          | undefined,
+                      })
+                    }
+                  >
+                    <MenuItem value="">{localeText.formatPanelColumnAutoOption}</MenuItem>
+                    {STUDIO_DATE_FORMATS.map((preset) => (
+                      <MenuItem key={preset} value={preset}>
+                        {localeText.formatPanelColumnDateFormatOption(preset)}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              )}
+            </Stack>
+          </Stack>
+        );
+      })}
     </Stack>
   );
 }

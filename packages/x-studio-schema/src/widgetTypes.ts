@@ -67,7 +67,72 @@ export interface StudioGridColumn {
   aggregationFn?: StudioGridSummaryAggregation;
   /** Column header label override (defaults to `StudioDataField.label`). */
   label?: string;
+  /**
+   * Horizontal alignment for this column's cells and header.
+   *
+   * Omitted means "let the type decide" — numbers right, everything else left — which is the
+   * convention every spreadsheet and BI tool uses and the right default. This is the override for
+   * the cases where the type is a bad guide: an id column that happens to be numeric reads as a
+   * label, not a quantity, and right-aligning it makes a table of them impossible to scan.
+   */
+  align?: StudioColumnAlign;
+  /**
+   * Date presentation for this column, when the field is a `date`/`datetime`.
+   *
+   * A closed set of PRESETS rather than a format string, for two reasons. A format string would be
+   * a second date vocabulary in a product that already resolves dates through one canonical path
+   * (`temporalUtils`), and it is doc-authored — reachable from a persisted dashboard and from an AI
+   * tool call — so a closed union is the difference between an unknown value rendering as the
+   * default and an unknown value rendering as itself. Presets also localize: each maps to `Intl`
+   * options resolved against the active Studio locale, so a French dashboard gets French months
+   * without the author picking a French pattern.
+   */
+  dateFormat?: StudioDateFormat;
 }
+
+/** Horizontal alignment for a grid column. See {@link StudioGridColumn.align}. */
+export type StudioColumnAlign = 'left' | 'center' | 'right';
+
+/**
+ * Date presentation presets. See {@link StudioGridColumn.dateFormat}.
+ *
+ * - `iso` — `2026-03-04`. Sorts as text, unambiguous across locales; the right choice for a
+ *   column people scan for equality rather than read as a date.
+ * - `numeric` — `04/03/2026` or `3/4/2026`, depending on locale. Compact and locale-native, which
+ *   is also why it is ambiguous when a dashboard is shared across regions.
+ * - `short` — `4 Mar 2026`. The unambiguous compact form.
+ * - `long` — `4 March 2026`.
+ * - `monthYear` — `Mar 2026`. For a column that is really a period rather than a day.
+ * - `year` — `2026`.
+ * - `dateTime` — `4 Mar 2026, 14:30`. Only meaningful on a `datetime` field; on a `date` field the
+ *   time is midnight and says nothing.
+ */
+export type StudioDateFormat =
+  | 'iso'
+  | 'numeric'
+  | 'short'
+  | 'long'
+  | 'monthYear'
+  | 'year'
+  | 'dateTime';
+
+/** Runtime list of {@link StudioDateFormat}, so a picker cannot drift from the union. */
+export const STUDIO_DATE_FORMATS = [
+  'iso',
+  'numeric',
+  'short',
+  'long',
+  'monthYear',
+  'year',
+  'dateTime',
+] as const satisfies readonly StudioDateFormat[];
+
+/** Runtime list of {@link StudioColumnAlign}, for the same reason. */
+export const STUDIO_COLUMN_ALIGNS = [
+  'left',
+  'center',
+  'right',
+] as const satisfies readonly StudioColumnAlign[];
 
 export interface StudioChartSeries {
   fieldId: string;

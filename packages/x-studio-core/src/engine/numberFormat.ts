@@ -1,4 +1,4 @@
-import type { StudioDataField, StudioNumberFormat } from '../models';
+import type { StudioDataField, StudioDateFormat, StudioNumberFormat } from '../models';
 import { getStudioLocale } from './studioLocale';
 
 // ─── Preset formatters (memoized to avoid re-allocation on every call) ───
@@ -239,4 +239,67 @@ export function formatFieldValue(
     return formatNumber(value, field.format, field.currencyCode, undefined, field.precision);
   }
   return String(value);
+}
+
+/**
+ * `Intl.DateTimeFormat` options per {@link StudioDateFormat} preset.
+ *
+ * A table rather than a switch so the seven presets are one readable statement, and so an unknown
+ * preset — which is reachable, since `dateFormat` is doc-authored and survives an AI tool call —
+ * misses the table and falls through to the raw canonical value rather than matching a neighbour.
+ */
+const DATE_FORMAT_OPTIONS: Record<Exclude<StudioDateFormat, 'iso'>, Intl.DateTimeFormatOptions> = {
+  numeric: { year: 'numeric', month: '2-digit', day: '2-digit' },
+  short: { year: 'numeric', month: 'short', day: 'numeric' },
+  long: { year: 'numeric', month: 'long', day: 'numeric' },
+  monthYear: { year: 'numeric', month: 'short' },
+  year: { year: 'numeric' },
+  dateTime: {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  },
+};
+
+/**
+ * Render a canonical date/datetime cell value under a presentation preset.
+ *
+ * Reads the ACTIVE Studio locale, so a French dashboard gets French month names without the author
+ * choosing a French pattern — which is the whole reason presets exist rather than format strings.
+ *
+ * Two deliberate pass-throughs. `iso` returns the canonical value untouched, because L1 already
+ * normalized it to `YYYY-MM-DD` (or a full ISO instant) and re-deriving it through `Intl` would
+ * risk a timezone round-trip for no gain. And a value that will not parse is returned as-is rather
+ * than as `Invalid Date`: a cell showing its own raw content is debuggable, and one showing
+ * `Invalid Date` tells the reader nothing about what was in it.
+ * @param value The cell value, normally L1-canonical.
+ * @param preset The presentation preset.
+ * @returns The formatted string.
+ */
+export function formatDateWithPreset(value: unknown, preset: StudioDateFormat): string {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  const raw = typeof value === 'string' || value instanceof Date ? value : String(value);
+  if (preset === 'iso') {
+    return typeof raw === 'string' ? raw : raw.toISOString();
+  }
+  const options = DATE_FORMAT_OPTIONS[preset];
+  if (!options) {
+    return typeof raw === 'string' ? raw : raw.toISOString();
+  }
+  // A bare `YYYY-MM-DD` parses as UTC midnight, so a viewer west of UTC would see the previous
+  // day. Anchoring the formatter to UTC for a date-only value keeps the rendered day equal to the
+  // stored one — the same whole-day convention L1 and the filter engine already hold to.
+  const isDateOnly = typeof raw === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw);
+  const parsed = raw instanceof Date ? raw : new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    return typeof raw === 'string' ? raw : '';
+  }
+  return new Intl.DateTimeFormat(getStudioLocale(), {
+    ...options,
+    ...(isDateOnly ? { timeZone: 'UTC' } : {}),
+  }).format(parsed);
 }

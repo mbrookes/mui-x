@@ -1,5 +1,7 @@
 'use client';
 
+import useMediaQuery from '@mui/material/useMediaQuery';
+import { useTheme } from '@mui/material/styles';
 import * as React from 'react';
 import { Box, Fab, Tooltip } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -255,6 +257,15 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const showFilters = features.filters;
   const showDataManagement = features.dataManagement;
 
+  // Resolved to a query string through `useTheme()` rather than passed to `useMediaQuery` as a
+  // `(theme) => …` callback: that form reads the theme from context and gets `null` when `Studio`
+  // is rendered without a `ThemeProvider`, which is a supported way to mount it. `useTheme()` from
+  // `@mui/material/styles` falls back to the default theme, so a host's custom `md` is still
+  // honoured when there IS a provider, and there is no new provider requirement when there isn't.
+  const theme = useTheme();
+  const isNarrowViewport = useMediaQuery(theme.breakpoints.down('md'));
+  const effectiveSidebarLayout = isNarrowViewport ? 'tabbed' : sidebarLayout;
+
   // Auto-switch to the compose panel when a new widget is selected in edit mode.
   // Tracks the previous selection so only *new* selections trigger the switch.
   const prevSelectedWidgetIdRef = React.useRef<string | null>(null);
@@ -265,14 +276,32 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
       return;
     }
     controller.setDrawerOpen('compose', true);
-    if (sidebarLayout === 'tabbed') {
+    // Closing the siblings is what makes "switch to compose" meaningful in a one-panel-at-a-time
+    // layout, so it follows the EFFECTIVE layout — otherwise a narrow viewport got the tabbed
+    // sidebar without the tab-switching behaviour that makes it usable.
+    if (effectiveSidebarLayout === 'tabbed') {
       controller.setDrawerOpen('data', false);
       controller.setDrawerOpen('filters', false);
     }
-  }, [selectedWidgetId, mode, showCompose, controller, sidebarLayout]);
+  }, [selectedWidgetId, mode, showCompose, controller, effectiveSidebarLayout]);
 
+  // Edit-mode responsiveness (AG_STUDIO_GAP_ANALYSIS XS-LAYOUT-005).
+  //
+  // View mode already stacks widget rows below a breakpoint. Edit mode did not adapt at all: the
+  // stacked sidebar renders all three drawers side by side with the canvas, so on a narrow viewport
+  // the canvas was squeezed to nothing and authoring was effectively impossible.
+  //
+  // The fix reuses the TABBED sidebar rather than inventing a mobile mode. Tabbed shows one panel
+  // at a time behind a tab strip, which IS the mobile-appropriate arrangement — it already ships,
+  // it is already tested, and a second narrow-viewport layout would be a second thing to keep
+  // working. Below `md` the tabbed layout is used whatever the host asked for; at or above it the
+  // `sidebarLayout` prop is honoured exactly as before.
+  //
+  // A media query rather than a container query: what is scarce here is VIEWPORT width. The canvas
+  // already measures its own container for the row-stacking tiers, and that is the right tool for
+  // that job; this one is about whether three panels plus a canvas fit on the screen at all.
   let sidebar: React.ReactNode;
-  if (sidebarLayout === 'tabbed') {
+  if (effectiveSidebarLayout === 'tabbed') {
     const panels = [];
     if (mode === 'edit' && showCompose) {
       if (showDataManagement) {

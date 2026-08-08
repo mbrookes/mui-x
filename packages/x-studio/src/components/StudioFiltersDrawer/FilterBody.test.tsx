@@ -371,3 +371,61 @@ describe('FilterBody', () => {
     expect(onChange).toHaveBeenCalledWith({ operator: 'not_in' });
   });
 });
+
+/**
+ * The incomplete-filter warning (AG_STUDIO_GAP_ANALYSIS XS-EDIT-002).
+ *
+ * A condition-mode filter with a blank value is DROPPED by the engine (`isFilterComplete`), so it
+ * sits in the drawer looking configured while filtering nothing — the card summarises as if it
+ * were live and the section's count badge includes it. The silence is the bug; the only way to
+ * discover it was to notice the rows never changed.
+ */
+describe('FilterBody — incomplete condition warning', () => {
+  function renderBody(filter: StudioFilterState) {
+    return render(
+      <FilterBody
+        filter={filter}
+        fieldType="number"
+        operators={getOperators('number')}
+        activeOperator={filter.operator}
+        activeOperator2="equals"
+        fieldValues={[]}
+        onModeChange={() => {}}
+        onChange={() => {}}
+      />,
+    );
+  }
+
+  it('warns when a condition has no value', () => {
+    renderBody(makeFilter({ operator: 'equals', value: '' }));
+    expect(screen.getByRole('status')).to.not.equal(null);
+  });
+
+  it('is silent once the condition has a value', () => {
+    renderBody(makeFilter({ operator: 'equals', value: '5' }));
+    expect(screen.queryByRole('status')).to.equal(null);
+  });
+
+  it('uses status rather than alert', () => {
+    // This appears and disappears as the user types. An assertive `role="alert"` would interrupt
+    // them on every keystroke that empties the field; `status` is polite and is read at the next
+    // pause, which is when the information is wanted.
+    renderBody(makeFilter({ operator: 'equals', value: '' }));
+    expect(screen.queryByRole('alert')).to.equal(null);
+    expect(screen.getByRole('status')).to.not.equal(null);
+  });
+
+  it('says what the consequence is, not that a field is required', () => {
+    // "Required" describes a form rule. The user cannot see the engine's behaviour, and that is
+    // the thing worth telling them: the filter exists and is not being applied.
+    renderBody(makeFilter({ operator: 'equals', value: '' }));
+    expect(screen.getByRole('status').textContent).to.contain('not being applied');
+  });
+
+  it('does not warn in selection mode, where an empty value means "any"', () => {
+    // An empty SELECTION is a real, intentional state — it matches everything — so warning about
+    // it would be false. Only a condition-mode blank is inert.
+    renderBody(makeFilter({ filterMode: 'selection', operator: 'in', value: [] }));
+    expect(screen.queryByRole('status')).to.equal(null);
+  });
+});

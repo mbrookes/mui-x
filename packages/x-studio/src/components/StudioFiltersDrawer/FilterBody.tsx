@@ -1,6 +1,7 @@
 'use client';
 import * as React from 'react';
 import {
+  Alert,
   Autocomplete,
   FormControl,
   InputLabel,
@@ -11,7 +12,7 @@ import {
   Typography,
 } from '@mui/material';
 import type { FieldType, FilterMode } from '@mui/x-studio-core/engine';
-import { needsOperatorValueReset } from '@mui/x-studio-core/engine';
+import { isConditionComplete, needsOperatorValueReset } from '@mui/x-studio-core/engine';
 import type { StudioFilterOperator, StudioFilterState } from '../../models';
 import type { AvailableSeries } from './RankFilterInput';
 import { FilterModeToggle } from './FilterModeToggle';
@@ -75,9 +76,33 @@ export function FilterBody({
     [dependencyOptions, dependsOn],
   );
 
+  // The one validation this surface genuinely owes the user (AG_STUDIO_GAP_ANALYSIS XS-EDIT-002).
+  //
+  // A condition-mode filter with a blank value is DROPPED by the engine — `applyFilters` screens it
+  // out via `isFilterComplete` — so it sits in the drawer looking configured while filtering
+  // nothing. That silence is the problem: the card summarises as if it were live, the section's
+  // count badge includes it, and the only way to discover it does nothing is to notice the rows
+  // never changed.
+  //
+  // Deliberately NOT a blocking error. The blank state is what every filter passes through while
+  // being authored — the drawer's own "add filter" seeds `{ equals, '' }` — so treating it as
+  // invalid would put an error on a filter the user is halfway through typing. It is a `warning`
+  // that states the consequence, which is the honest description of what the engine does.
+  const isIncompleteCondition =
+    mode === 'condition' && !isConditionComplete(activeOperator, filter.value);
+
   return (
     <Stack spacing={1} sx={{ px: 1.5, pb: 1.5 }}>
       <FilterModeToggle mode={mode} onChange={onModeChange} compact disableRank={disableRankMode} />
+      {isIncompleteCondition && (
+        // `role="status"` rather than `role="alert"`: this appears and disappears as the user
+        // types, and an assertive alert would interrupt them on every keystroke that empties the
+        // field. Status is polite — it is read at the next pause, which is when the information is
+        // actually wanted.
+        <Alert severity="warning" role="status" sx={{ py: 0 }}>
+          {localeText.filterIncompleteValueWarning}
+        </Alert>
+      )}
       {mode === 'condition' && (
         <React.Fragment>
           <FormControl size="small">

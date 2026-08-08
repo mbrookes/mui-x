@@ -15,6 +15,7 @@ import {
 } from '@mui/x-data-grid-premium';
 
 import {
+  formatDateWithPreset,
   formatFieldValue,
   sanitizeCssColor,
   isSafeFontWeightKeyword,
@@ -42,6 +43,8 @@ import {
 import type {
   StudioConditionalFormat,
   StudioDataField,
+  StudioDateFormat,
+  StudioGridColumn,
   StudioDataSource,
   StudioDoc,
   StudioExpressionField,
@@ -369,6 +372,58 @@ function readCellNumber(value: unknown): number | null {
  * `slotProps.dataGrid.columns` override (the
  * regression-test gap).
  */
+/**
+ * The `valueFormatter` for one column, or `undefined` when the column needs none.
+ *
+ * A function rather than a chain of ternaries in the column literal: there are two independent
+ * formatting paths (date preset, number format) and a "neither" case, and nesting those inline was
+ * both unreadable and a lint error. Returning `undefined` for the third case matters — an identity
+ * formatter is not the same as no formatter, since the grid applies its own type-aware rendering
+ * only when none is supplied.
+ * @param params Which formatting applies, and the options it needs.
+ * @returns A formatter, or `undefined` to leave the grid's own rendering alone.
+ */
+function buildCellFormatter(params: {
+  isDateField: boolean;
+  dateFormat: StudioDateFormat | undefined;
+  isNumberField: boolean;
+  numberFormat: StudioDataField['format'] | undefined;
+  precision: number | undefined;
+  currencyCode: string | undefined;
+}): ((value: unknown, row: GridValidRowModel) => string) | undefined {
+  const { isDateField, dateFormat, isNumberField, numberFormat, precision, currencyCode } = params;
+
+  // The pinned summary row's cells hold pre-formatted strings ("Total: $1,234") and must pass
+  // through untouched. Discriminated on the ROW, not on the value's runtime type: an ordinary data
+  // cell can hold a numeric STRING, which is exactly how CSV/JSON sources deliver measures, and a
+  // type check let those through unformatted while the summary row and a KPI over the same field
+  // both formatted them.
+  const isSummaryRow = (row: GridValidRowModel) =>
+    // eslint-disable-next-line no-underscore-dangle -- internal grid row identity
+    row?.__rowId === GRID_SUMMARY_ROW_ID;
+  const passThrough = (value: unknown) => (typeof value === 'string' ? value : String(value ?? ''));
+
+  if (isDateField && dateFormat) {
+    return (value, row) =>
+      isSummaryRow(row) ? passThrough(value) : formatDateWithPreset(value, dateFormat);
+  }
+  if (isNumberField && numberFormat) {
+    return (value, row) => {
+      if (isSummaryRow(row)) {
+        return passThrough(value);
+      }
+      const numericValue = readCellNumber(value);
+      return formatFieldValue(numericValue ?? value, {
+        type: 'number',
+        format: numberFormat,
+        precision,
+        currencyCode,
+      });
+    };
+  }
+  return undefined;
+}
+
 export function buildGridColumnDefs(
   orderedFieldIds: string[],
   dataSource: StudioDataSource | undefined,
@@ -376,6 +431,13 @@ export function buildGridColumnDefs(
   crossSourceFieldDefs: Map<string, StudioDataField>,
   isEditable: boolean,
   pkField: string | undefined,
+  /**
+   * Per-column presentation from `widget.config.columns`, keyed by field id.
+   *
+   * Passed as a map rather than the raw array so this stays O(columns) instead of a nested scan,
+   * and so a caller that has no per-column config (the tests that predate it) can omit it.
+   */
+  columnConfigs?: Map<string, Pick<StudioGridColumn, 'align' | 'dateFormat'>>,
 ): GridColDef[] {
   return orderedFieldIds.map((fieldName) => {
     const field = dataSource?.fields.find((candidate) => candidate.id === fieldName);
@@ -386,6 +448,8 @@ export function buildGridColumnDefs(
     const fieldFormat = field?.format ?? expressionField?.format ?? crossSourceField?.format;
     const fieldPrecision =
       field?.precision ?? expressionField?.precision ?? crossSourceField?.precision;
+    const columnConfig = columnConfigs?.get(fieldName);
+    const isDateField = fieldType === 'date' || fieldType === 'datetime';
 
     return {
       field: fieldName,
@@ -393,36 +457,27 @@ export function buildGridColumnDefs(
       headerName: field?.label ?? expressionField?.label ?? crossSourceField?.label ?? fieldName,
       minWidth: 140,
       type: fieldType === 'number' ? 'number' : 'string',
+      // Omitted alignment means "let the type decide" — the grid right-aligns a `number` column on
+      // its own — so `undefined` is passed through rather than defaulted here. Header alignment
+      // follows the cells, because a right-aligned column under a left-aligned header reads as a
+      // rendering bug.
+      ...(columnConfig?.align
+        ? { align: columnConfig.align, headerAlign: columnConfig.align }
+        : {}),
       // Enable editing for non-PK columns when write-back is configured. Cross-source
       // display columns are never editable — write-back only targets the widget's own
       // (primary) table via `gridPkField`, and a cross-source column's value lives on a
       // different table entirely.
       editable: isEditable && fieldName !== pkField && !crossSourceField,
-      valueFormatter:
-        fieldType === 'number' && fieldFormat
-          ? (value: unknown, row: GridValidRowModel) => {
-              // Discriminate on the ROW, not on the value's runtime type. The pinned
-              // summary row's cells hold pre-formatted strings (e.g. "Total: $1,234") and
-              // must pass through untouched — but so did every ordinary data cell holding a
-              // numeric STRING, which is exactly how CSV/JSON sources deliver measures. The
-              // body then rendered a bare `1234.5` while the summary row and a KPI over the
-              // same field both rendered `$1,234.50`.
-              // eslint-disable-next-line no-underscore-dangle -- internal grid row identity
-              if (row?.__rowId === GRID_SUMMARY_ROW_ID) {
-                return typeof value === 'string' ? value : String(value ?? '');
-              }
-              const numericValue = readCellNumber(value);
-              return formatFieldValue(numericValue ?? value, {
-                type: 'number',
-                format: fieldFormat,
-                precision: fieldPrecision,
-                currencyCode:
-                  field?.currencyCode ??
-                  expressionField?.currencyCode ??
-                  crossSourceField?.currencyCode,
-              });
-            }
-          : undefined,
+      valueFormatter: buildCellFormatter({
+        isDateField,
+        dateFormat: columnConfig?.dateFormat,
+        isNumberField: fieldType === 'number',
+        numberFormat: fieldFormat,
+        precision: fieldPrecision,
+        currencyCode:
+          field?.currencyCode ?? expressionField?.currencyCode ?? crossSourceField?.currencyCode,
+      }),
     };
   });
 }
@@ -729,6 +784,20 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
     [widget.config.columns, allFieldIds],
   );
 
+  // Per-column presentation, indexed once rather than scanned per column. `configColumns` is the
+  // authored list, so a field with no entry (every field when `columns` is unset — which means
+  // "show them all") simply has no override and keeps the type-driven defaults.
+  const columnPresentation = React.useMemo(
+    () =>
+      new Map(
+        (widget.config.columns ?? []).map((column) => [
+          column.fieldId,
+          { align: column.align, dateFormat: column.dateFormat },
+        ]),
+      ),
+    [widget.config.columns],
+  );
+
   const columns = React.useMemo<GridColDef[]>(
     () =>
       buildGridColumnDefs(
@@ -738,8 +807,17 @@ export const StudioGridWidget = React.memo(function StudioGridWidget(props: Stud
         crossSourceFieldDefs,
         isEditable,
         pkField,
+        columnPresentation,
       ),
-    [dataSource, expressionFields, orderedFieldIds, crossSourceFieldDefs, isEditable, pkField],
+    [
+      dataSource,
+      expressionFields,
+      orderedFieldIds,
+      crossSourceFieldDefs,
+      isEditable,
+      pkField,
+      columnPresentation,
+    ],
   );
 
   const {

@@ -144,6 +144,28 @@ export function useStudioSelector<Value>(selector: (state: StudioState) => Value
   return controller.store.use(selector) as Value;
 }
 
+/**
+ * Whether the document has unsaved changes (`StudioController.isDirty`).
+ *
+ * Its own hook rather than `useStudioSelector((s) => …)`, because dirtiness is not a slice of
+ * state: it is a comparison between the live `doc` and a baseline the CONTROLLER holds, which no
+ * selector can see. The selector still reads `state.doc` so the subscription re-runs on every doc
+ * commit, and `markSaved` notifies separately for the other direction.
+ *
+ * A host that never calls `markSaved` gets "changed since load", which is the right answer for a
+ * read-only embed and a usable one for everyone else.
+ * @returns True when there are unsaved changes.
+ * @example
+ * ```tsx
+ * const isDirty = useStudioIsDirty();
+ * return <span>{isDirty ? 'Unsaved changes' : 'All changes saved'}</span>;
+ * ```
+ */
+export function useStudioIsDirty(): boolean {
+  const controller = useStudioController();
+  return controller.store.use(() => controller.isDirty());
+}
+
 export {
   useStudioFeatures,
   useStudioUIConfig,

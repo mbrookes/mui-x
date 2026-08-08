@@ -172,6 +172,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
         value={config.pivotRowField ?? ''}
         onChange={(fieldId, sourceId) => handleFieldChange('pivotRowField', fieldId, sourceId)}
         fields={categoryFields}
+        suggestFor="dimension"
         label={localeText.pivotSetupRowFieldLabel}
         helperText={localeText.pivotSetupRowFieldHelper}
         required
@@ -181,6 +182,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
         value={config.pivotColField ?? ''}
         onChange={(fieldId, sourceId) => handleFieldChange('pivotColField', fieldId, sourceId)}
         fields={categoryFields}
+        suggestFor="dimension"
         label={localeText.pivotSetupColFieldLabel}
         helperText={localeText.pivotSetupColFieldHelper}
         required
@@ -222,6 +224,7 @@ export function PivotSetupPanel({ widgetId }: PivotSetupPanelProps) {
           value={config.pivotValueField ?? ''}
           onChange={(fieldId, sourceId) => handleFieldChange('pivotValueField', fieldId, sourceId)}
           fields={numericFields}
+          suggestFor="measure"
           label={localeText.pivotSetupValueFieldLabel}
           helperText={localeText.pivotSetupValueFieldHelper}
           required

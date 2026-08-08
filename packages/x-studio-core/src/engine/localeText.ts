@@ -1552,6 +1552,37 @@ export interface StudioLocaleText {
   canvasWidgetMovedAnnouncement: string;
   /** Live-region announcement after a widget is added to the canvas */
   canvasWidgetAddedAnnouncement: string;
+  /**
+   * Warning shown on a condition-mode filter whose value is still blank.
+   *
+   * States the CONSEQUENCE rather than "this field is required", because the engine's behaviour is
+   * the thing the user cannot otherwise see: `applyFilters` drops an incomplete condition, so the
+   * filter looks configured and does nothing.
+   */
+  filterIncompleteValueWarning: string;
+  /**
+   * Group heading above the fields a picker offers first.
+   *
+   * Kept short and non-committal — these are a naming/typing heuristic over field metadata, not a
+   * data-driven recommendation, so a stronger word than "suggested" would overstate it.
+   */
+  dataSourceFieldSuggestedGroupLabel: string;
+  /** Heading of the grid Format tab's per-column presentation section */
+  formatPanelColumnsSectionLabel: string;
+  /** Helper text under the per-column presentation section */
+  formatPanelColumnsSectionHelperText: string;
+  /** Label for a column's horizontal alignment picker */
+  formatPanelColumnAlignLabel: string;
+  /** Label for a column's date-presentation picker */
+  formatPanelColumnDateFormatLabel: string;
+  /** Option meaning "use the default the field type implies" in the two pickers above */
+  formatPanelColumnAutoOption: string;
+  /** Display label for a column alignment (receives the align value) */
+  formatPanelColumnAlignOption: (align: 'left' | 'center' | 'right') => string;
+  /** Display label for a date presentation preset (receives a sample of the rendered form) */
+  formatPanelColumnDateFormatOption: (preset: string) => string;
+  /** Shown in the grid Format tab when the widget has no source or no columns yet */
+  formatPanelColumnsEmpty: string;
   /** Live-region announcement after a widget is removed from the canvas */
   canvasWidgetRemovedAnnouncement: string;
   /**
@@ -2766,6 +2797,27 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Column resized to ${span} of ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget moved',
   canvasWidgetAddedAnnouncement: 'Widget added',
+  dataSourceFieldSuggestedGroupLabel: 'Suggested',
+  filterIncompleteValueWarning: 'This filter has no value yet, so it is not being applied.',
+  formatPanelColumnsSectionLabel: 'Columns',
+  formatPanelColumnsSectionHelperText:
+    'Alignment and date presentation, per column. Leave on Automatic to follow the field type.',
+  formatPanelColumnAlignLabel: 'Alignment',
+  formatPanelColumnDateFormatLabel: 'Date format',
+  formatPanelColumnAutoOption: 'Automatic',
+  formatPanelColumnAlignOption: (align) =>
+    ({ left: 'Left', center: 'Center', right: 'Right' })[align],
+  formatPanelColumnDateFormatOption: (preset) =>
+    ({
+      iso: 'ISO (2026-03-04)',
+      numeric: 'Numeric (03/04/2026)',
+      short: 'Short (4 Mar 2026)',
+      long: 'Long (4 March 2026)',
+      monthYear: 'Month and year (Mar 2026)',
+      year: 'Year (2026)',
+      dateTime: 'Date and time (4 Mar 2026, 14:30)',
+    })[preset] ?? preset,
+  formatPanelColumnsEmpty: 'Select a data source and add columns to format them.',
   canvasWidgetRemovedAnnouncement: 'Widget deleted',
   modeChangedAnnouncement: (modeLabel: string) => `Switched to ${modeLabel}`,
   modeEditLabel: 'edit mode',

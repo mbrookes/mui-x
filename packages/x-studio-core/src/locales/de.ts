@@ -1197,6 +1197,29 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   canvasWidgetMovedAnnouncement: 'Widget verschoben',
   canvasWidgetAddedAnnouncement: 'Widget hinzugefügt',
   canvasWidgetRemovedAnnouncement: 'Widget gelöscht',
+  dataSourceFieldSuggestedGroupLabel: 'Vorschläge',
+  filterIncompleteValueWarning:
+    'Dieser Filter hat noch keinen Wert und wird daher nicht angewendet.',
+  formatPanelColumnsSectionLabel: 'Spalten',
+  formatPanelColumnsSectionHelperText:
+    'Ausrichtung und Datumsdarstellung, pro Spalte. Auf Automatisch belassen, um dem Feldtyp zu folgen.',
+  formatPanelColumnAlignLabel: 'Ausrichtung',
+  formatPanelColumnDateFormatLabel: 'Datumsformat',
+  formatPanelColumnAutoOption: 'Automatisch',
+  formatPanelColumnAlignOption: (align) =>
+    ({ left: 'Links', center: 'Zentriert', right: 'Rechts' })[align],
+  formatPanelColumnDateFormatOption: (preset) =>
+    ({
+      iso: 'ISO (2026-03-04)',
+      numeric: '04/03/2026',
+      short: '4 Mar 2026',
+      long: '4 March 2026',
+      monthYear: 'Mar 2026',
+      year: '2026',
+      dateTime: '4 Mar 2026, 14:30',
+    })[preset] ?? preset,
+  formatPanelColumnsEmpty:
+    'Wählen Sie eine Datenquelle und fügen Sie Spalten hinzu, um sie zu formatieren.',
   modeChangedAnnouncement: (modeLabel: string) => `Zu ${modeLabel} gewechselt`,
   modeEditLabel: 'Bearbeitungsmodus',
   modeViewLabel: 'Ansichtsmodus',

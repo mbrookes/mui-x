@@ -5,6 +5,7 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { StudioController } from '@mui/x-studio-core/store';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
 import { StudioProvider } from '../../context';
+import { DEFAULT_NARROW_LAYOUT_MEDIA_QUERY } from './layoutMediaQueries';
 import { TabbedSidebar } from './TabbedSidebar';
 
 const { render } = createRenderer();
@@ -116,9 +117,20 @@ describe('narrow-viewport sidebar', () => {
     // all. The canvas measures its own container separately, for row stacking, which is a
     // different question.
     window.matchMedia = matchMediaStub(true) as typeof window.matchMedia;
-    expect(window.matchMedia('(max-width:899.95px)').matches).to.equal(true);
+    expect(window.matchMedia(DEFAULT_NARROW_LAYOUT_MEDIA_QUERY).matches).to.equal(true);
 
     window.matchMedia = matchMediaStub(false) as typeof window.matchMedia;
-    expect(window.matchMedia('(max-width:899.95px)').matches).to.equal(false);
+    expect(window.matchMedia(DEFAULT_NARROW_LAYOUT_MEDIA_QUERY).matches).to.equal(false);
+  });
+
+  it('defaults to the md breakpoint without needing a theme', () => {
+    // The default is a literal query, not `theme.breakpoints.down('md')`, so the layout branch is
+    // correct with or without a `ThemeProvider` — which is the whole reason it is a string. This
+    // pins the value against the default `md` breakpoint it is meant to mirror, since the two can
+    // now drift silently.
+    const withoutSpaces = (query: string) => query.replace(/\s+/g, '');
+    expect(withoutSpaces(DEFAULT_NARROW_LAYOUT_MEDIA_QUERY)).to.equal(
+      withoutSpaces(createTheme().breakpoints.down('md')),
+    );
   });
 });

@@ -81,16 +81,25 @@ Re-verified; this entry was stale. All three recorded gaps are closed, two of th
 
 **Status: ✅ Implemented**
 
-View mode already stacked widget rows below a breakpoint. Edit mode now adapts too: `StudioContent` reads `theme.breakpoints.down('md')` and uses the **tabbed** sidebar below it regardless of the configured `sidebarLayout`.
+View mode already stacked widget rows below a breakpoint. Edit mode now adapts too: below `narrowLayoutMediaQuery`, `StudioContent` uses the **tabbed** sidebar regardless of the configured `sidebarLayout`.
 
 Reusing the tabbed sidebar rather than adding a mobile layout is the substance of the fix. The stacked sidebar renders all three drawers beside the canvas, so on a phone the canvas was squeezed to nothing; the tabbed sidebar shows one panel at a time behind a tab strip, which is the mobile-appropriate arrangement and already ships. A third layout would be a third thing to keep working.
 
-Two details worth recording:
+The compose-panel auto-switch follows the **effective** layout, not the configured one. Without that, a narrow viewport got the tabbed sidebar but not the sibling-closing behaviour that makes one-panel-at-a-time usable.
 
-- The compose-panel auto-switch follows the **effective** layout, not the configured one. Without that, a narrow viewport got the tabbed sidebar but not the sibling-closing behaviour that makes one-panel-at-a-time usable.
-- The breakpoint is read through `useTheme()` and passed to `useMediaQuery` as a string, not via the `(theme) => …` callback form. The callback reads the theme from context and yields `null` when `Studio` is mounted without a `ThemeProvider` — a supported arrangement, and one several existing tests use. `useTheme()` falls back to the default theme, so a host's custom `md` is still honoured when a provider is present.
+**The query is a prop, not a theme read** — and this went through one wrong version worth recording. The first implementation used `useMediaQuery((theme) => theme.breakpoints.down('md'))`. That form reads the theme from context and yields `null` when `Studio` is mounted without a `ThemeProvider`, which broke five existing `StudioContent` test files — themselves the evidence that mounting without a provider is a real usage pattern.
 
-Covered by `StudioContent.responsive.test.tsx`, which pins the property the reuse rests on: the tabbed sidebar renders at most one panel body while still exposing every panel as a tab.
+Resolving it through `useTheme()` (which falls back to the default theme) fixed the failure, but was still off-pattern for this repo. No other MUI X component reads the theme for a media query: the pickers and charts declare a query **string** and pass `defaultMatches`, and the pickers expose theirs as a prop (`desktopModeMediaQuery`) whose JSDoc invites the host to supply a theme-derived value. `defaultMatches` is the sanctioned answer to exactly this jsdom failure — `DatePicker.tsx` carries the comment saying so.
+
+So this now matches the pickers:
+
+- `narrowLayoutMediaQuery?: string` on `StudioProps`, defaulting to the exported `DEFAULT_NARROW_LAYOUT_MEDIA_QUERY` (`'@media (max-width: 899.95px)'`, the default `md` breakpoint). A host with moved breakpoints passes `theme.breakpoints.down('lg')` itself.
+- `{ defaultMatches: false }`, so where `matchMedia` is unavailable the fallback is whatever the host configured. This branch only ever _overrides_ `sidebarLayout`, and overriding an explicit host choice on the strength of a viewport that could not be measured would be the wrong way to be wrong.
+- No `useTheme()` call at all, so the layout is correct with or without a provider rather than merely tolerant of its absence.
+
+Distinct from `stackBreakpoint`, which is a canvas _container_ width governing view-mode row stacking. This one asks whether the sidebar and canvas fit on the screen together — a viewport property, not a canvas one.
+
+Covered by `StudioContent.responsive.test.tsx`: the property the reuse rests on (the tabbed sidebar renders at most one panel body while still exposing every panel as a tab), plus an assertion tying the default literal to `createTheme().breakpoints.down('md')`, since a hardcoded string and the breakpoint it mirrors can now drift silently.
 
 ---
 

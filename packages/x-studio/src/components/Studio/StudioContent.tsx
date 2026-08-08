@@ -1,7 +1,6 @@
 'use client';
 
 import useMediaQuery from '@mui/material/useMediaQuery';
-import { useTheme } from '@mui/material/styles';
 import * as React from 'react';
 import { Box, Fab, Tooltip } from '@mui/material';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
@@ -28,6 +27,7 @@ import { useStudioAnnounce, StudioLiveRegionProvider } from '../../internals/Stu
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { DrawerPanel } from './DrawerPanel';
+import { DEFAULT_NARROW_LAYOUT_MEDIA_QUERY } from './layoutMediaQueries';
 import { TabbedSidebar } from './TabbedSidebar';
 import { StudioCanvas } from '../StudioCanvas';
 import { StudioDataDrawer } from '../StudioDataDrawer';
@@ -58,6 +58,7 @@ interface StudioContentProps {
   sidebarLayout?: 'stacked' | 'tabbed';
   sidebarSide?: 'left' | 'right';
   stackBreakpoint?: number;
+  narrowLayoutMediaQuery?: string;
   aiConfig?: StudioAIConfig | null;
   slotProps?: {
     chatPanel?: Omit<
@@ -78,6 +79,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
     sidebarLayout = 'stacked',
     sidebarSide = 'left',
     stackBreakpoint,
+    narrowLayoutMediaQuery = DEFAULT_NARROW_LAYOUT_MEDIA_QUERY,
     aiConfig,
     slotProps,
   } = props;
@@ -257,13 +259,12 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
   const showFilters = features.filters;
   const showDataManagement = features.dataManagement;
 
-  // Resolved to a query string through `useTheme()` rather than passed to `useMediaQuery` as a
-  // `(theme) => …` callback: that form reads the theme from context and gets `null` when `Studio`
-  // is rendered without a `ThemeProvider`, which is a supported way to mount it. `useTheme()` from
-  // `@mui/material/styles` falls back to the default theme, so a host's custom `md` is still
-  // honoured when there IS a provider, and there is no new provider requirement when there isn't.
-  const theme = useTheme();
-  const isNarrowViewport = useMediaQuery(theme.breakpoints.down('md'));
+  // `defaultMatches` is what this resolves to where `window.matchMedia` is unavailable — jsdom, and
+  // SSR before hydration. `false` means "assume not narrow", so the fallback is whatever the host
+  // configured: this branch only ever OVERRIDES `sidebarLayout`, and overriding an explicit host
+  // choice on the strength of a viewport we could not measure would be the wrong way to be wrong.
+  // A narrow client corrects itself on the first media-query evaluation after hydration.
+  const isNarrowViewport = useMediaQuery(narrowLayoutMediaQuery, { defaultMatches: false });
   const effectiveSidebarLayout = isNarrowViewport ? 'tabbed' : sidebarLayout;
 
   // Auto-switch to the compose panel when a new widget is selected in edit mode.

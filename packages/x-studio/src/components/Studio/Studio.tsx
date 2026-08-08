@@ -212,6 +212,21 @@ export interface StudioProps extends StudioSlots {
    */
   stackBreakpoint?: number;
   /**
+   * Viewport media query below which **edit mode** uses the tabbed sidebar regardless of
+   * `sidebarLayout`. The stacked sidebar renders all three drawers beside the canvas, which leaves
+   * no usable canvas on a narrow screen; the tabbed sidebar shows one panel at a time.
+   *
+   * Distinct from `stackBreakpoint`, which is a canvas *container* width governing how view-mode
+   * widget rows stack. This one asks whether the sidebar and the canvas fit on the screen together,
+   * which is a property of the viewport rather than of the canvas.
+   *
+   * Declared as a media query string rather than read from `theme.breakpoints`, so `Studio` needs
+   * no `ThemeProvider` for its layout to be correct.
+   * @default '@media (max-width: 899.95px)' — the default `md` breakpoint
+   * @example '@media (max-width: 599.95px)' or theme.breakpoints.down('lg')
+   */
+  narrowLayoutMediaQuery?: string;
+  /**
    * Consumer-defined custom widget kinds shown alongside built-in widgets in the widget picker.
    * Each entry registers a `kind` string, a render `component`, an optional compose-drawer
    * `setupPanel`, and optional metadata (label, icon, defaultConfig).

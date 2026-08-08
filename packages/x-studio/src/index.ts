@@ -1,6 +1,9 @@
 // ─── Studio (root component) ──────────────────────────────────────────────────
 export { Studio } from './components/Studio/Studio';
 export type { StudioProps, StudioHandle, StudioSlots } from './components/Studio/Studio';
+// Exported so a host overriding `narrowLayoutMediaQuery` can widen or narrow the default rather
+// than having to restate it, and so the value is quotable in docs without being duplicated.
+export { DEFAULT_NARROW_LAYOUT_MEDIA_QUERY } from './components/Studio/layoutMediaQueries';
 
 // ─── StudioDashboard (embed-first entry point) ────────────────────────────────
 export { StudioDashboard } from './components/Studio/StudioDashboard';

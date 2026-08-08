@@ -1552,6 +1552,26 @@ export interface StudioLocaleText {
   canvasWidgetMovedAnnouncement: string;
   /** Live-region announcement after a widget is added to the canvas */
   canvasWidgetAddedAnnouncement: string;
+  /** Live-region announcement after a widget is removed from the canvas */
+  canvasWidgetRemovedAnnouncement: string;
+  /**
+   * Live-region announcement when the authoring mode changes (receives the new mode's label).
+   *
+   * The mode change is the largest state change in the product and moves no focus: edit-only
+   * chrome appears or disappears around a user who is given no signal that anything happened.
+   */
+  modeChangedAnnouncement: (modeLabel: string) => string;
+  /** Label for edit mode, used in {@link StudioLocaleText.modeChangedAnnouncement}. */
+  modeEditLabel: string;
+  /** Label for view mode, used in {@link StudioLocaleText.modeChangedAnnouncement}. */
+  modeViewLabel: string;
+  /**
+   * Accessible description of the keyboard actions available on a focused widget card.
+   *
+   * Referenced with `aria-describedby`, so it is read after the card's own name rather than
+   * replacing it — the card still announces what it IS before what can be done to it.
+   */
+  canvasWidgetKeyboardHint: string;
   /** Title shown when the canvas has no widgets */
   canvasEmptyTitle: string;
   /** Hint shown under the empty-canvas title in edit mode */
@@ -2746,6 +2766,12 @@ export const DEFAULT_STUDIO_LOCALE_TEXT: StudioLocaleText = {
     `Column resized to ${span} of ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget moved',
   canvasWidgetAddedAnnouncement: 'Widget added',
+  canvasWidgetRemovedAnnouncement: 'Widget deleted',
+  modeChangedAnnouncement: (modeLabel: string) => `Switched to ${modeLabel}`,
+  modeEditLabel: 'edit mode',
+  modeViewLabel: 'view mode',
+  canvasWidgetKeyboardHint:
+    'Press the arrow keys to move this widget, Delete to remove it, Enter to select it.',
   canvasEmptyTitle: 'Canvas is empty',
   canvasEmptyEditModeHint: 'Use the Compose panel to add widgets or drag them here.',
   canvasEmptyViewModeHint: 'Switch to Edit mode to add widgets.',

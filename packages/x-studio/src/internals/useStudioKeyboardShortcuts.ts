@@ -34,10 +34,31 @@ let lastFocusedRoot: HTMLElement | null = null;
  * }
  * ```
  */
-export function useStudioKeyboardShortcuts(rootRef: React.RefObject<HTMLElement | null>) {
+export interface UseStudioKeyboardShortcutsOptions {
+  /**
+   * Called after Delete/Backspace removed the selected widget.
+   *
+   * Exists so the announcement and any focus restoration live with the component that owns the
+   * live region and the DOM, rather than in this hook — which has neither, and would need both to
+   * do the job itself.
+   */
+  onWidgetRemoved?: () => void;
+}
+
+export function useStudioKeyboardShortcuts(
+  rootRef: React.RefObject<HTMLElement | null>,
+  options?: UseStudioKeyboardShortcutsOptions,
+) {
   const controller = useStudioController();
+  // The callback is mirrored into a ref so the listener effect keeps depending on
+  // `[controller, rootRef]` only. A host passing an inline arrow (the normal case) would otherwise
+  // re-register the window listener on every render — the package-wide convention documented in
+  // ARCHITECTURE.md under render-phase ref writes.
+  const onWidgetRemovedRef = React.useRef(options?.onWidgetRemoved);
+  onWidgetRemovedRef.current = options?.onWidgetRemoved;
 
   React.useEffect(() => {
+    const onWidgetRemoved = () => onWidgetRemovedRef.current?.();
     const root = rootRef.current;
     if (!root) {
       return undefined;
@@ -73,11 +94,38 @@ export function useStudioKeyboardShortcuts(rootRef: React.RefObject<HTMLElement 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (
         event.defaultPrevented ||
-        !(event.metaKey || event.ctrlKey) ||
         event.altKey ||
         isEditableTarget(event.target) ||
         !isActiveInstance()
       ) {
+        return;
+      }
+
+      // Delete / Backspace removes the SELECTED widget. Deliberately unmodified: it is the
+      // convention every canvas editor uses, and a keyboard-only author reaching the delete action
+      // otherwise has to open the card's action menu — the one authoring action with no direct
+      // keyboard route (AG_STUDIO_GAP_ANALYSIS XS-A11Y-001).
+      //
+      // Guarded four ways, because an unmodified destructive key is easy to fire by accident:
+      // `isEditableTarget` above (typing a filter value must not delete a widget), edit mode only,
+      // a widget actually selected, and the selection must still exist in the doc — a stale id
+      // survives an undo that removed it.
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        const state = controller.store.state;
+        if (state.session.mode !== 'edit') {
+          return;
+        }
+        const selectedWidgetId = state.session.shell.selectedWidgetId;
+        if (!selectedWidgetId || !Object.hasOwn(state.doc.widgets, selectedWidgetId)) {
+          return;
+        }
+        event.preventDefault();
+        controller.removeWidget(selectedWidgetId);
+        onWidgetRemoved?.();
+        return;
+      }
+
+      if (!(event.metaKey || event.ctrlKey)) {
         return;
       }
 

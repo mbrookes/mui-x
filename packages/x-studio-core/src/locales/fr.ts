@@ -1200,6 +1200,12 @@ export const frLocaleText: Partial<StudioLocaleText> = {
   canvasResizeAnnouncement: (span, total) => `Colonne redimensionnée à ${span} sur ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget déplacé',
   canvasWidgetAddedAnnouncement: 'Widget ajouté',
+  canvasWidgetRemovedAnnouncement: 'Widget supprimé',
+  modeChangedAnnouncement: (modeLabel: string) => `Passage en ${modeLabel}`,
+  modeEditLabel: 'mode édition',
+  modeViewLabel: 'mode consultation',
+  canvasWidgetKeyboardHint:
+    'Utilisez les touches fléchées pour déplacer ce widget, Suppr pour le supprimer, Entrée pour le sélectionner.',
 
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>

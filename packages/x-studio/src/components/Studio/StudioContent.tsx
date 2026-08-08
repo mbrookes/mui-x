@@ -22,7 +22,7 @@ import {
   selectActivePageId,
 } from '../../context';
 import { useStudioKeyboardShortcuts } from '../../internals/useStudioKeyboardShortcuts';
-import { StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
+import { useStudioAnnounce, StudioLiveRegionProvider } from '../../internals/StudioLiveRegion';
 import { StudioDrawerErrorBoundary } from '../../internals/StudioDrawerErrorBoundary';
 import { StudioWidgetErrorBoundary } from '../../internals/StudioWidgetErrorBoundary';
 import { DrawerPanel } from './DrawerPanel';
@@ -80,6 +80,7 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
     slotProps,
   } = props;
   const mode = useStudioSelector(selectMode);
+  const announce = useStudioAnnounce();
   const controller = useStudioController();
   const rootRef = React.useRef<HTMLDivElement>(null);
   const canvasScrollRef = React.useRef<HTMLDivElement>(null);
@@ -164,7 +165,37 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
 
   // Scope the undo/redo keyboard shortcuts to THIS instance's root DOM node (1.3), so two
   // Studio instances mounted on the same page don't both react to a single Ctrl+Z.
-  useStudioKeyboardShortcuts(rootRef);
+  // Delete/Backspace removes the selected widget from anywhere in the instance. The announcement
+  // and the focus restoration live here rather than in the hook, because this component owns both
+  // the live region and the DOM the focus has to land in.
+  useStudioKeyboardShortcuts(rootRef, {
+    onWidgetRemoved: () => {
+      announce(localeText.canvasWidgetRemovedAnnouncement);
+      // Deleting the focused card leaves focus on `<body>`, which strands a keyboard user at the
+      // top of the document with no way back except Tab-from-the-beginning. Move it to the canvas
+      // region, which is the nearest enclosing landmark and is already focusable.
+      requestAnimationFrame(() => {
+        const canvas = rootRef.current?.querySelector<HTMLElement>('[data-studio-canvas-region]');
+        canvas?.focus();
+      });
+    },
+  });
+
+  // Mode changes are the largest state change in the product and move no focus: edit-only chrome
+  // appears or vanishes around a user who is given no signal. Announced from here because this is
+  // where mode is already read, and skipped on first render — the initial mode is not a CHANGE.
+  const prevModeRef = React.useRef(mode);
+  React.useEffect(() => {
+    if (prevModeRef.current === mode) {
+      return;
+    }
+    prevModeRef.current = mode;
+    announce(
+      localeText.modeChangedAnnouncement(
+        mode === 'edit' ? localeText.modeEditLabel : localeText.modeViewLabel,
+      ),
+    );
+  }, [mode, announce, localeText]);
 
   const [chatOpen, setChatOpen] = React.useState(false);
   const [pendingInsight, setPendingInsight] = React.useState<{
@@ -404,6 +435,12 @@ export const StudioContent = React.memo(function StudioContent(props: StudioCont
                 ref={canvasScrollRef}
                 component="main"
                 aria-label={localeText.canvasRegionAriaLabel}
+                // `-1` keeps it out of the tab order (it is a scroll container, not a control)
+                // while still being a valid `focus()` target — which is what the post-delete focus
+                // restoration above needs. Without it, deleting the focused card drops focus to
+                // `<body>` and a keyboard author restarts from the top of the document.
+                tabIndex={-1}
+                data-studio-canvas-region
                 sx={{
                   flexGrow: 1,
                   minWidth: 0,

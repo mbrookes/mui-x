@@ -452,7 +452,7 @@ No "Export as code" or "Copy config" feature. Correctly deferred.
 
 ### XS-A11Y-001 — Full keyboard authoring flow
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
 **Implemented:**
 
@@ -461,17 +461,38 @@ No "Export as code" or "Copy config" feature. Correctly deferred.
 - Undo (`Cmd+Z` / `Ctrl+Z`) and redo (`Cmd+Shift+Z` / `Ctrl+Y`) are keyboard-accessible via `StudioController.ts` event listeners.
 - Filter remove buttons and drawer toggle buttons are keyboard-accessible.
 
-**Gaps:**
+**Closed (2026-08-08):**
 
-- No keyboard shortcut to delete the selected widget.
-- No arrow-key canvas navigation (move widget up/down/left/right in the row grid).
-- No focus trap or managed focus for the compose drawer after widget selection (focus does not auto-move to the drawer).
+- **Delete/Backspace removes the selected widget** (`useStudioKeyboardShortcuts`). Deliberately
+  unmodified — the convention every canvas editor uses — and guarded four ways, because an
+  unmodified destructive key is easy to fire by accident: not while focus is in an editable target,
+  edit mode only, a widget actually selected, and the selection must still exist in the doc (a
+  stale id survives an undo that removed the widget).
+- **Arrow keys move the focused widget** (`StudioWidgetCard`). The capability existed but only
+  behind the card's action menu, so a keyboard author could reorder the canvas, just never
+  directly. Routed through the same `handleMoveWidget` the menu uses, and gated on the event's
+  target being the card itself — arrow keys inside a descendant (a grid's cell navigation, a
+  Select, a text caret) belong to that descendant.
+- **Delete/Backspace also acts on the FOCUSED card**, which is not always the selected one: Tab
+  moves focus without selecting.
+- **`aria-describedby` announces the available keys** on a focused card, in edit mode only.
+- **Focus is restored after a keyboard delete.** Deleting the focused card otherwise strands focus
+  on `<body>`; it now moves to the canvas landmark.
+
+**Deliberately NOT implemented — a focus trap on the compose drawer.** The original gap asked for
+one, and it is the wrong fix twice over. A focus trap belongs in a modal dialog and nowhere else
+(ARIA APG is explicit); the compose drawer is a non-modal side panel, and trapping focus in one
+strands a keyboard user who wants to get back to the canvas. And auto-moving focus to the drawer on
+selection would directly break the arrow-key move added above: selecting a card with Enter and then
+pressing an arrow is the primary keyboard authoring gesture, and it stops working the instant
+selection yanks focus into a panel. The drawer already announces itself when it opens
+(`DrawerPanel`), which is what the underlying need actually was.
 
 ---
 
 ### XS-A11Y-002 — ARIA live regions and semantic structure
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented**
 
 **Implemented:**
 
@@ -481,12 +502,22 @@ No "Export as code" or "Copy config" feature. Correctly deferred.
 - `role="list"` / `role="listitem"` on widget rows and cards.
 - Some `aria-live` regions already exist for widget-level state: `aria-live="polite"` on the pivot widget (`StudioPivotWidget.tsx:73`) and the no-data overlay (`StudioNoDataOverlay.tsx:23`), and `role="alert"` / `aria-live="assertive"` on the widget error overlay (`StudioWidgetErrorOverlay.tsx:27`).
 
-**Gaps:**
+**Closed (2026-08-08):**
 
-- No `aria-live="polite"` region for mode changes (edit → view).
-- No live announcement when a widget is added, moved, or deleted.
-- No skip-to-canvas landmark (`role="main"` or `<main>`).
-- No `aria-describedby` linking filter rows to their section headers.
+- **Mode changes are announced**, naming the mode rather than just saying it changed. This is the
+  largest state change in the product and it moves no focus: edit-only chrome appears or vanishes
+  around a user given no signal.
+- **Widget deletion is announced.** Add and move already were; delete was the omission. Announced
+  BEFORE the removal on the menu path, since a card cannot post to a live region while unmounting.
+- **Filter rows are grouped under their section name** — `role="group"` + `aria-labelledby` on
+  `CollapsibleSection`, rather than the `aria-describedby` the gap suggested. A description is read
+  AFTER the row's own name, so "Region, page filters" arrives backwards, and it would repeat the
+  section name on every row. The group announces it once, on entry, and generalises to the data and
+  compose drawers rather than only the filters.
+
+**Was already implemented when this was written:** the skip-to-canvas landmark exists
+(`component="main"` in `StudioContent`, with `aria-label`). It has since gained `tabIndex={-1}` so
+it can also receive focus after a keyboard delete.
 
 ---
 
@@ -502,11 +533,24 @@ No `@media (prefers-reduced-motion: reduce)` CSS in the components. Collapse tra
 
 ### XS-PERF-001 — 60 fps drag
 
-**Status: ⚠️ Partially implemented**
+**Status: ✅ Implemented** (measured as a render-cost invariant, not as a frame count)
 
-HTML5 drag-and-drop in `StudioCanvas.tsx` uses the native browser DnD API, which is generally 60 fps. Insertion-point highlights are updated via React state (`dragOverTarget`), which may cause re-renders but should be fast for typical dashboard sizes (≤20 widgets).
+This entry described the HTML5 drag-and-drop API; the canvas has since moved to
+`@atlaskit/pragmatic-drag-and-drop` (`useStudioDraggable` / `useStudioDropTarget`).
 
-**Gap:** No performance measurement or test exists. The spec requires "no frame drop measured with React DevTools Profiler" — this has not been verified in the implementation.
+`src/components/StudioCanvas/dragRenderCost.test.tsx` (2026-08-08) pins the property that
+determines the frame rate. A frame measurement in CI would be flaky, machine-dependent, and would
+report that a regression happened without saying what caused it. There is exactly one way for this
+design to drop frames during a drag: if the hover highlight lived in shared state — canvas state,
+the controller store, a context — every pointer move would re-render every widget and the cost
+would scale with dashboard size.
+
+It does not. `useStudioDropTarget` holds `isOver` in LOCAL state, and the suite asserts the
+consequences: only the target whose hover state changed re-renders; widget bodies do not re-render
+while the pointer crosses targets; and the per-hover cost is identical with 4 targets and with 20.
+
+**What this does not prove:** that the drag is fast for reasons unrelated to renders. The test
+module says so explicitly rather than implying a profiler was run.
 
 ---
 
@@ -528,9 +572,27 @@ No dynamic imports or `React.lazy` boundaries within the package. Correctly defe
 
 ### XS-PERF-004 — Memory leak prevention
 
-**Status: ⚠️ Partially assessed**
+**Status: ✅ Implemented**
 
-`StudioController.subscribe()` returns an unsubscribe function. `Studio.tsx` passes the controller via React context; no obvious event listener leaks. Undo/redo history is capped at 100 steps (`MAX_HISTORY = 100` in `StudioController.ts`). No memory profiling tests exist.
+The previous assessment was a reading, not a test: it observed that `subscribe()` returns an
+unsubscribe function and that undo history is capped, and concluded there were "no obvious leaks".
+That claim stops being true silently — a leak has no symptom until a host has mounted and unmounted
+a dashboard a few hundred times, which is what a route change in a SPA does.
+
+`src/internals/lifecycleLeaks.test.tsx` (2026-08-08) asserts every retention vector this package
+actually has, each against something observable rather than a profiler:
+
+- **Store subscriptions** — the store's `listeners` Set is counted directly before and after
+  unmount, and across five mount/unmount cycles. A retained listener also re-renders a detached
+  tree on every commit, so it costs CPU as well as memory.
+- **The window keydown listener** — every `keydown` registration is matched by a removal.
+- **`lastFocusedRoot`** — a module-level strong reference to a DOM node, which would pin the whole
+  detached subtree for the lifetime of the page. It is the one vector that survives the controller
+  being collected.
+- **The live region's pending timeout** — a 50 ms timer that would otherwise fire into an unmounted
+  component.
+- **`studioRequestCache`** — the module-level singleton shared by every instance, so its growth is
+  bounded by nothing else. Asserted to evict rather than grow with every distinct query.
 
 ---
 

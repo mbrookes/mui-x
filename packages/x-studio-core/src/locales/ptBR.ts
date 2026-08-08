@@ -1188,6 +1188,12 @@ export const ptBRLocaleText: Partial<StudioLocaleText> = {
   canvasResizeAnnouncement: (span, total) => `Coluna redimensionada para ${span} de ${total}`,
   canvasWidgetMovedAnnouncement: 'Widget movido',
   canvasWidgetAddedAnnouncement: 'Widget adicionado',
+  canvasWidgetRemovedAnnouncement: 'Widget excluído',
+  modeChangedAnnouncement: (modeLabel: string) => `Alternado para ${modeLabel}`,
+  modeEditLabel: 'modo de edição',
+  modeViewLabel: 'modo de visualização',
+  canvasWidgetKeyboardHint:
+    'Use as teclas de seta para mover este widget, Delete para removê-lo, Enter para selecioná-lo.',
 
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>

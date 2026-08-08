@@ -69,6 +69,37 @@ import { useStudioWidgetInsights } from './useStudioWidgetInsights';
 import { useStudioWidgetCardDrag } from './useStudioWidgetCardDrag';
 import { SliderFilterPill } from './SliderFilterPill';
 
+/**
+ * Arrow key → layout direction.
+ *
+ * A table rather than a switch so the four keys are one readable statement, and so an unknown key
+ * is `undefined` (fall through) rather than a branch someone has to notice is missing.
+ */
+/**
+ * Screen-reader-only styling for the keyboard hint node.
+ *
+ * Not `display: none` / `visibility: hidden`: both remove the node from the accessibility tree, so
+ * the `aria-describedby` IDREF would resolve to nothing and the description would never be read.
+ */
+const visuallyHiddenSx = {
+  position: 'absolute',
+  width: '1px',
+  height: '1px',
+  p: 0,
+  m: '-1px',
+  overflow: 'hidden',
+  clip: 'rect(0 0 0 0)',
+  whiteSpace: 'nowrap',
+  border: 0,
+} as const;
+
+const ARROW_KEY_DIRECTIONS: Record<string, WidgetMoveDirection | undefined> = {
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+};
+
 export interface StudioWidgetCardProps {
   widgetId: string;
   /** ID of the page this widget card belongs to. Used to scope filters and drag metadata. */
@@ -355,6 +386,9 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
   // handler — past every error boundary.
   const widgetRows = React.useMemo(() => pages[pageId]?.widgetRows ?? [], [pages, pageId]);
   const announce = useStudioAnnounce();
+  // One id per card instance: `aria-describedby` is an IDREF, so two cards sharing a literal id
+  // would both point at whichever node the document happened to contain first.
+  const keyboardHintId = React.useId();
   const handleMoveWidget = React.useCallback(
     (direction: WidgetMoveDirection) => {
       const next = moveWidgetInLayout(widgetRows, widgetId, direction);
@@ -619,6 +653,10 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
         data-widget-card
         data-widget-id={widgetId}
         tabIndex={0}
+        // Referenced rather than inlined into `aria-label`: a description is read AFTER the
+        // accessible name, so the card still announces what it is before what can be done to it.
+        // Edit mode only — advertising keys that do nothing in view mode is worse than silence.
+        aria-describedby={mode === 'edit' ? keyboardHintId : undefined}
         onKeyDown={(event) => {
           if (mode !== 'edit') {
             return;
@@ -631,6 +669,31 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             if (onUnconfiguredClick && requiresDataSource && !widget.sourceId) {
               onUnconfiguredClick(widgetId);
             }
+            return;
+          }
+          // Arrow keys move the widget. The capability already existed, but only behind the card's
+          // action menu — so a keyboard author could reorder the canvas, just never directly
+          // (AG_STUDIO_GAP_ANALYSIS XS-A11Y-001). Routed through the SAME `handleMoveWidget` the
+          // menu uses, so both paths get the same layout math and the same announcement.
+          //
+          // Guarded on the event's own target being the card: arrow keys inside a descendant
+          // (a Select, the grid widget's own cell navigation) belong to that descendant, and
+          // stealing them would break the widget to fix the canvas.
+          const direction = ARROW_KEY_DIRECTIONS[event.key];
+          if (direction && event.target === event.currentTarget) {
+            // Prevent the page from scrolling under a move the user meant for the widget.
+            event.preventDefault();
+            handleMoveWidget(direction);
+            return;
+          }
+          // Delete/Backspace mirrors `useStudioKeyboardShortcuts`' global handler, which acts on
+          // the SELECTED widget. This one acts on the FOCUSED card, which is not always the same:
+          // Tab moves focus without selecting. Both exist so the key does the obvious thing either
+          // way, and both announce through the same token.
+          if (event.key === 'Delete' || event.key === 'Backspace') {
+            event.preventDefault();
+            announce(localeText.canvasWidgetRemovedAnnouncement);
+            controller.removeWidget(widgetId);
           }
         }}
         onMouseEnter={() => setHovered(true)}
@@ -675,6 +738,14 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
           ...(slotProps?.paper?.sx ?? {}),
         }}
       >
+        {/* The keyboard hint `aria-describedby` above points at. Rendered only in edit mode, since
+            that is the only mode the keys act in, and visually hidden because it is a screen-reader
+            affordance — a visible copy on every card would be noise for everyone else. */}
+        {mode === 'edit' ? (
+          <Box component="span" id={keyboardHintId} sx={visuallyHiddenSx}>
+            {localeText.canvasWidgetKeyboardHint}
+          </Box>
+        ) : null}
         {/* Action button overlay — floats over content so title is never truncated.
             Wrapped in the per-widget boundary alongside the header below: this chrome
             renders doc-authored strings (page titles in the "move to page" menu) and used
@@ -725,7 +796,12 @@ export const StudioWidgetCard = React.memo(function StudioWidgetCard(props: Stud
             onExpand={() => setExpanded(true)}
             onEdit={handleEditClick}
             onDuplicate={() => controller.duplicateWidget(widgetId)}
-            onDelete={() => controller.removeWidget(widgetId)}
+            onDelete={() => {
+              // Announced BEFORE the removal: this card unmounts as a result, and an announcement
+              // posted from an unmounting subtree never reaches the live region.
+              announce(localeText.canvasWidgetRemovedAnnouncement);
+              controller.removeWidget(widgetId);
+            }}
             onMoveToPage={(targetPageId) => controller.moveWidgetToPage(widgetId, targetPageId)}
             onMoveWidget={handleMoveWidget}
             moveWidgetDisabled={moveWidgetDisabled}

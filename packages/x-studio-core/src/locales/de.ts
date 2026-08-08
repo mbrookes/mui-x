@@ -1196,6 +1196,12 @@ export const deLocaleText: Partial<StudioLocaleText> = {
   canvasResizeAnnouncement: (span, total) => `Spalte auf ${span} von ${total} geändert`,
   canvasWidgetMovedAnnouncement: 'Widget verschoben',
   canvasWidgetAddedAnnouncement: 'Widget hinzugefügt',
+  canvasWidgetRemovedAnnouncement: 'Widget gelöscht',
+  modeChangedAnnouncement: (modeLabel: string) => `Zu ${modeLabel} gewechselt`,
+  modeEditLabel: 'Bearbeitungsmodus',
+  modeViewLabel: 'Ansichtsmodus',
+  canvasWidgetKeyboardHint:
+    'Mit den Pfeiltasten verschieben Sie dieses Widget, mit Entf löschen Sie es, mit der Eingabetaste wählen Sie es aus.',
 
   // Chart / KPI / map text alternatives
   ganttChartAriaLabel: (itemCount, from, to, details) =>

@@ -35,6 +35,7 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
   } = props;
   const [expanded, setExpanded] = React.useState(defaultExpanded);
   const regionId = React.useId();
+  const titleId = React.useId();
 
   return (
     <div>
@@ -77,7 +78,7 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
           >
             {expanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
           </IconButton>
-          <Typography variant="subtitle2" component="span" sx={{ flexGrow: 1 }}>
+          <Typography id={titleId} variant="subtitle2" component="span" sx={{ flexGrow: 1 }}>
             {title}
             {!expanded && count != null && count > 0 && (
               <Chip
@@ -109,7 +110,22 @@ export function CollapsibleSection(props: CollapsibleSectionProps) {
         )}
       </Box>
       <Collapse in={expanded}>
-        <Box id={regionId} sx={{ pl: 0.5 }}>
+        {/*
+          A NAMED GROUP, rather than an `aria-describedby` on each child row.
+
+          The gap this closes (AG_STUDIO_GAP_ANALYSIS XS-A11Y-002) was phrased as "filter rows are
+          not linked to their section headers", and the obvious reading — point every row's
+          `aria-describedby` at the heading — is the wrong fix twice over. A description is read
+          AFTER the row's own name, so "Region, page filters" arrives backwards; and it repeats the
+          section name on every row, which is exactly the verbosity screen-reader users complain
+          about.
+
+          `role="group"` + `aria-labelledby` is the ARIA Authoring Practices answer: the grouping is
+          announced once, on entry, and every row inside inherits the context without restating it.
+          It also generalises — this component wraps the data drawer and compose drawer sections
+          too, so all of them gain the structure rather than only the filters.
+        */}
+        <Box id={regionId} role="group" aria-labelledby={titleId} sx={{ pl: 0.5 }}>
           {children}
         </Box>
       </Collapse>

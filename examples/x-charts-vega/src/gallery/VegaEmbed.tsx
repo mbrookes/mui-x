@@ -9,6 +9,35 @@ import type { VisualizationSpec } from 'vega-embed';
  * with data already inlined (see `resolveData`), matching what the wrapper
  * receives, so any difference is a translation difference, not a data one.
  */
+/**
+ * Whether ANY view in the spec tree pins its own `width`/`height`.
+ *
+ * A composite pins its size on the child views, not at the top level —
+ * `interactive_seattle_weather` declares `width: 600` on each `vconcat` entry
+ * and nothing at the root. Checking only the root therefore passed the panel
+ * size to `vega-embed`, whose `width` option overrides what the spec asked for,
+ * and the reference rendered at 440 where both the spec and the wrapper say
+ * 600. That is the embed resizing the reference, which is exactly what this
+ * check exists to prevent — it just was not looking deep enough.
+ */
+function declaresSize(node: unknown, key: 'width' | 'height'): boolean {
+  if (Array.isArray(node)) {
+    return node.some((child) => declaresSize(child, key));
+  }
+  if (typeof node !== 'object' || node === null) {
+    return false;
+  }
+  const view = node as Record<string, unknown>;
+  if (typeof view[key] === 'number') {
+    return true;
+  }
+  // Only the view-composition branches carry nested views; recursing over every
+  // key would find a `width` inside unrelated config or encoding objects.
+  return (['layer', 'vconcat', 'hconcat', 'concat', 'spec', 'facet'] as const).some((branch) =>
+    declaresSize(view[branch], key),
+  );
+}
+
 export default function VegaEmbed({
   spec,
   width,
@@ -34,15 +63,14 @@ export default function VegaEmbed({
     // comparison). A spec that pins its own `width`/`height` (e.g. the density
     // plot's `height: 100`) keeps it — otherwise the embed override would resize
     // the reference and make it disagree with the wrapper, which honors the spec.
-    const specObj = (spec ?? {}) as { width?: unknown; height?: unknown };
     const embedOpts: { actions: false; renderer: 'svg'; width?: number; height?: number } = {
       actions: false,
       renderer: 'svg',
     };
-    if (typeof specObj.width !== 'number') {
+    if (!declaresSize(spec, 'width')) {
       embedOpts.width = width;
     }
-    if (typeof specObj.height !== 'number') {
+    if (!declaresSize(spec, 'height')) {
       embedOpts.height = height;
     }
     embed(el, spec as VisualizationSpec, embedOpts)

@@ -11,6 +11,7 @@ import type {
   CompiledZAxis,
   OverlayGeoPointItem,
   OverlayPixelPosition,
+  OverlayPosition,
   OverlaySegment,
   SizeLegend,
   UnitContext,
@@ -349,6 +350,65 @@ function vegaSizeToRadius(size: number): number {
  * Vega-Lite's default continuous `size` range for point/circle marks, in Vega
  * size units. The floor of 4 is a 2px dot, the ceiling of 361 a 19px one.
  */
+/** Vega-Lite's implicit `size` for a `point`/`circle` mark. */
+const VEGA_DEFAULT_POINT_SIZE = 30;
+
+/** An SVG path string, as `shape` carries for Vega's isotype marks. */
+function isPathShape(value: unknown): value is string {
+  return typeof value === 'string' && /^[Mm]\s*-?[\d.]/.test(value);
+}
+
+/** Distinct values of a field, in first-seen order. */
+function distinctFieldValues(rows: readonly DatasetRow[], field: string): unknown[] {
+  const seen = new Set<string>();
+  const out: unknown[] = [];
+  for (const row of rows) {
+    const value = resolveFieldPath(row, field);
+    const key = String(value);
+    if (!seen.has(key)) {
+      seen.add(key);
+      out.push(value);
+    }
+  }
+  return out;
+}
+
+/**
+ * Resolves a `shape` encoding that carries literal SVG path data — either a
+ * constant `{value: "M..."}` or a field whose `scale.range` lists one path per
+ * domain entry. Returns a per-row lookup, or `undefined` when the encoding is
+ * a named symbol ("circle", "square", …) that the scatter series already
+ * covers.
+ */
+function resolvePathShape(
+  shapeDef: VegaEncoding['shape'],
+  rows: readonly DatasetRow[],
+): ((row: DatasetRow) => string | undefined) | undefined {
+  if (isValueDef(shapeDef) && isPathShape(shapeDef.value)) {
+    const constant = shapeDef.value;
+    return () => constant;
+  }
+  if (!isFieldDef(shapeDef) || !shapeDef.field) {
+    return undefined;
+  }
+  const scale = (shapeDef as { scale?: VegaScale }).scale;
+  const range = scale?.range;
+  const domain = scale?.domain;
+  if (!Array.isArray(range) || !range.every(isPathShape)) {
+    return undefined;
+  }
+  const field = shapeDef.field;
+  // Without an explicit domain, Vega assigns range entries in the order the
+  // values are first seen — the same rule the color scale uses.
+  const keys = (Array.isArray(domain) ? domain : distinctFieldValues(rows, field)).map((value) =>
+    String(value),
+  );
+  return (row) => {
+    const index = keys.indexOf(String(resolveFieldPath(row, field)));
+    return index >= 0 ? (range[index % range.length] as string) : undefined;
+  };
+}
+
 const VEGA_DEFAULT_SIZE_AREA_RANGE: [number, number] = [4, 361];
 
 /**
@@ -474,7 +534,7 @@ function compileGeoPointMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
-  const colorRes = resolveColor(encoding, rows, gaps, path);
+  const colorRes = resolveColor(encoding, rows, gaps, path, { selections: ctx.selections });
   const staticMarkColor =
     (typeof unit.mark.color === 'string' ? unit.mark.color : undefined) ??
     (typeof unit.mark.fill === 'string' ? unit.mark.fill : undefined);
@@ -628,7 +688,7 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     });
   }
 
-  if (encoding.shape !== undefined) {
+  if (encoding.shape !== undefined && !resolvePathShape(encoding.shape, ctx.rows)) {
     gaps.add({
       code: 'encoding:shape',
       message: 'x-charts scatter markers are visually uniform; the "shape" encoding is ignored.',
@@ -691,7 +751,9 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
     }
   }
 
-  const colorRes = resolveColor(encoding, ctx.rows, gaps, path);
+  const colorRes = resolveColor(encoding, ctx.rows, gaps, path, {
+    selections: ctx.selections,
+  });
 
   if (isTick) {
     const tickStyle = buildTickStyle(unit.mark);
@@ -724,6 +786,70 @@ export function compilePointMark(ctx: UnitContext): CompiledUnit {
       plots: [],
       ...(items.length > 0 ? { overlays: [{ kind: 'segments' as const, items }] } : {}),
     };
+  }
+
+  // A `shape` encoding carrying literal SVG path data (Vega's isotype specs)
+  // has no scatter equivalent — x-charts' markers are uniform circles — so it
+  // renders through a custom overlay instead. Vega draws a custom shape in its
+  // own coordinate space scaled by `sqrt(size) / 2`, the same law that turns a
+  // `size` into a circle's radius; verified against vega-embed's own output,
+  // where a path starting `M4 -2` at `size: 200` renders as `M28.284,-14.142`
+  // (a factor of sqrt(200)/2 = 7.071).
+  const pathShape = resolvePathShape(encoding.shape, ctx.rows);
+  if (pathShape) {
+    const shapeStaticColor =
+      (typeof unit.mark.color === 'string' ? unit.mark.color : undefined) ??
+      (typeof unit.mark.fill === 'string' ? unit.mark.fill : undefined);
+    const shapeColorForRow = resolveGeoPointColorByRow(ctx, colorRes, shapeStaticColor);
+    // `encoding.size: {value: N}` wins over `mark.size`, matching Vega-Lite's
+    // own encoding-over-mark precedence.
+    const sizeValue = isValueDef(encoding.size) ? encoding.size.value : undefined;
+    let shapeSize = VEGA_DEFAULT_POINT_SIZE;
+    if (typeof unit.mark.size === 'number') {
+      shapeSize = unit.mark.size;
+    }
+    if (typeof sizeValue === 'number') {
+      shapeSize = sizeValue;
+    }
+    const scale = vegaSizeToRadius(shapeSize);
+    const candidates = resolveCandidates(ctx, colorRes.splitField, undefined, {
+      x: valuePixelOverride(encoding.x),
+      y: valuePixelOverride(encoding.y),
+    });
+    const items = candidates
+      .map((candidate) => {
+        const row = ctx.rows[candidate.point.id];
+        const shapePath = row ? pathShape(row) : undefined;
+        if (shapePath === undefined) {
+          return undefined;
+        }
+        return {
+          x: candidate.point.x as OverlayPosition,
+          y: candidate.point.y as OverlayPosition,
+          path: shapePath,
+          scale,
+          // A `{condition: {param}, value}` colour carries no split field, so
+          // the group-keyed helper below never sees it — resolve the condition
+          // per row first, exactly as the text/url conditions are resolved.
+          color:
+            (row && colorRes.conditionResolver?.(row)) ??
+            (row && colorRes.splitField
+              ? shapeColorForRow(row[colorRes.splitField])
+              : shapeColorForRow(null)),
+          ...(typeof unit.mark.opacity === 'number' ? { opacity: unit.mark.opacity } : {}),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== undefined);
+    if (items.length > 0) {
+      gaps.add({
+        code: 'encoding:shape-path-overlay',
+        message:
+          'x-charts scatter markers are uniform circles, so a `shape` encoding carrying SVG path data is drawn by a custom SVG overlay instead of an x-charts series.',
+        severity: 'ignored',
+        path: `${path}.encoding.shape`,
+      });
+      return { series: [], plots: [], overlays: [{ kind: 'shapes' as const, items }] };
+    }
   }
 
   let markerSize: number | undefined;

@@ -636,7 +636,11 @@ function constantParamConditionColor(
     return undefined;
   }
   const selection = selections?.[entry.param];
-  if (!selection?.point || selection.initial || entry.empty === false) {
+  // An empty selection matches every row (`empty` defaults to true), so the
+  // condition's value is simply the colour — for an interval selection as much
+  // as a point one, since neither reproduces a starting extent. `isotype_grid`
+  // paints its whole grid through an empty `select: "interval"` this way.
+  if (!selection || selection.initial || entry.empty === false) {
     return undefined;
   }
   return entry.value;

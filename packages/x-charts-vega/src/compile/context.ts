@@ -124,6 +124,22 @@ export interface OverlayTextItem {
   style?: React.CSSProperties;
 }
 
+/**
+ * A point mark whose `shape` is a literal SVG path (Vega's isotype specs).
+ * `scale` multiplies the path's own coordinates — Vega draws a custom shape in
+ * its natural space and scales it by `sqrt(size) / 2`, the same law that turns
+ * a `size` into a circle's radius.
+ */
+export interface OverlayShapeItem {
+  x: OverlayPosition;
+  y: OverlayPosition;
+  /** SVG path data, in the shape's own coordinate space, centred on the origin. */
+  path: string;
+  scale: number;
+  color?: string;
+  opacity?: number;
+}
+
 export interface OverlayImageItem {
   x: OverlayPosition;
   y: OverlayPosition;
@@ -216,6 +232,7 @@ export type CompiledOverlay =
     }
   | { kind: 'text'; items: OverlayTextItem[] }
   | { kind: 'image'; items: OverlayImageItem[] }
+  | { kind: 'shapes'; items: OverlayShapeItem[] }
   | {
       kind: 'radialArcs';
       items: OverlayRadialArcItem[];

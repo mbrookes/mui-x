@@ -13,6 +13,7 @@ import { GeoPointsOverlay } from './GeoPoints';
 import { GeoSegmentsOverlay } from './GeoSegments';
 import { GeoShapesOverlay } from './GeoShapes';
 import { GeoTextOverlay } from './GeoText';
+import { ShapeMarksOverlay } from './ShapeMarks';
 
 /**
  * Dispatches compiled overlay instructions to their per-kind SVG renderers.
@@ -43,6 +44,8 @@ export function VegaOverlays(props: { overlays?: CompiledOverlay[] }) {
           case 'text':
           case 'image':
             return <TextMarksOverlay key={index} overlay={overlay} />;
+          case 'shapes':
+            return <ShapeMarksOverlay key={index} overlay={overlay} />;
           case 'radialArcs':
             return <RadialArcsOverlay key={index} overlay={overlay} />;
           case 'radialLabels':

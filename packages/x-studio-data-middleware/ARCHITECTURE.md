@@ -85,11 +85,18 @@ Everything under `router/`, `shared/`, `mutations/mutationBuilder.ts`, and the i
 
 ## Read path
 
-> **This path is one half of a two-engine contract.** The same dashboard is answered in-memory by
-> `@mui/x-studio-core`'s pipeline when no adapter is configured, and the two must agree.
-> [`EXECUTION_SEMANTICS.md`](../x-studio/docs/EXECUTION_SEMANTICS.md) specifies what correct means;
-> `src/__tests__/executionConformance.test.ts` runs every case in the shared corpus through the real
-> client, this handler and the client-side residual.
+> **This path executes a contract it does not define.** Since
+> [ADR 0005](../x-studio/docs/decisions/0005-primary-execution-path.md) the `StudioQueryDescriptor`
+> is the execution contract, and this handler is one executor of it — the same dashboard is answered
+> in-memory by `@mui/x-studio-core`'s `executeLocalQuery` when no adapter is configured, from the
+> same descriptor.
+>
+> What this protocol can express faithfully is declared once, as `WIRE_QUERY_CAPABILITIES`, and the
+> client's shared planner reads that declaration to decide what to send. So a change here that
+> narrows or widens what SQL can honour belongs in that declaration, not in a client-side
+> translation rule. [`EXECUTION_SEMANTICS.md`](../x-studio/docs/EXECUTION_SEMANTICS.md) specifies
+> what correct means; `src/__tests__/executionConformance.test.ts` runs every case in the shared
+> corpus through the real client, this handler and the client-side residual.
 
 `handleBatchQuery(body, claims, options)`.
 

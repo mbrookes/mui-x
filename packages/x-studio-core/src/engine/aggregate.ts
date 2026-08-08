@@ -22,7 +22,7 @@
  *   (pivot matrix cells, multi-series chart aggregation).
  */
 
-import type { StudioExpressionField } from '../models';
+import type { StudioExpressionField, StudioAggregationFn } from '../models';
 // `expressionEvaluator` imports the pure primitives at the top of this module, so this is a
 // module cycle — a deliberate one. Both sides consume the other only from FUNCTION BODIES
 // (never at module-evaluation time) and both export hoisted function declarations, so the
@@ -68,14 +68,13 @@ import { evaluateMeasure } from '../utils/expressionEvaluator';
  * the expression evaluator already route through `aggregateCellValues` and would answer
  * correctly today; `StudioMapWidget` is unaffected (its own `SAFE_MAP_AGGREGATIONS` allow-list).
  */
-export type AggregateFn =
-  | 'sum'
-  | 'avg'
-  | 'count'
-  | 'count_non_null'
-  | 'min'
-  | 'max'
-  | 'count_distinct';
+/**
+ * The aggregation vocabulary. An alias of `@mui/x-studio-schema`'s `StudioAggregationFn`, which is
+ * where the union now lives: it has three implementers that must agree — these aggregators, the
+ * wire protocol, and the executor capability model — so it belongs in the package all three
+ * already depend on. The name is kept because ~40 call sites read it.
+ */
+export type AggregateFn = StudioAggregationFn;
 
 /**
  * Coerce a raw cell value to a number for aggregation, or `null` when the value

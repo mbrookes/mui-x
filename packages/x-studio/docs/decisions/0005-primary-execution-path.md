@@ -1,8 +1,10 @@
 # 0005 — Which execution engine is primary
 
-**Status:** Open on the primary-path question. **Option 3 accepted and implemented, 2026-08-07** —
-the contract is written down and enforced. The remaining question is which engine is authoritative,
-not what correct means.
+**Status:** **Option 2 accepted, 2026-08-08.** The query descriptor is the execution contract.
+Option 3 (the written contract and its conformance corpus) shipped first, on 2026-08-07, and is the
+specification this was built against. Stage 1 — the capability model, the shared planner, and a
+descriptor-shaped entry point into the in-memory engine — is implemented. Stage 2 is noted at the
+end.
 
 ## Context
 
@@ -49,15 +51,60 @@ the common case.
 
 ## Decision
 
-**Option 3 is done. Options 1 vs 2 remain open.**
+**Option 2. The descriptor is the contract; the in-memory pipeline is one implementation of it.**
 
-Option 3 was worth doing regardless of whether option 2 ever happens: it is the part of option 2's
-value that does not require the refactor, and if option 2 is later taken, the conformance suite is
-the specification it would be built against. What must not persist by default is the state this
-found — two engines, a list of divergences scattered across `warnAdapterDivergence` call sites and
-doc comments, and no artifact saying what correct means.
+Option 3 shipped first and was not wasted: it is the specification option 2 is built against. What
+follows is what "make the descriptor the contract" turned out to mean concretely, because the
+phrase understates where the work actually was.
 
-**What was built:**
+### The judgement had to become a value
+
+The interesting part was never "pass a descriptor to both sides". It was that **"which parts of
+this descriptor may this executor run?" lived inside the one executor that needed it** —
+`isOpValueServerTranslatable`, `isLeafServerTranslatable`, `partitionFilterNode` and a private
+aggregation ladder, all inside `createBatchingAdapter`. Three consequences, all structural:
+
+- A second backend would have re-derived every one of those judgements.
+- Adding a `StudioFilterOperator` compiled everywhere and fell through `mapOperator` to "unmapped"
+  — correct by accident, and only for the wire.
+- The in-memory engine could not be described at all. It is an executor too, and the most capable
+  one, but there was nowhere to say so — which is precisely why the two were parallel
+  implementations rather than one contract with two conformers.
+
+So the knowledge became a value: `StudioQueryCapabilities`, declared per executor in
+`@mui/x-studio-schema`, and `planQueryExecution` in the engine as the one splitter that reads it.
+Nothing in the planner knows what a wire predicate looks like. **Encoding stays with the executor**
+— `leafToPredicates` is still the adapter's own, because a `FilterPredicate` is the wire's spelling
+and nobody else's.
+
+### The fail-closed guarantee
+
+`operators` is declared `satisfies Record<StudioFilterOperator, boolean>`. Adding an operator to the
+union now breaks **every** executor's declaration until each one says yes or no — the same pattern
+the widget registry uses, applied to the thing that was previously correct by accident. The same
+holds for aggregations, and for the interface itself: a new capability is a compile error in every
+declaration, so "we forgot to consider the SQL path" stops being a way for a feature to ship.
+
+`LOCAL_QUERY_CAPABILITIES` declares everything `true` — by definition, not coincidence, since the
+contract is written from that engine's behaviour. That is the invariant the whole arrangement rests
+on: the planner can only route a declined leaf somewhere because one executor always accepts
+everything. A conformance test asserts it, and `executeLocalQuery` dev-warns if it is ever violated.
+
+### One honest asymmetry, declared rather than hidden
+
+`LOCAL_QUERY_CAPABILITIES.aggregationPushdown` is `'none'` — the local executor returns rows and
+the caller aggregates them. That is a division of labour, not a gap: `aggregateCellValues` is
+already the single definition of what each aggregation name means, so an executor that also
+aggregated would be a second implementation of exactly the thing this contract exists to prevent.
+The field is shaped `'none' | Record<…>` rather than a plain record so this can be _said_ instead of
+faked with seven `false`s that would read as a limitation.
+
+Option 3 shipped a day earlier, deliberately: it is the part of option 2's value that does not
+require the refactor, and it is the specification option 2 was then built against. The state it
+replaced is what must not return — two engines, a list of divergences scattered across
+`warnAdapterDivergence` call sites and doc comments, and no artifact saying what correct means.
+
+**What option 3 built, and stage 1 kept:**
 
 - [`EXECUTION_SEMANTICS.md`](../EXECUTION_SEMANTICS.md) — the normative contract. Seven rules
   (numeric coercion, null semantics, case sensitivity, date granularity, join-key coercion,
@@ -83,9 +130,31 @@ anyway because routing it client-side would defeat the pushdown and, for an aggr
 the filter entirely. Raising that cap is where a second "we ship a wrong answer on purpose" has to
 be argued for rather than committed.
 
+### Stage 2, not done here
+
+`useWidgetRows`' sync path still calls `selectFiltersForWidget` → `resolveRows` directly instead of
+building a descriptor and handing it to `executeLocalQuery`. Until it does, the descriptor is the
+contract at the execution boundary but not yet the ONLY road to rows.
+
+Deliberately separate. That hook carries three row baselines, their paired filter sets, a
+`useDeferredValue` window whose pairing is load-bearing, and the `'none'`-mode baseline rule that
+has to hold at three levels — behind ~2,400 tests. Rewiring it is plumbing that follows from this
+decision rather than part of making it, and folding it in would have made a reviewable change
+unreviewable.
+
+What stage 1 already guarantees without it: both engines are entered through a descriptor, the
+split is one shared function of a declared capability set, and a new operator cannot ship without
+every executor declaring what it does with it.
+
 ## Consequences
 
-**It found a real defect on its first run.** The known-divergence case asserts the divergence still
+**Stage 1 found a latent bug the moment the two paths shared an input.** Routing the in-memory side
+through the descriptor made `leafToFilterState`'s missing `scope` field throw immediately, in
+`resolveRows`. The adapter's residual had never noticed, because `applyFilters` does not read
+`scope` at all — so the defect was latent for exactly as long as the two paths took different
+inputs. That is the class of bug a shared contract removes rather than catches.
+
+**Option 3 found a real defect on its first run.** The known-divergence case asserts the divergence still
 EXISTS — that the contract is not carrying an exemption for a problem that quietly went away — and
 it failed. Not against the product: against `createMockDb`, the test double every read-path test in
 `x-studio-data-middleware` runs on, which did not model SQL three-valued logic. Its `!=` returned

@@ -49,7 +49,8 @@ import type {
   StudioQueryResult,
 } from '../models';
 import { isRelativeDateValue, resolveRelativeDate } from '../engine/filterUtils';
-import { aggregationPushdownWarning, decideAggregationPushdown } from './aggregationPushdown';
+import { aggregationStripReason, aggregationStripWarning } from '../engine/queryPlan';
+import { WIRE_QUERY_CAPABILITIES } from '../models';
 
 /**
  * Resolves a single filter value to its wire form, recursively handling a `RelativeDateValue`
@@ -123,14 +124,12 @@ function resolveDescriptorRelativeDates(descriptor: StudioQueryDescriptor): Stud
  * no leaf is left over for a client-side residual.
  */
 function stripUnrepairableAggregations(descriptor: StudioQueryDescriptor): StudioQueryDescriptor {
-  const decision = decideAggregationPushdown({ descriptor, hasUnpushableFilters: false });
-  if (!decision.strip) {
+  const reason = aggregationStripReason(descriptor, WIRE_QUERY_CAPABILITIES, false);
+  if (!reason) {
     return descriptor;
   }
   if (process.env.NODE_ENV !== 'production') {
-    console.warn(
-      `MUI X Studio: ${aggregationPushdownWarning(descriptor.sourceId, decision.reason!)}`,
-    );
+    console.warn(`MUI X Studio: ${aggregationStripWarning(descriptor.sourceId, reason)}`);
   }
   return { ...descriptor, aggregations: undefined };
 }

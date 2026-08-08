@@ -41,8 +41,9 @@ is a thin re-export of it. Above it sits `@mui/x-studio`, the React binding.
 packages/x-studio-core/src/
   store/     StudioController, MutationHistory, runtimeTransforms
   engine/    The row pipeline and its caches, aggregation, chart shapes and grain resolution,
-             the chart-type registry, filter scoping and evaluation, geography/country data,
-             the widget factory and layout math, i18n plumbing (localeText, studioLocale)
+             the chart-type registry, filter scoping and evaluation, the query descriptor, the
+             capability-driven planner (queryPlan) and the local executor (executeLocalQuery),
+             geography/country data, the widget factory and layout math, i18n plumbing
   adapter/   StudioDataSourceAdapter, createSimpleAdapter, createBatchingAdapter,
              aggregationPushdown
   models/    Re-exports of @mui/x-studio-schema
@@ -576,11 +577,21 @@ self-repair rules — lives in the binding; see
 
 ## The query adapter
 
-> **The adapter is one half of a two-engine contract.** What it may translate faithfully, what it
-> must hold back as a client-side residual, and the one divergence it ships on purpose are specified
-> in [`EXECUTION_SEMANTICS.md`](../x-studio/docs/EXECUTION_SEMANTICS.md) and enforced by a
-> conformance corpus that runs every case down both paths. Read the degradation register before
-> widening anything below.
+> **The adapter is one executor of a shared contract, not a parallel engine.** Since
+> [ADR 0005](../x-studio/docs/decisions/0005-primary-execution-path.md) the `StudioQueryDescriptor`
+> is the execution contract: `engine/queryPlan.ts`'s `planQueryExecution` splits one between an
+> executor and the local engine, reading that executor's `StudioQueryCapabilities` declaration, and
+> `engine/executeLocalQuery.ts` is the in-memory executor of the same descriptor.
+>
+> **What lives where.** The planner decides WHO runs a leaf; the adapter decides how that leaf is
+> spelled. `leafToPredicates` and `toPredicatesFor` are the wire's encoding and stay here;
+> `isOpValueServerTranslatable` and `isLeafServerTranslatable` are gone, because they were the
+> judgement and the judgement is shared now.
+>
+> What it may run, what it must hold back, and the one divergence it ships on purpose are specified
+> in [`EXECUTION_SEMANTICS.md`](../x-studio/docs/EXECUTION_SEMANTICS.md), declared in
+> `WIRE_QUERY_CAPABILITIES`, and enforced by a conformance corpus that runs every case down both
+> paths. Read the degradation register before widening anything below.
 
 `StudioDataSourceAdapter` is the contract: `getRows(descriptor: StudioQueryDescriptor): Promise<StudioQueryResult>` plus an optional `submitMutation`. Two implementations:
 

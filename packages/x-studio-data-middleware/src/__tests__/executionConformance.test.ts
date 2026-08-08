@@ -36,14 +36,19 @@
    depend on both; see the module doc and `clientWireSeam.test.ts`, which does the same. */
 import { describe, it, expect, vi } from 'vitest';
 import { createBatchingAdapter } from '../../../x-studio-core/src/adapter/createBatchingAdapter';
-import { applyFilters } from '../../../x-studio-core/src/engine/filterUtils';
+import { executeLocalQuery } from '../../../x-studio-core/src/engine/executeLocalQuery';
+import { planQueryExecution } from '../../../x-studio-core/src/engine/queryPlan';
 import type {
   StudioFilterNode,
   StudioQueryDescriptor,
 } from '../../../x-studio-schema/src/dataTypes';
-import type { StudioFilterState } from '../../../x-studio-schema/src/stateTypes';
 import type { ExecutionConformanceCase } from '../../../x-studio-schema/src/executionConformance';
 import { EXECUTION_CONFORMANCE_CASES } from '../../../x-studio-schema/src/executionConformance';
+import {
+  LOCAL_QUERY_CAPABILITIES,
+  WIRE_QUERY_CAPABILITIES,
+} from '../../../x-studio-schema/src/queryCapabilities';
+import { STUDIO_FILTER_OPERATORS } from '../../../x-studio-schema/src/widgetTypeGuards';
 /* eslint-enable import/no-relative-packages */
 import { handleBatchQuery } from '../handler';
 import { LRUCacheProvider } from '../cache/LRUCacheProvider';
@@ -75,20 +80,23 @@ function leafOf(testCase: ExecutionConformanceCase): StudioFilterNode {
   };
 }
 
-/** The SAME leaf as a document filter, which is what the in-memory L3 layer consumes. */
-function filterStateOf(testCase: ExecutionConformanceCase): StudioFilterState {
+/**
+ * The ONE descriptor both executors answer.
+ *
+ * The point of ADR 0005: the question is stated once. Before, the wire path got a descriptor and
+ * the in-memory path got a hand-built `StudioFilterState`, so a corpus case could pass while the
+ * two statements of it quietly differed.
+ */
+function descriptorOf(testCase: ExecutionConformanceCase): StudioQueryDescriptor {
   return {
-    id: `conformance-${testCase.id}`,
-    field: testCase.field,
-    fieldType: testCase.fieldType,
-    operator: testCase.operator,
-    value: testCase.value,
-    filterMode: 'condition',
-    scope: { kind: 'page', pageId: 'p1' },
-    ...(testCase.operator2 !== undefined && { operator2: testCase.operator2 }),
-    ...(testCase.value2 !== undefined && { value2: testCase.value2 }),
-    ...(testCase.conjunction !== undefined && { conjunction: testCase.conjunction }),
-  } as StudioFilterState;
+    sourceId: TABLE,
+    tableName: TABLE,
+    widgetId: `w-${testCase.id}`,
+    cacheKey: `ck-${testCase.id}`,
+    // Every column, so a residual can evaluate its own field against the response.
+    select: Object.keys(testCase.rows[0] ?? { id: 1 }),
+    filter: leafOf(testCase),
+  };
 }
 
 interface WirePathResult {
@@ -144,21 +152,11 @@ async function runWirePath(testCase: ExecutionConformanceCase): Promise<WirePath
     batchDelayMs: 0,
   });
 
-  const descriptor: StudioQueryDescriptor = {
-    sourceId: TABLE,
-    tableName: TABLE,
-    widgetId: `w-${testCase.id}`,
-    cacheKey: `ck-${testCase.id}`,
-    // Every column, so the residual can evaluate its own field against the response.
-    select: Object.keys(testCase.rows[0] ?? { id: 1 }),
-    filter: leafOf(testCase),
-  };
-
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   let result;
   let warnings = '';
   try {
-    result = await adapter.getRows(descriptor);
+    result = await adapter.getRows(descriptorOf(testCase));
   } finally {
     warnings = warn.mock.calls.flat().join('\n');
     warn.mockRestore();
@@ -171,14 +169,31 @@ async function runWirePath(testCase: ExecutionConformanceCase): Promise<WirePath
   };
 }
 
+/**
+ * The local executor's answer — reached through the SAME descriptor the wire path is given.
+ *
+ * This used to call `applyFilters` with a hand-built `StudioFilterState`, which meant the suite
+ * compared two engines fed from two different statements of the question. Since ADR 0005 the
+ * descriptor IS the question, so both sides now start from one object and the corpus tests the
+ * contract rather than a pair of translations of it.
+ */
 function memoryIds(testCase: ExecutionConformanceCase): number[] {
-  return (
-    applyFilters(testCase.rows as Record<string, unknown>[], [filterStateOf(testCase)]) as {
-      id: number;
-    }[]
-  )
-    .map((row) => row.id)
-    .sort((a, b) => a - b);
+  const result = executeLocalQuery(descriptorOf(testCase), {
+    rows: testCase.rows as Record<string, unknown>[],
+    dataSources: {
+      [TABLE]: {
+        id: TABLE,
+        label: TABLE,
+        fields: Object.keys(testCase.rows[0] ?? { id: 1 }).map((id) => ({
+          id,
+          label: id,
+          type: 'string' as const,
+        })),
+        rows: testCase.rows as Record<string, unknown>[],
+      },
+    },
+  });
+  return (result.rows as { id: number }[]).map((row) => row.id).sort((a, b) => a - b);
 }
 
 describe('execution semantics — corpus integrity', () => {
@@ -208,6 +223,45 @@ describe('execution semantics — corpus integrity', () => {
   });
 });
 
+describe('execution semantics — the capability declarations', () => {
+  it('makes the local executor accept everything the contract defines', () => {
+    // The invariant the whole arrangement rests on. The planner can only route a declined leaf
+    // somewhere if ONE executor always accepts everything; without that, "the descriptor is the
+    // contract" degrades to "the descriptor is a suggestion". A `false` in
+    // LOCAL_QUERY_CAPABILITIES would not mean the engine is limited — it would mean the contract
+    // describes something nothing implements.
+    const declined = EXECUTION_CONFORMANCE_CASES.filter(
+      (c) =>
+        planQueryExecution(descriptorOf(c), LOCAL_QUERY_CAPABILITIES).residualLeaves.length > 0,
+    ).map((c) => c.id);
+    expect(declined, 'the reference executor must accept every case').toEqual([]);
+  });
+
+  it('declares every filter operator, so a new one cannot ship undeclared', () => {
+    // `satisfies Record<StudioFilterOperator, boolean>` already enforces this at compile time. The
+    // runtime twin exists because the compile-time version is invisible in a review diff: adding an
+    // operator breaks the build, and the cheapest way to unbreak it is to copy a neighbour's value.
+    // This says out loud that the value is a decision.
+    for (const op of STUDIO_FILTER_OPERATORS) {
+      expect(typeof LOCAL_QUERY_CAPABILITIES.operators[op], `local: ${op}`).toBe('boolean');
+      expect(typeof WIRE_QUERY_CAPABILITIES.operators[op], `wire: ${op}`).toBe('boolean');
+    }
+  });
+
+  it('keeps the wire declaration and the corpus telling the same story', () => {
+    // The declaration and the corpus are the same degradation register in two forms. This is what
+    // stops them becoming two: widen a capability without adding a case and the disposition suite
+    // fails; add a case that contradicts the declaration and this fails first, with the clearer
+    // message.
+    const disagreements = EXECUTION_CONFORMANCE_CASES.filter((c) => {
+      const accepted =
+        planQueryExecution(descriptorOf(c), WIRE_QUERY_CAPABILITIES).acceptedLeaves.length > 0;
+      return accepted !== (c.disposition !== 'client-residual');
+    }).map((c) => c.id);
+    expect(disagreements, 'WIRE_QUERY_CAPABILITIES and the corpus disagree').toEqual([]);
+  });
+});
+
 describe('execution semantics — the in-memory path answers what the contract says', () => {
   // Run FIRST and separately from the agreement check below, so a corpus case whose expectation is
   // simply wrong fails as "the contract is wrong" rather than as "the two engines disagree".
@@ -233,18 +287,29 @@ describe('execution semantics — each leaf runs where the contract says it runs
   it.each(EXECUTION_CONFORMANCE_CASES.map((c) => [c.id, c] as const))(
     '%s',
     async (_id, testCase) => {
-      const wire = await runWirePath(testCase);
-      // Compared as "did anything go down at all", in one unconditional assertion. This is the
-      // check that survives a forgiving mock: if a contracted residual flips to pushed-down,
-      // someone widened translation past what SQL can honour, and the answer goes wrong only for
-      // data outside this fixture.
-      const wentDown = wire.pushedPredicateCount > 0;
       const shouldGoDown = testCase.disposition !== 'client-residual';
+
+      // 1. The PLAN agrees with the contract. Since ADR 0005 the split is a pure function of the
+      //    descriptor and a declared capability set, so this is now checkable without running
+      //    anything — and it is the assertion that fails when someone edits
+      //    `WIRE_QUERY_CAPABILITIES` without editing the register the corpus encodes.
+      const plan = planQueryExecution(descriptorOf(testCase), WIRE_QUERY_CAPABILITIES);
       expect(
-        wentDown,
+        plan.acceptedLeaves.length > 0,
         shouldGoDown
-          ? `${testCase.id} is contracted to push down, but the client sent no predicate`
+          ? `${testCase.id} is contracted to push down, but the plan declined it`
           : `${testCase.id} must stay a client residual — ${testCase.why}`,
+      ).toBe(shouldGoDown);
+
+      // 2. The ADAPTER honours the plan. The declaration could be right while the encoding ignores
+      //    it, which is exactly the gap between "we decided" and "it happens", so the real POST
+      //    body is checked too. This is also the check that survives a forgiving mock: the mock's
+      //    `LIKE` is case-insensitive, so a `contains` wrongly pushed down would still agree on the
+      //    answer and be wrong on Postgres for data outside this fixture.
+      const wire = await runWirePath(testCase);
+      expect(
+        wire.pushedPredicateCount > 0,
+        `${testCase.id}: the plan and the adapter's actual request disagree about where it runs`,
       ).toBe(shouldGoDown);
     },
   );

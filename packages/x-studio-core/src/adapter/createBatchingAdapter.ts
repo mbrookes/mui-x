@@ -43,7 +43,13 @@ import type {
   JoinDescriptor,
   SemiJoinDescriptor,
 } from '../models';
-import { MAX_ITEMS_PER_BATCH, STUDIO_DATA_WIRE_VERSION } from '../models';
+import { MAX_ITEMS_PER_BATCH, STUDIO_DATA_WIRE_VERSION, WIRE_QUERY_CAPABILITIES } from '../models';
+import {
+  aggregationStripReason,
+  aggregationStripWarning,
+  leafToFilterState,
+  planQueryExecution,
+} from '../engine/queryPlan';
 import {
   applyFilters,
   isConditionComplete,
@@ -52,11 +58,7 @@ import {
 } from '../engine/filterUtils';
 import { normalizeJoinKey } from '../engine/joinKeys';
 import { lookup } from '../utils/safeLookup';
-import {
-  aggregationPushdownWarning,
-  decideAggregationPushdown,
-  isClientOnlyAggFn,
-} from './aggregationPushdown';
+
 import type { AggFn } from '../engine/chartTypeRegistry';
 
 /**
@@ -1691,9 +1693,7 @@ function buildBatchWidgetDescriptor(
     // A residual cannot be evaluated against a pre-aggregated response, so an aggregating widget
     // with (say) a `contains` page filter pushed the aggregation down, discarded the residual with
     // only a warning, and aggregated over EVERY row.
-    const partition = partitionFilterNode(d.filter, (leaf) =>
-      warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
-    );
+    const partition = partitionFilterNode(d, warnDedupe);
 
     // An own-source expression (calculated-column) field has no physical column of the same name,
     // so simple mode — which has no relationship graph and cannot resolve it to one — must not
@@ -1898,9 +1898,7 @@ function buildBatchWidgetDescriptor(
   // client residual" is one of that decision's inputs and a residual cannot be evaluated against a
   // pre-aggregated response. The two used to run in the opposite order, so an aggregating widget
   // with an unpushable filter dropped that filter with only a warning and aggregated every row.
-  const partition = partitionFilterNode(d.filter, (leaf) =>
-    warnServerLeafDivergence(leaf, d.sourceId, warnDedupe),
-  );
+  const partition = partitionFilterNode(d, warnDedupe);
 
   /**
    * Whether a residual leaf's field can be re-projected under its LOGICAL id in the returned raw
@@ -2152,171 +2150,18 @@ function warnAdapterDivergence(dedupe: Set<string>, message: string): void {
   console.warn(`MUI X Studio: ${message}`);
 }
 
-/**
- * True when a `{ from, to }` (or `[lo, hi]`) `between` value has BOTH bounds set. Mirrors the
- * in-memory evaluator's truthy-bound semantics (`filterUtils.ts`: `range.from ? … : null`), so
- * an empty string counts as "unset". An open-ended between ({ from } or { to } only) is NOT
- * fully bounded — the wire path would send `whereBetween(col, [value, undefined])`, a binding
- * error on Postgres / a silent wrong result on SQLite/MySQL. Single-bound
- * betweens are therefore kept client-side, where a missing bound is treated as unbounded.
- */
-function isFullyBoundedBetween(value: unknown): boolean {
-  if (value === null || typeof value !== 'object') {
-    return false;
-  }
-  // `!= null && !== ''` rather than a truthiness check so a genuine `0` bound (e.g.
-  // "between 0 and 100") counts as SET — a truthiness check treated `0` as unset and kept
-  // the whole predicate client-side, mirroring the in-memory bug this pairs with.
-  const hasBound = (v: unknown): boolean => v != null && v !== '';
-  if (Array.isArray(value)) {
-    return value.length === 2 && hasBound(value[0]) && hasBound(value[1]);
-  }
-  const range = value as { from?: unknown; to?: unknown };
-  return hasBound(range.from) && hasBound(range.to);
-}
-
-/**
- * True when a single (op, value, fieldType) triple can be sent to the server with EXACTLY the same
- * semantics as the in-memory evaluator. Beyond the operator mapping, five cases must stay
- * client-side because their wire translation inverts or corrupts the in-memory result:
- *  - an empty `in` array matches NOTHING both in-memory (`filterVal.some(...)` over `[]`) and on
- *    the wire (the middleware emits `whereIn(col, [])` → `1 = 0`), so pushing it down would be
- *    faithful today — but the in-memory "match nothing" is the SEMANTICS this module pins, and the
- *    predicate selects no rows either way, so it is kept client-side where one evaluator owns the
- *    empty-selection rule (see `leafToClientFilterState`'s `filterMode` note);
- *  - an open-ended `between` (only one bound set) is unbounded in-memory but becomes a
- *    malformed two-arg `whereBetween` on the wire;
- *  - a `boolean` field whose value is not one of the two spellings `toWirePredicateValue` can
- *    coerce to a real boolean (see the `boolean` branch below);
- *  - `not_equals` on a `date`/`datetime` field, whose faithful form is an OR;
- *  - `equals` on a `date`/`datetime` field whose value does not reduce to a calendar day, so the
- *    day-range rewrite in `toPredicatesFor` cannot be built.
+/*
+ * The "can the server run this leaf?" judgement used to live here, as
+ * `isOpValueServerTranslatable` / `isLeafServerTranslatable`, alongside a `warnServerLeafDivergence`
+ * for the one leaf pushed down unfaithfully. All three are gone: they were knowledge about ONE
+ * backend, embedded in that backend, which meant a second one would have re-derived every judgement
+ * and a new `StudioFilterOperator` fell through to "unmapped" by accident rather than by decision.
  *
- * The two date cases exist because `equals`/`not_equals` on a `date`/`datetime` field are
- * DAY-granular in-memory for EVERY value form: `filterUtils`' `compileSingleCondition` routes both
- * sides through `toDayComparable`, which truncates to `YYYY-MM-DD`. (This is unlike the ordering
- * bounds, which go through `compileDateBound` and only widen a DATE-ONLY value — so the wire
- * rewrite for them is conditional on date-only-ness while the one for `equals` is not.)
+ * The judgement is now `planQueryExecution` in `@mui/x-studio-core/engine`, reading
+ * `WIRE_QUERY_CAPABILITIES` — this protocol's declaration of what it can express with exactly the
+ * contract's semantics. What stays here is ENCODING: `leafToPredicates` and `toPredicatesFor` know
+ * how a `FilterPredicate` is spelled, which is nobody else's business.
  */
-function isOpValueServerTranslatable(
-  op: StudioFilterOperator,
-  value: unknown,
-  fieldType: StudioFilterLeaf['fieldType'],
-): boolean {
-  if (mapOperator(op) === null) {
-    return false;
-  }
-  if (op === 'in' && Array.isArray(value) && value.length === 0) {
-    return false;
-  }
-  if (op === 'between' && !isFullyBoundedBetween(value)) {
-    return false;
-  }
-  if (fieldType === 'boolean') {
-    // The drawer stores a boolean filter's value as the STRING `'true'`/`'false'`, which the
-    // in-memory evaluator compares as `String(row[field]) === value` — correct. Bound to SQL as a
-    // string it is not: PostgreSQL implicitly casts `'true'`, but MySQL (`tinyint(1)`) and SQLite
-    // coerce it NUMERICALLY to 0, so `col = 'true'` returns exactly the rows where the flag is
-    // FALSE — the complement of what was asked for. `toWirePredicateValue` coerces the two
-    // recognised spellings to real booleans; anything else on a boolean field (a bare `''`, a
-    // number, an `in [...]` list) has no equally certain coercion, so it falls to the client
-    // residual instead of shipping a guess.
-    return coerceWireBoolean(resolveWireScalar(value)) !== null;
-  }
-  if (isDateFieldType(fieldType)) {
-    // "not on day D" is `col < D OR col >= nextDay(D)`. The wire protocol AND-combines every
-    // predicate and has no OR, so there is no AND-expressible form — pushing `neq D` instead
-    // compares the raw column to midnight and KEEPS every non-midnight row of day D, i.e. the
-    // adapter returns MORE rows than the evaluator. Route it to the client residual, where
-    // `applyFilters` evaluates it at day granularity (and, as a bonus, keeps the NULL rows SQL
-    // three-valued logic would have dropped).
-    if (op === 'not_equals') {
-      return false;
-    }
-    // `equals` IS AND-expressible (`>= D` AND `< nextDay(D)`, see `toPredicatesFor`) — but only
-    // once the wire value reduces to a calendar day. A numeric epoch, a `Date` instance or a
-    // non-ISO string cannot be turned into that pair here, and a bare `eq` against them diverges,
-    // so those fall back to the client residual rather than shipping a wrong predicate.
-    if (op === 'equals') {
-      return dayPartOfWireValue(resolveWireScalar(value)) !== null;
-    }
-  }
-  return true;
-}
-
-/**
- * True when a leaf can be sent to the server with EXACTLY the same semantics as the in-memory
- * evaluator: its operator(s) + value(s) map to the wire protocol AND, when it carries a second
- * condition, the two are AND-combined (the wire protocol ANDs every predicate and has no OR).
- */
-function isLeafServerTranslatable(leaf: StudioFilterLeaf): boolean {
-  // An incomplete first condition (e.g. the drawer's `{ operator: 'equals', value: '' }` add-filter
-  // default) has no in-memory effect — `applyFilters` drops it via `isFilterComplete`. Pushing it
-  // down as a real `col = ''` predicate empties a string column / errors a numeric one. Route it to
-  // the client-side residual instead, where `applyFilters` re-drops it (self-healing). The normal
-  // path also prunes it in `buildQueryDescriptor`; this guards a host-authored descriptor that
-  // bypasses that builder.
-  if (!isConditionComplete(leaf.op, leaf.value)) {
-    return false;
-  }
-  if (!isOpValueServerTranslatable(leaf.op, leaf.value, leaf.fieldType)) {
-    return false;
-  }
-  // Mirror `isConditionComplete`'s presence rule (not a bare `value2 !== undefined` check) — a
-  // valueless second operator (`is_empty`/`is_not_empty`) IS a real, present second condition
-  // with no value at all. The old `value2 !== undefined` check reported `hasSecondCondition` as
-  // false for it, so the leaf was declared "fully translatable" on its FIRST condition alone —
-  // silently dropping the second condition entirely (never emitted in `leafToPredicates` either,
-  // since that function has the same `value2 !== undefined` gate) instead of failing translation
-  // and falling back to the client-side residual, where the in-memory evaluator enforces both
-  // conditions correctly.
-  const hasSecondCondition = leaf.op2 !== undefined && isConditionComplete(leaf.op2, leaf.value2);
-  if (!hasSecondCondition) {
-    return true;
-  }
-  // A second condition combined with OR ("x < 5 OR x > 100") cannot be expressed as two
-  // AND-ed predicates — the server would AND them and return zero rows.
-  if (leaf.conjunction === 'or') {
-    return false;
-  }
-  return isOpValueServerTranslatable(leaf.op2!, leaf.value2, leaf.fieldType);
-}
-
-/**
- * Warn (once per widget-descriptor build) about the null-handling drift of a leaf that IS pushed
- * to the server but whose semantics differ subtly from the in-memory evaluator.
- * Unlike the operators routed to the client residual, `not_equals` stays server-side because its
- * pushdown is essential (it is a common, high-selectivity filter, and routing it client-side would
- * defeat the query pushdown and, for aggregated widgets, drop the filter entirely). The divergence
- * is surfaced loudly instead of silently: SQL three-valued logic excludes NULL rows server-side,
- * but the in-memory evaluator KEEPS them (`row[field] != value` is true for null).
- *
- * There is no longer a companion date warning. `equals` on a `date`/`datetime` field used to be
- * pushed as a raw `eq` against a bare `'YYYY-MM-DD'` — matching only exact-midnight rows on a
- * DATETIME column while in-memory matched the whole day — and that was merely warned about
- * ("Use a `between` range instead"), i.e. a dashboard viewer saw a wrong number and only a
- * developer saw the console note. It is now TRANSLATED to a faithful `>= D AND < nextDay(D)` pair
- * by `toPredicatesFor`, and the shapes that cannot be translated are routed to the client residual
- * by `isOpValueServerTranslatable`, so there is nothing left to warn about.
- *
- * `not_equals` on a `date`/`datetime` field is likewise no longer pushed at all (its faithful form
- * is an OR), so this warning only ever fires for a non-date `not_equals`.
- */
-function warnServerLeafDivergence(
-  leaf: StudioFilterLeaf,
-  sourceId: string,
-  dedupe: Set<string>,
-): void {
-  if (leaf.op === 'not_equals' || leaf.op2 === 'not_equals') {
-    warnAdapterDivergence(
-      dedupe,
-      `A "not_equals" filter on "${leaf.field}" for source "${sourceId}" is executed server-side, ` +
-        `where SQL three-valued logic excludes rows whose value is NULL. In-memory sources keep ` +
-        `those NULL rows, so the adapter may return fewer rows. Add an explicit "is empty" ` +
-        `condition if NULL rows should be included.`,
-    );
-  }
-}
 
 /** Resolves `rawValue` to its wire form if it's a top-level `RelativeDateValue`, else passes it through unchanged. */
 function resolveWireScalar(rawValue: unknown): unknown {
@@ -2609,84 +2454,45 @@ interface PartitionedFilter {
 }
 
 /**
- * Split a `StudioFilterNode` into the parts that can be executed faithfully server-side
- * (`predicates`, AND-combined) and the parts that must fall back to client-side evaluation
- * (`clientLeaves`) so the adapter path matches the in-memory evaluator exactly.
+ * Encode a descriptor's filter for this protocol, using the shared plan to decide what may go.
  *
- * Was previously an unconditional AND flatten (`flattenFilterNode`) that silently:
- *  - turned an intra-leaf OR into an AND, and
- *  - dropped any leaf whose operator did not map.
+ * The SPLIT is not decided here any more — `planQueryExecution` makes it, reading
+ * `WIRE_QUERY_CAPABILITIES`, so every executor is judged by one implementation and a new backend
+ * declares rather than re-derives. What is left here is what only this protocol can do: turn an
+ * accepted leaf into `FilterPredicate`s, and keep the index-aligned source attribution that
+ * `resolveRows` divergence detection depends on.
  *
- * Now:
- *  - AND group → children partitioned recursively (AND distributes, so each child is
- *    independently server- or client-side);
- *  - OR group  → whole group dropped from the request, `droppedOrGroup` flagged (defensive);
- *  - leaf      → server-side when `isLeafServerTranslatable`, else evaluated client-side.
+ * Divergences the plan reports (there is one: `not_equals` on a non-date field, pushed down knowing
+ * SQL three-valued logic drops NULL rows) are announced here rather than inside the planner,
+ * because the emission POLICY is per-adapter — this one dedupes per descriptor build and warns in
+ * every environment.
+ * @param descriptor The widget's query descriptor.
+ * @param warnDedupe Per-build set so one message is emitted once, not once per row.
+ * @returns Wire predicates, their source attribution, and the residual for the caller to re-apply.
  */
 function partitionFilterNode(
-  node: StudioFilterNode | undefined,
-  onServerLeaf?: (leaf: StudioFilterLeaf) => void,
+  descriptor: StudioQueryDescriptor,
+  warnDedupe: Set<string>,
 ): PartitionedFilter {
+  const plan = planQueryExecution(descriptor, WIRE_QUERY_CAPABILITIES);
   const result: PartitionedFilter = {
     predicates: [],
     predicateSourceIds: [],
-    clientLeaves: [],
-    droppedOrGroup: false,
+    clientLeaves: plan.residualLeaves,
+    droppedOrGroup: plan.droppedOrGroup,
   };
-  if (!node) {
-    return result;
+  plan.divergences.forEach((message) => warnAdapterDivergence(warnDedupe, message));
+  for (const leaf of plan.acceptedLeaves) {
+    const emitted = leafToPredicates(leaf);
+    result.predicates.push(...emitted);
+    // One attribution entry PER EMITTED PREDICATE, so `predicateSourceIds[i]` always describes the
+    // leaf `predicates[i]` came from even when `leafToPredicates` expands one leaf into two (a
+    // day-granular date `eq`, an `op2` second condition).
+    for (let i = 0; i < emitted.length; i += 1) {
+      result.predicateSourceIds.push(leaf.filterSourceId ?? '');
+    }
   }
-  const visit = (n: StudioFilterNode): void => {
-    if (n.type === 'group') {
-      if (n.logic === 'or') {
-        result.droppedOrGroup = true;
-        return;
-      }
-      n.children.forEach(visit);
-      return;
-    }
-    if (isLeafServerTranslatable(n)) {
-      // Surface any NULL-handling drift for leaves we DO push down before
-      // emitting the predicate. Date-granularity drift is no longer warned about — it is
-      // translated away by `toPredicatesFor` or routed to the residual.
-      onServerLeaf?.(n);
-      const emitted = leafToPredicates(n);
-      result.predicates.push(...emitted);
-      // One attribution entry PER EMITTED PREDICATE, so `predicateSourceIds[i]` always describes
-      // the leaf `predicates[i]` came from even when `leafToPredicates` expands one leaf into two.
-      for (let i = 0; i < emitted.length; i += 1) {
-        result.predicateSourceIds.push(n.filterSourceId ?? '');
-      }
-    } else {
-      result.clientLeaves.push(n);
-    }
-  };
-  visit(node);
   return result;
-}
-
-/**
- * Convert an un-sendable leaf into a `StudioFilterState` so the shared client evaluator
- * (`filterUtils.applyFilters`) enforces it against the returned rows with identical semantics.
- * The `id` / `scope` fields are unused by the evaluator; only field/operator/value(2) matter.
- */
-function leafToClientFilterState(leaf: StudioFilterLeaf): StudioFilterState {
-  return {
-    id: `_adapter_client_${leaf.field}`,
-    field: leaf.field,
-    operator: leaf.op,
-    value: leaf.value,
-    operator2: leaf.op2,
-    value2: leaf.value2,
-    conjunction: leaf.conjunction,
-    fieldType: leaf.fieldType,
-    // Preserve the source leaf's authoring mode instead of hardcoding `'condition'`. An empty
-    // selection ("any value") arrives as a selection-mode `in []`: in-memory `isFilterComplete`
-    // drops it (→ match everything), but a `'condition'` restamp makes `isConditionComplete('in',
-    // [])` true and re-applies `in []` as a real predicate that matches NOTHING — inverting the
-    // filter and blanking the widget on the adapter path.
-    filterMode: leaf.filterMode ?? 'condition',
-  } as unknown as StudioFilterState;
 }
 
 /**
@@ -2737,7 +2543,7 @@ function resolveClientResidual(
   const states: StudioFilterState[] = [];
   for (const leaf of partition.clientLeaves) {
     if (tryProjectField(leaf.field)) {
-      states.push(leafToClientFilterState(leaf));
+      states.push(leafToFilterState(leaf));
     } else {
       warnAdapterDivergence(
         dedupe,
@@ -2788,17 +2594,34 @@ function decideWireAggregations(
     fn: Exclude<AggFn, 'count' | 'count_distinct'>,
   ): AggregationSpec['func'] => (fn === 'count_non_null' ? 'count' : fn);
 
-  const decision = decideAggregationPushdown({ descriptor: d, hasUnpushableFilters });
-  if (decision.reason) {
-    warnAdapterDivergence(dedupe, aggregationPushdownWarning(d.sourceId, decision.reason));
-  }
-  if (decision.strip) {
+  // The ladder is the shared planner's, read off the SAME `WIRE_QUERY_CAPABILITIES` declaration the
+  // filter split used, so "which aggregations can this protocol compute" is stated once rather than
+  // asserted in two places. `hasUnpushableFilters` is passed rather than inferred because this
+  // adapter REFINES it: only a residual leaf whose column can actually be projected back justifies
+  // giving up the push-down.
+  const stripReason = aggregationStripReason(d, WIRE_QUERY_CAPABILITIES, hasUnpushableFilters);
+  if (stripReason) {
+    warnAdapterDivergence(dedupe, aggregationStripWarning(d.sourceId, stripReason));
     return undefined;
   }
+  /**
+   * Narrow an aggregation to the ones this protocol declares it can compute.
+   *
+   * Reads `WIRE_QUERY_CAPABILITIES` rather than naming the excluded functions, so the declaration
+   * stays the single statement of which those are. The `Exclude` in the predicate's return type is
+   * only what `toWireAggFunc` needs to accept it without a cast.
+   * @param fn The Studio aggregation name.
+   * @returns Whether the wire can compute it.
+   */
+  const isWirePushableAggFn = (fn: AggFn): fn is Exclude<AggFn, 'count' | 'count_distinct'> =>
+    WIRE_QUERY_CAPABILITIES.aggregationPushdown[fn];
+
   const specs = (d.aggregations ?? []).flatMap((a): AggregationSpec[] => {
-    // Unreachable: the ladder strips the whole push-down when a client-only function is present.
-    // Kept so `func` narrows to the wire enum rather than being cast.
-    if (isClientOnlyAggFn(a.fn)) {
+    // Unreachable: the ladder strips the whole push-down when this protocol declares it cannot
+    // compute a function. The guard reads that same declaration rather than restating the list, so
+    // the narrowing here and the strip decision above can never disagree — and it is kept at all so
+    // `func` narrows to the wire enum rather than being cast.
+    if (!isWirePushableAggFn(a.fn)) {
       return [];
     }
     const column = resolveColumn(a.field);

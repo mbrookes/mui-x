@@ -161,6 +161,16 @@ export type {
 // The execution-semantics conformance corpus: the artifact defining what the in-memory pipeline
 // and the SQL push-down path must both answer. Published from here because it is read by a test in
 // `x-studio-data-middleware` and by nothing that may depend on it. See `executionConformance.ts`.
+// The executor capability model: what a query backend can answer faithfully, declared as a value
+// rather than embedded in whichever backend needed it. Published from here because the planner
+// (`@mui/x-studio-core/engine`), both adapters and the conformance suite all read the same
+// declarations. See `queryCapabilities.ts`.
+export { LOCAL_QUERY_CAPABILITIES, WIRE_QUERY_CAPABILITIES } from './queryCapabilities';
+export type {
+  BooleanValueBinding,
+  StudioAggregationFn,
+  StudioQueryCapabilities,
+} from './queryCapabilities';
 export { EXECUTION_CONFORMANCE_CASES } from './executionConformance';
 export type {
   ConformanceDisposition,

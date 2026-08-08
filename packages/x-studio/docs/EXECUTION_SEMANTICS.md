@@ -28,10 +28,11 @@ shipped were the ones nobody thought to write a test for — `equals` on a `date
 only midnight rows while the in-memory path matched the whole day, and being merely `console.warn`ed
 about, so a dashboard viewer saw a wrong number and only a developer saw the note.
 
-This document is the answer to "what does correct mean". It is not a statement that the two-engine
-design is settled — see [ADR 0005](./decisions/0005-primary-execution-path.md), which is still open.
-It is the part of that ADR's value that does not require the refactor, and if the refactor ever
-happens, this is the specification it would be built against.
+This document is the answer to "what does correct mean". **The descriptor is now the contract it
+attaches to** — see [ADR 0005](./decisions/0005-primary-execution-path.md), which took that branch.
+Both engines are entered through a `StudioQueryDescriptor`, and which parts of one an executor may
+run is decided by a shared planner reading that executor's declared capabilities, rather than by
+knowledge embedded in whichever backend needed it.
 
 ## The two paths
 
@@ -46,20 +47,37 @@ L4 re-anchor      grainResolution.ts     (chart grain only)
    aggregate      aggregate.ts / aggregators.ts
 ```
 
-**Pushed down** (optional) — a `StudioQueryDescriptor` translated to wire predicates, executed as
-SQL, with whatever the wire could not express faithfully re-applied locally:
+**Pushed down** (optional) — the same descriptor, executed as SQL, with whatever the wire could not
+express faithfully re-applied locally.
+
+**Both start from one object**, and one planner splits it:
 
 ```text
-queryDescriptor.ts        →  build the descriptor
-createBatchingAdapter.ts  →  partitionFilterNode: predicates | clientLeaves
-                             aggregationPushdown.ts: the five-rung ladder
-x-studio-data-middleware  →  queryBuilder.ts → SQL
-createBatchingAdapter.ts  →  re-apply clientLeaves via applyFilters
+                    buildWidgetQueryDescriptor  →  StudioQueryDescriptor
+                                                            │
+                              planQueryExecution(descriptor, capabilities)
+                                                            │
+                            ┌───────────────────────────────┴───────────────┐
+                            ▼                                               ▼
+              LOCAL_QUERY_CAPABILITIES                      WIRE_QUERY_CAPABILITIES
+              executeLocalQuery                             createBatchingAdapter
+              → resolveRows over Row[]                      → leafToPredicates → SQL
+              (accepts everything)                          → residual re-applied locally
 ```
 
 The push-down path is **not** a different semantics with a different answer. Where it cannot be
-faithful it declines, and the in-memory evaluator finishes the job — which is why the two halves of
-`partitionFilterNode` are the load-bearing part of this contract, not the SQL builder.
+faithful it declines, and the local engine finishes the job.
+
+**What makes that structural rather than conventional** is that "can this executor run this leaf?"
+is a pure function of a `StudioQueryCapabilities` value. It used to be embedded in
+`createBatchingAdapter` — `isOpValueServerTranslatable`, `isLeafServerTranslatable`, and a private
+aggregation ladder — which meant a second backend would have re-derived every judgement, and a new
+`StudioFilterOperator` fell through to "unmapped" by accident rather than by decision.
+
+Now `operators` is declared `satisfies Record<StudioFilterOperator, boolean>`, so **adding an
+operator breaks every executor's declaration until each says yes or no.** The local engine declares
+everything `true` — by definition, not coincidence, since this document is written from its
+behaviour — which is what guarantees the planner always has somewhere to route a declined leaf.
 
 ## The rules
 
@@ -269,22 +287,32 @@ aggregation produces the number.
 `EXECUTION_CONFORMANCE_CASES` in `@mui/x-studio-schema` is the corpus: a row set, a filter, the ids
 that must survive, and — crucially — **where the leaf is contracted to run**.
 
-The suite runs each case three ways:
+The suite runs each case four ways:
 
 1. **The in-memory path answers what the contract says.** Run first and separately, so a case whose
    expectation is simply wrong fails as "the contract is wrong" rather than as "the engines
    disagree".
 2. **Both paths agree.** The real `createBatchingAdapter`, the real `handleBatchQuery`, and the real
    residual — the only stand-in is the database.
-3. **Each leaf runs where the contract says.** This is the assertion that survives a forgiving test
-   double. `createMockDb`'s `LIKE` is case-_insensitive_, so a `contains` leaf translated to `LIKE`
-   would agree with the mock and be wrong on Postgres. Pinning the disposition catches that on the
-   day someone widens translation, not on the day a user reports a number.
+3. **The plan agrees with the contract.** Since the split is a pure function of the descriptor and
+   a capability set, this is checkable without running anything — and it is what fails when someone
+   edits `WIRE_QUERY_CAPABILITIES` without editing the register above.
+4. **The adapter honours the plan.** A declaration can be right while the encoding ignores it, so
+   the real POST body is checked too. This is also the assertion that survives a forgiving test
+   double: `createMockDb`'s `LIKE` is case-_insensitive_, so a `contains` leaf translated to `LIKE`
+   would agree with the mock and be wrong on Postgres. Pinning where it ran catches that on the day
+   someone widens translation, not on the day a user reports a number.
 
 Adding a rule here without adding a case there leaves it unenforced, which is the state this
 document exists to end.
 
-**It has already paid for itself once.** The known-divergence case asserts that the divergence still
+**It has paid for itself twice.** Routing the in-memory side through the descriptor — rather than
+through a hand-built `StudioFilterState`, as it did while the two engines were fed separately —
+immediately threw: `leafToFilterState` was not setting `scope`, which `resolveRows` reads. The
+adapter's residual had never noticed, because `applyFilters` does not read `scope` at all. It was
+latent for exactly as long as the two paths took different inputs.
+
+And before that: the known-divergence case asserts that the divergence still
 EXISTS — that the contract is not carrying an exemption for a problem that quietly went away — and
 it failed on the first run. Not against the product: against `createMockDb`, which did not model SQL
 three-valued logic. Its `!=` returned JS's answer (`null != 'open'` is `true`) and its ordering

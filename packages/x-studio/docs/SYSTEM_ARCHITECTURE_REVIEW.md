@@ -77,14 +77,14 @@ framework-agnostic engine, a React component library, and an application shell, 
 three things were written in that order into the same directory. No requirement asked for that
 shape, and one explicit requirement is incompatible with it.
 
-| #   | Finding                                                                   | Severity                        | Cost now vs. later                                                                      |
-| :-- | :------------------------------------------------------------------------ | :------------------------------ | :-------------------------------------------------------------------------------------- |
-| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED**             | Done — `@mui/x-studio-core` is extracted and React-free.                                |
-| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**                        | Cheap now. A breaking API change later.                                                 |
-| A3  | The MVP-excluded subsystem is the largest one built                       | Medium                          | Costs nothing to fix — it needs a decision recorded, not code moved                     |
-| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium                          | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
-| A5  | Two execution engines with no shared correctness contract                 | ~~Medium~~ **CONTRACT WRITTEN** | Done — the semantics are specified and conformance-tested.                              |
-| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**              | Done — both wires carry a version and a compatibility rule.                             |
+| #   | Finding                                                                   | Severity              | Cost now vs. later                                                                      |
+| :-- | :------------------------------------------------------------------------ | :-------------------- | :-------------------------------------------------------------------------------------- |
+| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED**   | Done — `@mui/x-studio-core` is extracted and React-free.                                |
+| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**              | Cheap now. A breaking API change later.                                                 |
+| A3  | The MVP-excluded subsystem is the largest one built                       | Medium                | Costs nothing to fix — it needs a decision recorded, not code moved                     |
+| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium                | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
+| A5  | Two execution engines with no shared correctness contract                 | ~~Medium~~ **CLOSED** | Done — the descriptor is the execution contract, split by declared capabilities.        |
+| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**    | Done — both wires carry a version and a compatibility rule.                             |
 
 ## A1 — The package boundary does not serve the multi-framework requirement
 
@@ -345,9 +345,24 @@ pays the two-implementations tax until it is.
 > writes a hand-rolled test asserting that a known bug is still a bug — which is the argument for a
 > corpus.
 >
-> Recorded as [ADR 0005](./decisions/0005-primary-execution-path.md). What remains is choosing which
-> engine is authoritative; that is a refactor decision, and it is now separable from the correctness
-> question it used to be tangled with.
+> **The primary-path question is now answered too: option 2.** The `StudioQueryDescriptor` is the
+> execution contract, and both engines are entered through one. The work was not "pass the same
+> object to both sides" — it was that the judgement _which parts of this may this executor run?_
+> lived inside the one executor that needed it. It is now a `StudioQueryCapabilities` value per
+> executor and one shared `planQueryExecution` that reads it, so a second backend declares rather
+> than re-derives, and `satisfies Record<StudioFilterOperator, boolean>` makes a new operator a
+> compile error in every declaration until each says what it does with it.
+>
+> The in-memory engine declares everything `true` — by definition, since the contract is written
+> from its behaviour — which is the invariant that lets the planner always route a declined leaf
+> somewhere.
+>
+> Stage 2 (routing `useWidgetRows`' sync path through `executeLocalQuery`, so the descriptor is the
+> only road to rows) is deliberately separate: that hook carries three row baselines and a
+> load-bearing deferred-value pairing behind ~2,400 tests, and it follows from the decision rather
+> than constituting it.
+>
+> Recorded as [ADR 0005](./decisions/0005-primary-execution-path.md).
 
 ## A6 — Integration is two handlers, not a versioned contract
 

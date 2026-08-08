@@ -557,6 +557,11 @@ export interface VegaLiteChartProps {
    * the composite planner (see `FacetCell.xAxisHeight`), not by callers.
    */
   xAxisHeight?: number;
+  /**
+   * Left-axis thickness to pin instead of letting x-charts measure it. Set by
+   * the composite planner (see `FacetCell.yAxisWidth`), not by callers.
+   */
+  yAxisWidth?: number;
 }
 
 /**
@@ -575,8 +580,19 @@ export interface VegaLiteChartProps {
  * `<VegaLiteChart />` instances. See GAPS.md for the full support matrix.
  */
 export function VegaLiteChart(props: VegaLiteChartProps) {
-  const { spec, data, datasets, width, height, colors, onGaps, children, cell, xAxisHeight } =
-    props;
+  const {
+    spec,
+    data,
+    datasets,
+    width,
+    height,
+    colors,
+    onGaps,
+    children,
+    cell,
+    xAxisHeight,
+    yAxisWidth,
+  } = props;
   const depth = React.useContext(FacetDepthContext);
 
   // Only the outermost instance (no inherited param context) owns the shared
@@ -867,6 +883,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
                 onGaps={handleCellGaps}
                 cell={cellProps}
                 xAxisHeight={cell.xAxisHeight}
+                yAxisWidth={cell.yAxisWidth}
               />
             </div>
           );
@@ -943,6 +960,7 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
         onGaps={onGaps}
         cell={cell}
         xAxisHeight={xAxisHeight}
+        yAxisWidth={yAxisWidth}
       >
         {children}
       </SingleViewChart>
@@ -971,8 +989,19 @@ export function VegaLiteChart(props: VegaLiteChartProps) {
  * composition as an unsupported gap).
  */
 function SingleViewChart(props: VegaLiteChartProps) {
-  const { spec, data, datasets, width, height, colors, onGaps, children, cell, xAxisHeight } =
-    props;
+  const {
+    spec,
+    data,
+    datasets,
+    width,
+    height,
+    colors,
+    onGaps,
+    children,
+    cell,
+    xAxisHeight,
+    yAxisWidth,
+  } = props;
   const paramCtx = React.useContext(VegaParamsContext);
   const paramValues = paramCtx?.values;
 
@@ -1347,12 +1376,20 @@ function SingleViewChart(props: VegaLiteChartProps) {
       ),
     };
   };
+  // A composed cell pins its own y axis to the width its surface budgeted, the
+  // same way `pinStandaloneYAxisWidth` does for a chart this component sized.
+  const pinCellYAxisWidth = <T extends Record<string, unknown>>(config: T): T =>
+    yAxisWidth === undefined || (config as { position?: string }).position === 'none'
+      ? config
+      : { ...config, width: Math.max(MIN_PINNED_Y_AXIS_WIDTH, yAxisWidth) };
   const yAxis = compiled.yAxis
     ? [
-        pinStandaloneYAxisWidth(
-          withVegaTickCount(
-            dropAutoSize(compiled.yAxis.config, cell?.margin?.left),
-            vegaSize.plotHeight,
+        pinCellYAxisWidth(
+          pinStandaloneYAxisWidth(
+            withVegaTickCount(
+              dropAutoSize(compiled.yAxis.config, cell?.margin?.left),
+              vegaSize.plotHeight,
+            ),
           ),
         ),
       ]

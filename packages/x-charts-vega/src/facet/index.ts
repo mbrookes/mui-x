@@ -121,6 +121,12 @@ export interface FacetCell {
    * `xAxisLabelExtent`.
    */
   xAxisHeight?: number;
+  /**
+   * Left-axis thickness the cell pins, so `plot = width − margins − axis` lands
+   * back on the plot width the spec asked for rather than on whatever the tick
+   * labels happen to measure.
+   */
+  yAxisWidth?: number;
 }
 
 export interface FacetPlan {
@@ -560,6 +566,8 @@ const AXIS_LABEL_CHAR_PX = 7;
  * and then pins the axis has to subtract this, or the two would double-count.
  */
 export const DEFAULT_CHART_MARGIN_Y = 40;
+/** The same, horizontally. */
+export const DEFAULT_CHART_MARGIN_X = 40;
 /** One line of tick-label text, for the rotated-label extent below. */
 const AXIS_LABEL_LINE_PX = 12;
 /** Tick mark plus the gap between the axis line and its labels. */
@@ -862,7 +870,7 @@ function naturalConcatSize(
   entry: VegaLiteSpec,
   rows: readonly DatasetRow[],
   defaultView?: { width: number; height: number },
-): { width: number; height: number; xAxisHeight?: number } {
+): { width: number; height: number; xAxisHeight?: number; yAxisWidth?: number } {
   const hconcat = (entry as { hconcat?: VegaLiteSpec[] }).hconcat;
   const vconcat =
     (entry as { vconcat?: VegaLiteSpec[] }).vconcat ??
@@ -937,6 +945,13 @@ function naturalConcatSize(
     ...(channelAxisShown(xDef) && labelAngleOf(xDef) !== 0
       ? { xAxisHeight: xChrome - DEFAULT_CHART_MARGIN_Y }
       : null),
+    // The y axis pins unconditionally: `yChrome` is an ESTIMATE of label width
+    // (~7px/char), and wherever it overshoots what the labels actually measure
+    // the surplus widens the plot instead — `repeat_layer` drew a 516px plot
+    // against Vega's 440px because its "US Gross" labels were budgeted for full
+    // digit groups but render compacted. Pinning makes the estimate
+    // self-fulfilling, exactly as it already is for a standalone chart.
+    ...(yShown ? { yAxisWidth: yChrome - DEFAULT_CHART_MARGIN_X } : null),
   };
 }
 
@@ -1477,6 +1492,7 @@ function planConcat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
       width: Math.max(40, natural.width),
       height: Math.max(40, natural.height),
       ...(natural.xAxisHeight !== undefined ? { xAxisHeight: natural.xAxisHeight } : null),
+      ...(natural.yAxisWidth !== undefined ? { yAxisWidth: natural.yAxisWidth } : null),
     };
   });
   return { columns, rows: gridRows, cells, gaps };
@@ -1576,7 +1592,7 @@ function repeatCellSize(
   cellSpec: VegaLiteSpec,
   rows: readonly DatasetRow[],
   defaultView?: { width: number; height: number },
-): { width: number; height: number } {
+): { width: number; height: number; xAxisHeight?: number; yAxisWidth?: number } {
   return naturalConcatSize(cellSpec, rows, defaultView);
 }
 
@@ -1645,8 +1661,16 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
       const cellSpec = templateHasData
         ? substituted
         : ({ ...substituted, data: cellData } as VegaLiteSpec);
-      const { width, height } = repeatCellSize(cellSpec, rootRows);
-      return { key: `repeat-${index}`, spec: cellSpec, header: field, width, height };
+      const { width, height, xAxisHeight, yAxisWidth } = repeatCellSize(cellSpec, rootRows);
+      return {
+        key: `repeat-${index}`,
+        spec: cellSpec,
+        header: field,
+        width,
+        height,
+        ...(xAxisHeight !== undefined ? { xAxisHeight } : null),
+        ...(yAxisWidth !== undefined ? { yAxisWidth } : null),
+      };
     });
     return { columns, rows: gridRows, cells, gaps };
   }
@@ -1700,12 +1724,20 @@ function planRepeat(spec: VegaLiteSpec, options: FacetOptions): FacetPlan {
         cellSpec = templateHasData ? copy : ({ ...copy, data: cellData } as VegaLiteSpec);
       }
       const header = [colField, rowField].filter(Boolean).join(' × ') || undefined;
-      const { width, height } = repeatCellSize(
+      const { width, height, xAxisHeight, yAxisWidth } = repeatCellSize(
         cellSpec,
         rootRows,
         singleViewRepeat(rowFields, colFields, layerFields, options),
       );
-      cells.push({ key: `repeat-${rowIndex}-${colIndex}`, spec: cellSpec, header, width, height });
+      cells.push({
+        key: `repeat-${rowIndex}-${colIndex}`,
+        spec: cellSpec,
+        header,
+        width,
+        height,
+        ...(xAxisHeight !== undefined ? { xAxisHeight } : null),
+        ...(yAxisWidth !== undefined ? { yAxisWidth } : null),
+      });
     });
   });
   return { columns, rows: gridRows, cells, gaps };

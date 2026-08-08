@@ -609,31 +609,35 @@ const [gaps, setGaps] = useState([]);
 
 Render gaps as warnings in your UI, or use them to fall back to a different visualization. The wrapper always attempts a best-effort render even when gaps are present.
 
-### Concat/repeat cell width overshoots by the y-axis label estimate
+### Resolved: concat/repeat cell width overshooting the y-axis label estimate
 
 A concat or repeat cell's width is budgeted against `yAxisAllowance`, which
-*estimates* tick-label width at ~7px/char. A standalone chart makes that
-estimate self-fulfilling by pinning its y axis to `allowance − margins`, so its
-plot lands on the spec's size for any label width. A cell does not pin, so
-wherever the estimate exceeds what the labels actually measure, the surplus
-widens the plot instead: `repeat_layer` renders a 516px plot against Vega's
-440px because its "US Gross" labels were budgeted for full digit groups but
-render compacted.
+_estimates_ tick-label width at ~7px/char. A cell used not to pin its axis to
+that estimate, so wherever the estimate exceeded what the labels actually
+measured, the surplus widened the plot: `repeat_layer` drew a 516px plot
+against Vega's 440px because its "US Gross" labels were budgeted for full digit
+groups but render compacted.
 
-Pinning a cell's axis the same way does close this (measured: `repeat_layer`
-440x341, and all three `concat_marginal_histograms` cells at Vega's exact
-sizes), but in testing it also shortened ~89 unrelated single-view specs by 2px
-of height — reproducible on freshly started dev servers and with a 3s settle,
-and not explicable from the code path, since a plain spec never receives a pin.
-The fix is therefore not applied pending an explanation of that coupling.
+Cells now pin the same way a standalone chart does, and `repeat_layer` measures
+440px against Vega's 440px.
+
+This entry previously recorded the fix as withheld, because applying it
+appeared to shorten ~89 unrelated single-view specs by 2px of height — an
+effect "not explicable from the code path, since a plain spec never receives a
+pin". That reading was wrong. The 2px was a font-metric drift in the
+measurement environment, not a consequence of the pin: it reproduced on
+untouched code at an earlier commit and on freshly started dev servers, and it
+is gone now that a standalone chart pins its x axis too (so plot height no
+longer depends on what the tick labels measure). Re-tested against a working
+metric, the pin costs nothing — 91 pixel-exact before and after — and raises
+within-4px agreement from 99 specs to 101.
 
 ### Parallel-coordinate axes span the full plot width
 
 A `point` scale in Vega-Lite insets its first and last points by half a step
 (its default `padding` of 0.5), so `parallel_coordinate`'s four axes sit at
 75/225/375/525 within a 600px plot and span ~450. x-charts builds its point
-scale with no outer padding, so ours sit at 0/200/400/600 and span the whole
-600. Measured on the marks alone (excluding text, which is what made this look
+scale with no outer padding, so ours sit at 0/200/400/600 and span the whole 600. Measured on the marks alone (excluding text, which is what made this look
 like a sizing problem): ours 608x324 against Vega's 458x306.
 
 The band axis config takes a `categoryGapRatio`, but the `point` config exposes

@@ -323,10 +323,21 @@ none of them put a NULL row through a comparison. The mock now guards every scal
 
 ## Deliberately out of scope
 
-- **Rank (Top-N) filters and `RelativeDateValue`s** have no wire representation at all. Rank is
-  applied exactly once — at L3 or post-aggregation, never both, never neither
+- **Rank (Top-N) filters and `RelativeDateValue`s** have no WIRE representation. Rank is applied
+  exactly once — at L3 or post-aggregation, never both, never neither
   (`shouldApplyWidgetRankAtL3`) — and a relative date is resolved to a concrete bound before a
   descriptor is built. There is no second implementation to conform to.
+
+  Note the distinction between "no wire form" and "outside the contract", which the local path made
+  load-bearing. A rank leaf DOES travel in a descriptor now — `buildLocalQueryDescriptor` puts it
+  there, `rankFilters` is a declared capability (`true` locally, `false` on the wire), and the leaf
+  carries `rankDirection` / `rankByField` / `rankMultiSeriesBy` so it survives the round trip back
+  into a `StudioFilterState`. What has no wire form is the EXECUTION: a result-set reduction is not
+  a WHERE clause, so the wire declines the leaf, the rows come back raw, and the reduction happens
+  locally. `buildQueryDescriptor` keeps rank out of the wire tree for a second reason on top of
+  that — the tree feeds the request cacheKey, so a Top-N nudge would otherwise become a server
+  round-trip.
+
 - **Aggregation push-down decisions** are governed by `decideAggregationPushdown`, which both
   adapters already call. It is one implementation, so a corpus would be testing itself; the ladder
   is documented above instead.

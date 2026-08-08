@@ -102,6 +102,25 @@ export type StudioFilterNode =
        * inverting an empty selection to match-nothing on the adapter path.
        */
       filterMode?: 'condition' | 'selection' | 'rank';
+      /**
+       * Rank-mode configuration, carried so a `filterMode: 'rank'` leaf survives the round trip
+       * back into a `StudioFilterState`.
+       *
+       * Meaningless on any other mode, and absent from every leaf the WIRE builds — the wire's
+       * descriptor deliberately excludes rank filters entirely (`buildQueryDescriptor` filters
+       * them out of the tree and signals them through `hasRankFilters` instead), because rank has
+       * no SQL form and putting it in the tree would churn the request cacheKey on every Top-N
+       * change. These exist for the LOCAL executor, which can run a rank and therefore has to be
+       * handed one.
+       *
+       * Without them, `leafToFilterState` reconstructs a rank filter carrying only `field`,
+       * `value` and the mode. `applyFilters` then reads `rankDirection ?? 'top'` and finds no
+       * `rankByField`, so "bottom 5 countries by revenue" silently executes as "top 5 countries by
+       * the raw value of the country column" — a wrong number, not an error.
+       */
+      rankDirection?: 'top' | 'bottom';
+      rankByField?: string;
+      rankMultiSeriesBy?: string;
     }
   | { type: 'group'; logic: 'and' | 'or'; children: StudioFilterNode[] };
 
@@ -112,8 +131,19 @@ export interface StudioQueryResult {
   isTruncated?: boolean;
 }
 
-// The query descriptor emitted by Studio for a widget
-export interface StudioQueryDescriptor {
+/**
+ * The question a widget is asking, independent of how it will be answered.
+ *
+ * Split from {@link StudioQueryDescriptor} so the planner and the in-memory executor can take a
+ * query without being handed a `cacheKey` they have no use for. A cache key identifies a REQUEST;
+ * the local path issues none, and its row cache is keyed on the resolved filters instead. Requiring
+ * one of a local query would have meant either computing a stable hash on every render in a hot
+ * path, or inventing a placeholder that looks like a real key and collides with every other
+ * placeholder the moment one reaches a request cache.
+ *
+ * Every `StudioQueryDescriptor` is a `StudioQuery`, so nothing on the adapter path changes.
+ */
+export interface StudioQuery {
   sourceId: string;
   /**
    * Database table name for server-side queries.
@@ -281,6 +311,10 @@ export interface StudioQueryDescriptor {
    * a response comes back at exactly the limit, so a truncation is never silent.
    */
   limit?: number;
+}
+
+/** A {@link StudioQuery} plus the transport key an adapter caches its response under. */
+export interface StudioQueryDescriptor extends StudioQuery {
   /**
    * Stable hash of all other fields. Use as a cache key.
    * The package computes this; the developer need not hash the descriptor.

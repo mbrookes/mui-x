@@ -2,7 +2,8 @@
 
 import * as React from 'react';
 import {
-  resolveRowsCached,
+  buildLocalQueryDescriptor,
+  executeLocalQuery,
   collectSelectFields,
   getCachedEnrichedRows,
   selectFiltersForWidget,
@@ -525,6 +526,36 @@ export function useWidgetRows(
     usedFieldIds,
   ]);
 
+  // ── The one road to rows ────────────────────────────────────────────────
+  // Every row-producing path in this hook goes through the query descriptor (ADR 0005). The
+  // scoping above decides WHICH filters apply — that needs the page and cross-filter context this
+  // hook holds, and no executor could redo it — but the moment the answer is a filter set, it
+  // becomes a descriptor and the executor answers it.
+  //
+  // Before, this hook called `resolveRowsCached` directly while the adapter path was handed a
+  // descriptor, so the two engines took different statements of the same question and nothing
+  // structural stopped those statements from drifting. Making the descriptor the ONLY input is
+  // what turns "the in-memory engine is the reference implementation" from a claim in a document
+  // into something the code cannot contradict.
+  //
+  // `cache` rather than a bare execute: this is the hot path, and the shared resolved-rows cache
+  // is what lets widgets on a page that share a source and a filter set reuse one `Row[]` BY
+  // REFERENCE, so their downstream memos short-circuit too.
+  const runLocalQuery = React.useCallback(
+    (rows: Row[], sourceId: string, scoped: StudioFilterState[]): Row[] =>
+      executeLocalQuery(
+        buildLocalQueryDescriptor({ sourceId, widgetId: widget.id, filters: scoped }),
+        {
+          rows,
+          dataSources,
+          relationships,
+          expressionFields,
+          cache: { usedFieldIds },
+        },
+      ).rows,
+    [dataSources, relationships, expressionFields, usedFieldIds, widget.id],
+  );
+
   // ── Filtered rows (sync + adapter unified) ──────────────────────────────
   // One closure both data paths call through `selectFiltersForWidget`
   // (filterScoping.ts, the single source of truth for filter scoping) so the three
@@ -585,15 +616,7 @@ export function useWidgetRows(
           if (scopedLocal.length === 0) {
             return enrichedAdapterRows;
           }
-          return resolveRowsCached(
-            enrichedAdapterRows,
-            widget.sourceId,
-            scopedLocal,
-            dataSources,
-            relationships,
-            expressionFields,
-            usedFieldIds,
-          );
+          return runLocalQuery(enrichedAdapterRows, widget.sourceId, scopedLocal);
         }
         // Only the RESIDUAL — the filters `buildQueryDescriptor` could NOT put into the wire
         // request, so this client-side pass is their sole enforcement point: rank (top/bottom-N)
@@ -631,15 +654,7 @@ export function useWidgetRows(
           // Same reference — downstream memos short-circuit automatically.
           return enrichedAdapterRows;
         }
-        return resolveRowsCached(
-          enrichedAdapterRows,
-          widget.sourceId,
-          scoped,
-          dataSources,
-          relationships,
-          expressionFields,
-          usedFieldIds,
-        );
+        return runLocalQuery(enrichedAdapterRows, widget.sourceId, scoped);
       }
       if (!normalizedDataSource?.rows) {
         return [];
@@ -660,14 +675,16 @@ export function useWidgetRows(
           includeWidgetRank,
         },
       );
-      return resolveRowsCached(
-        normalizedDataSource.rows,
-        widget.sourceId,
+      // `?? normalizedDataSource.id` rather than a non-null assertion. The two are the same value
+      // whenever both exist — the caller resolves `dataSource` FROM `widget.sourceId` — but the
+      // types do not say so, and the source's own id is the exact answer rather than a guess:
+      // these rows are that source's rows, so it is the right key for routing a cross-source
+      // filter. The previous code passed `widget.sourceId` straight through, so an undefined one
+      // reached `resolveRows` and disabled cross-source routing silently.
+      return runLocalQuery(
+        normalizedDataSource.rows as Row[],
+        widget.sourceId ?? normalizedDataSource.id,
         scoped,
-        dataSources,
-        relationships,
-        expressionFields,
-        usedFieldIds,
       );
     },
     [
@@ -676,15 +693,14 @@ export function useWidgetRows(
       enrichedAdapterRows,
       normalizedDataSource,
       deferredPartitioned,
-      dataSources,
-      relationships,
-      expressionFields,
       widget.id,
       widget.sourceId,
       pageId,
       crossFilterAllPages,
       includeWidgetRank,
-      usedFieldIds,
+      // The graph and the field set moved into `runLocalQuery`, which is itself memoized on them,
+      // so listing them here too would only widen this callback's identity for no gain.
+      runLocalQuery,
     ],
   );
 

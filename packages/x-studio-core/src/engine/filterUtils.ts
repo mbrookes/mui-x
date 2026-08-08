@@ -779,10 +779,25 @@ export function isFilterComplete(filter: StudioFilterState): boolean {
     return Array.isArray(filter.value) && filter.value.length > 0;
   }
   if (mode === 'rank') {
-    const n = Number(filter.value);
-    return Number.isFinite(n) && n > 0;
+    return isRankCountComplete(filter.value);
   }
   return isConditionComplete(filter.operator, filter.value);
+}
+
+/**
+ * True when a rank filter's N is a usable count.
+ *
+ * Split out of {@link isFilterComplete} because the query planner needs the same judgement about a
+ * rank LEAF, which is not a `StudioFilterState`. Two copies of "what counts as an authored Top-N"
+ * is precisely the duplication the descriptor contract exists to prevent — a planner that read the
+ * rule more loosely would accept a half-typed `top 0` and hand `applyFilters` a reduction it then
+ * silently drops, leaving the rows unranked.
+ * @param value The rank filter's `value` (its N).
+ * @returns Whether the count is authored.
+ */
+export function isRankCountComplete(value: unknown): boolean {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0;
 }
 
 export function applyFilters(rows: Row[], filters: StudioFilterState[]): Row[] {

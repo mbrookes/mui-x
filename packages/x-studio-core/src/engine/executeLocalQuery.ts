@@ -1,5 +1,5 @@
 /**
- * The in-memory engine, entered through a `StudioQueryDescriptor`.
+ * The in-memory engine, entered through a `StudioQuery`.
  *
  * The descriptor is the contract (ADR 0005). An executor answers one; this is the executor that
  * answers it over `Row[]` in the browser, and it is the REFERENCE one — the semantics written down
@@ -34,12 +34,13 @@ import {
   LOCAL_QUERY_CAPABILITIES,
   type StudioDataSource,
   type StudioExpressionField,
-  type StudioQueryDescriptor,
+  type StudioQuery,
   type StudioQueryResult,
   type StudioRelationship,
 } from '../models';
 import { resolveRows } from './dataSourceGraph';
-import { leafToFilterState, planQueryExecution } from './queryPlan';
+import { resolveRowsCached } from './resolvedRowsCache';
+import { isLeafComplete, leafToFilterState, planQueryExecution } from './queryPlan';
 
 type Row = Record<string, unknown>;
 
@@ -56,8 +57,28 @@ export interface LocalQueryContext {
   dataSources: Record<string, StudioDataSource>;
   relationships?: StudioRelationship[];
   expressionFields?: StudioExpressionField[];
-  /** Out-param threaded to `resolveRows` so a caller can record its foreign-row dependencies. */
+  /**
+   * Out-param threaded to `resolveRows` so a caller can record its foreign-row dependencies.
+   *
+   * Mutually exclusive with `cache`: a cached call may return a memoized result without joining
+   * anything, so there would be nothing to collect. `resolveRowsCached` tracks the same
+   * dependencies internally for its own invalidation.
+   */
   collectJoinedSourceIds?: Set<string>;
+  /**
+   * Serve from (and populate) the shared resolved-rows cache instead of resolving afresh.
+   *
+   * Widgets on a page routinely share a source AND an effective filter set; the cache is what lets
+   * the second and later ones reuse the first one's `Row[]` **by reference**, so downstream memos
+   * short-circuit too. Without it, routing `useWidgetRows` through this function would have cost a
+   * full pipeline pass per widget per render — the descriptor becoming the only road to rows must
+   * not also make it a slower one.
+   *
+   * `usedFieldIds` is part of the cache key and carries a meaning `undefined` does not: an ABSENT
+   * set means "enrich every field for the source", an EMPTY set means "enrich none". Passing the
+   * wrong one does not merely miss the cache, it shares a slot with a differently-enriched result.
+   */
+  cache?: { usedFieldIds?: ReadonlySet<string> };
 }
 
 /**
@@ -67,7 +88,7 @@ export interface LocalQueryContext {
  * @returns The matching rows.
  */
 export function executeLocalQuery(
-  descriptor: StudioQueryDescriptor,
+  descriptor: StudioQuery,
   context: LocalQueryContext,
 ): StudioQueryResult {
   const plan = planQueryExecution(descriptor, LOCAL_QUERY_CAPABILITIES);
@@ -78,10 +99,16 @@ export function executeLocalQuery(
   // somewhere if one executor always accepts everything. Checked in development only; in
   // production the leaves are applied regardless, so a mistake degrades to "the filter still ran"
   // rather than to a thrown error in a dashboard.
-  if (process.env.NODE_ENV !== 'production' && plan.residualLeaves.length > 0) {
-    const ops = plan.residualLeaves.map((leaf) => leaf.op).join(', ');
+  //
+  // Incomplete leaves are excluded from the check, and that exclusion is load-bearing now that this
+  // function is on the hot path for every widget. Every executor declines a half-authored filter by
+  // design — the residual re-drops it — so counting those would fire this warning on every keystroke
+  // while a user types into the filter drawer, telling them a contract bug had occurred.
+  const unexpectedDeclines = plan.residualLeaves.filter(isLeafComplete);
+  if (process.env.NODE_ENV !== 'production' && unexpectedDeclines.length > 0) {
+    const ops = unexpectedDeclines.map((leaf) => leaf.op).join(', ');
     console.warn(
-      `MUI X Studio: The in-memory executor declined ${plan.residualLeaves.length} filter leaf/leaves ` +
+      `MUI X Studio: The in-memory executor declined ${unexpectedDeclines.length} filter leaf/leaves ` +
         `(${ops}), but it is the reference executor and must accept everything the contract defines. ` +
         `Either LOCAL_QUERY_CAPABILITIES understates what the engine does, or the contract describes ` +
         `a filter nothing implements. See packages/x-studio/docs/EXECUTION_SEMANTICS.md.`,
@@ -101,6 +128,20 @@ export function executeLocalQuery(
   }
 
   const filters = [...plan.acceptedLeaves, ...plan.residualLeaves].map(leafToFilterState);
+
+  if (context.cache) {
+    return {
+      rows: resolveRowsCached(
+        context.rows,
+        descriptor.sourceId,
+        filters,
+        context.dataSources,
+        context.relationships ?? [],
+        context.expressionFields ?? [],
+        context.cache.usedFieldIds,
+      ),
+    };
+  }
 
   return {
     rows: resolveRows(

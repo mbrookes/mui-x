@@ -1,10 +1,10 @@
 # 0005 — Which execution engine is primary
 
-**Status:** **Option 2 accepted, 2026-08-08.** The query descriptor is the execution contract.
-Option 3 (the written contract and its conformance corpus) shipped first, on 2026-08-07, and is the
-specification this was built against. Stage 1 — the capability model, the shared planner, and a
-descriptor-shaped entry point into the in-memory engine — is implemented. Stage 2 is noted at the
-end.
+**Status:** **Option 2 accepted, 2026-08-08. Implemented.** The query descriptor is the execution
+contract. Option 3 (the written contract and its conformance corpus) shipped first, on 2026-08-07,
+and is the specification this was built against. Stage 1 — the capability model, the shared planner,
+and a descriptor-shaped entry point into the in-memory engine — shipped on 2026-08-08. Stage 2 — the
+descriptor as the ONLY road to rows — shipped the same day; see the end.
 
 ## Context
 
@@ -130,21 +130,48 @@ anyway because routing it client-side would defeat the pushdown and, for an aggr
 the filter entirely. Raising that cap is where a second "we ship a wrong answer on purpose" has to
 be argued for rather than committed.
 
-### Stage 2, not done here
+### Stage 2 — the descriptor as the only road to rows
 
-`useWidgetRows`' sync path still calls `selectFiltersForWidget` → `resolveRows` directly instead of
-building a descriptor and handing it to `executeLocalQuery`. Until it does, the descriptor is the
-contract at the execution boundary but not yet the ONLY road to rows.
+All three row-producing paths in `useWidgetRows` — sync, adapter cold-cache placeholder, and adapter
+residual — now build a descriptor and hand it to `executeLocalQuery`. Scoping stays in the hook,
+because deciding WHICH filters apply needs page and cross-filter context no executor holds; but the
+moment that answer is a filter set, it becomes a descriptor and an executor answers it.
 
-Deliberately separate. That hook carries three row baselines, their paired filter sets, a
-`useDeferredValue` window whose pairing is load-bearing, and the `'none'`-mode baseline rule that
-has to hold at three levels — behind ~2,400 tests. Rewiring it is plumbing that follows from this
-decision rather than part of making it, and folding it in would have made a reviewable change
-unreviewable.
+**Stage 2 was not plumbing.** It was scoped as plumbing, and that was wrong: making the descriptor
+the only input revealed that the descriptor could not express one of the things the reference
+executor does.
 
-What stage 1 already guarantees without it: both engines are entered through a descriptor, the
-split is one shared function of a declared capability set, and a new operator cannot ship without
-every executor declaring what it does with it.
+A rank leaf carried its MODE (`filterMode: 'rank'`) but not its CONFIGURATION. `buildQueryDescriptor`
+excludes rank filters from the wire tree entirely — deliberately, since rank has no SQL form and
+putting it in the tree would rebuild the request cacheKey on every Top-N nudge — so nothing had ever
+needed a rank leaf to survive a round trip. Route the local path through the same object and the
+round trip becomes load-bearing: `leafToFilterState` reconstructed a rank filter with
+`rankDirection` and `rankByField` gone, `applyFilters` read `rankDirection ?? 'top'` and found no
+measure, and "bottom 3 regions by revenue" executed as "top 3 regions by the region column's own
+value". No error, no empty widget — the right NUMBER of rows, the wrong ones.
+
+So the leaf now carries rank configuration, and `rankFilters` is a declared capability: `true`
+locally, `false` on the wire, where a result-set reduction has no WHERE-clause form and the rows
+must come back raw. That is the same shape as every other entry in the capability set, which is the
+point — the contract can now express everything the reference implementation does, which is what
+"reference implementation" has to mean.
+
+Two smaller things fell out of it:
+
+- **`StudioQuery` split from `StudioQueryDescriptor`.** A `cacheKey` identifies a REQUEST, and the
+  local path issues none; its row cache is keyed on the resolved filters instead. Requiring one
+  would have meant hashing a descriptor on every render in a hot path, or minting a placeholder key
+  that collides with every other placeholder the first time one reaches a request cache. The planner
+  and the local executor take a `StudioQuery`; a descriptor is that plus its transport key.
+- **The reference-executor warning had to learn what an expected decline is.** `executeLocalQuery`
+  warns when it declines a leaf, because a genuine decline means the contract describes something no
+  executor implements. Every executor also declines a half-authored filter by design. That was
+  harmless while the function had one caller in a conformance test; on the hot path it would have
+  printed a contract-bug warning on every keystroke in the filter drawer.
+
+`executeLocalQuery` also gained the shared resolved-rows cache. The descriptor becoming the only
+road must not also make it a slower one: widgets sharing a source and a filter set still get one
+`Row[]` by reference, so their downstream memos short-circuit as before.
 
 ## Consequences
 

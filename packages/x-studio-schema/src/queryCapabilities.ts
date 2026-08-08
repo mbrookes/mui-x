@@ -181,6 +181,22 @@ export interface StudioQueryCapabilities {
    * capability a simpler backend is most likely to lack.
    */
   readonly crossSourceFilters: boolean;
+
+  /**
+   * Can it evaluate a `filterMode: 'rank'` leaf — a top/bottom-N reduction of the whole result
+   * set, rather than a per-row predicate?
+   *
+   * Unlike every other capability here, this one is not about expressiveness at the value level.
+   * A rank is a different KIND of operation: `applyFilters` runs the row predicates first and then
+   * reduces the survivors, so a rank cannot be evaluated one row at a time and has no WHERE-clause
+   * form at all. `false` therefore means "this executor must be handed raw rows and the caller
+   * ranks them", which is exactly what the wire path already does.
+   *
+   * Declared rather than assumed because the LOCAL path now hands rank leaves to the planner. An
+   * executor that answered `true` without implementing the reduction would return the unranked
+   * set — the full dataset where the user asked for five rows.
+   */
+  readonly rankFilters: boolean;
 }
 
 /**
@@ -227,6 +243,10 @@ export const LOCAL_QUERY_CAPABILITIES = {
   aggregationPushdown: 'none',
   aggregatesAtRequestedGrain: true,
   crossSourceFilters: true,
+  // `applyFilters` reduces the survivors after the row predicates have run — the reference
+  // implementation of the whole "filter then rank" ordering, which the wire path imitates by
+  // fetching raw rows and re-applying the rank client-side.
+  rankFilters: true,
   // `satisfies` rather than a type annotation: the interface is still checked, but the literal
   // types survive, so a reader of `aggregationPushdown` gets the record (or `'none'`) rather than
   // the union — which is what lets a consumer narrow off the declaration instead of restating it.
@@ -295,4 +315,10 @@ export const WIRE_QUERY_CAPABILITIES = {
   } satisfies Record<StudioAggregationFn, boolean>,
   aggregatesAtRequestedGrain: false,
   crossSourceFilters: true,
+  // No SQL form for a top/bottom-N reduction of the result set, and deliberately so: even if one
+  // existed, putting rank into the wire's filter tree would rebuild the request cacheKey every
+  // time the user nudged the N, turning a client-side reduction into a server round-trip.
+  // `buildQueryDescriptor` keeps rank out of the wire tree entirely; this declaration is what
+  // makes a rank leaf route to the residual should one ever reach the planner by another road.
+  rankFilters: false,
 } satisfies StudioQueryCapabilities;

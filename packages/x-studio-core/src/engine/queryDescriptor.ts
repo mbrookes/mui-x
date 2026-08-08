@@ -2,6 +2,7 @@ import type {
   StudioExpressionField,
   StudioFilterNode,
   StudioFilterState,
+  StudioQuery,
   StudioQueryDescriptor,
   StudioRelationship,
   StudioWidget,
@@ -33,6 +34,12 @@ function filterStateToLeaf(f: StudioFilterState): StudioFilterNode {
     // Carried so the adapter's client-side residual can distinguish a selection-mode empty `in []`
     // ("any value" → match everything) from a condition-mode `in []` (match nothing).
     filterMode: f.filterMode,
+    // Rank configuration, inert on every leaf the WIRE builds (rank filters are excluded from that
+    // tree upstream) and load-bearing on the LOCAL path, where the descriptor is now the only road
+    // to rows and a rank leaf that lost its direction and measure executes as a different query.
+    rankDirection: f.rankDirection,
+    rankByField: f.rankByField,
+    rankMultiSeriesBy: f.rankMultiSeriesBy,
   };
 }
 
@@ -51,6 +58,47 @@ export function filtersToFilterNode(filters: StudioFilterState[]): StudioFilterN
     type: 'group',
     logic: 'and',
     children: filters.map(filterStateToLeaf),
+  };
+}
+
+/**
+ * A descriptor for the in-memory executor, from filters that have ALREADY been scoped.
+ *
+ * The counterpart to {@link buildQueryDescriptor}, which builds the WIRE's descriptor. Two builders
+ * rather than one because they answer to different constraints, and collapsing them would import
+ * each one's constraints into the other:
+ *
+ * - The wire's descriptor feeds a request **cacheKey**, so every field in it is a refetch trigger.
+ *   That is why rank filters are excluded there — a Top-N nudge is a client-side reduction and must
+ *   not become a server round-trip — and why incomplete filters are pruned before the tree is
+ *   built.
+ * - This one feeds an executor that can run everything, and its only consumer is a local pass over
+ *   rows already in memory. Rank belongs in the tree; incomplete leaves can stay, because the
+ *   planner routes them to the residual and `applyFilters` re-drops them there.
+ *
+ * `select` is empty rather than computed: the in-memory executor deliberately does not project (see
+ * `executeLocalQuery`), because nothing in Studio benefits from dropping columns client-side.
+ * `select` exists so a REMOTE executor can avoid transferring them.
+ * @param params The widget's identity and its already-scoped filters.
+ * @returns A descriptor the local executor can answer.
+ */
+export function buildLocalQueryDescriptor(params: {
+  /** The widget's own source. Rank and cross-source routing are resolved against it. */
+  sourceId: string;
+  widgetId: string;
+  /**
+   * Output of `selectFiltersForWidget` — page/widget/cross/interactive scoping already applied,
+   * `disabled` already dropped. Passing UNSCOPED filters here would apply another widget's filters
+   * to this one; the scoping step is not something this builder can redo, because it needs the
+   * page and cross-filter context the caller holds.
+   */
+  filters: StudioFilterState[];
+}): StudioQuery {
+  return {
+    sourceId: params.sourceId,
+    widgetId: params.widgetId,
+    select: [],
+    filter: filtersToFilterNode(params.filters),
   };
 }
 

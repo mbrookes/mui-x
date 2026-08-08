@@ -50,9 +50,10 @@ import type {
   StudioFilterNode,
   StudioFilterState,
   StudioQueryCapabilities,
+  StudioQuery,
   StudioQueryDescriptor,
 } from '../models';
-import { isConditionComplete } from './filterUtils';
+import { isConditionComplete, isRankCountComplete } from './filterUtils';
 
 export type StudioFilterLeaf = Extract<StudioFilterNode, { type: 'leaf' }>;
 
@@ -205,14 +206,41 @@ function canExecuteCondition(
  * @param leaf The leaf to judge.
  * @returns Whether this executor may run it.
  */
+/**
+ * Is this leaf authored to the point where it constrains anything?
+ *
+ * An incomplete leaf (the drawer's `{ operator: 'equals', value: '' }` add-filter default, an empty
+ * selection, a rank with no N) has no effect under the contract — `applyFilters` drops it via
+ * `isFilterComplete`. It therefore goes to the residual for EVERY executor, including one that
+ * could technically express it, because the residual re-drops it (self-healing) whereas a real
+ * `col = ''` predicate empties a string column and errors a numeric one.
+ *
+ * Exported because "declined" and "declined for a reason worth reporting" are different questions,
+ * and only the caller knows which it is asking. The local executor warns when it declines a leaf —
+ * it is the reference implementation, so a genuine decline means the contract describes something
+ * nothing implements. An incomplete leaf is not that: it is the expected state of a filter the user
+ * is still typing, and warning about it would fire on every keystroke.
+ * @param leaf The leaf to judge.
+ * @returns Whether it is fully authored.
+ */
+export function isLeafComplete(leaf: StudioFilterLeaf): boolean {
+  if ((leaf.filterMode ?? 'condition') === 'rank') {
+    return isRankCountComplete(leaf.value);
+  }
+  return isConditionComplete(leaf.op, leaf.value);
+}
+
 function canExecuteLeaf(caps: StudioQueryCapabilities, leaf: StudioFilterLeaf): boolean {
-  // An incomplete first condition (the drawer's `{ operator: 'equals', value: '' }` add-filter
-  // default) has no effect under the contract — `applyFilters` drops it via `isFilterComplete`.
-  // It goes to the residual for EVERY executor, including one that could technically express it,
-  // because the residual re-drops it (self-healing) whereas a real `col = ''` predicate empties a
-  // string column and errors a numeric one.
-  if (!isConditionComplete(leaf.op, leaf.value)) {
+  if (!isLeafComplete(leaf)) {
     return false;
+  }
+  // Rank is judged separately, because it is not a row predicate and the condition machinery below
+  // asks the wrong questions about it. A rank leaf's `op`/`value` are its N, not a comparison —
+  // `isConditionComplete('equals', 5)` happens to be true, so falling through would have judged
+  // rank filters by an unrelated rule and then consulted `caps.operators.equals`, which says
+  // nothing about whether the executor can reduce a result set.
+  if ((leaf.filterMode ?? 'condition') === 'rank') {
+    return caps.rankFilters;
   }
   if (!canExecuteCondition(caps, leaf.op, leaf.value, leaf.fieldType)) {
     return false;
@@ -273,7 +301,7 @@ function divergencesForAcceptedLeaf(
  * @param d The descriptor.
  * @returns Whether the grains differ.
  */
-function grainIsFinerThanRequested(d: StudioQueryDescriptor): boolean {
+function grainIsFinerThanRequested(d: StudioQuery): boolean {
   if (d.xGroupBy) {
     return true;
   }
@@ -305,7 +333,7 @@ function grainIsFinerThanRequested(d: StudioQueryDescriptor): boolean {
  * @returns The reason to strip, or `undefined` to push the aggregations down.
  */
 export function aggregationStripReason(
-  d: StudioQueryDescriptor,
+  d: StudioQuery,
   caps: StudioQueryCapabilities,
   hasResidual: boolean,
 ): string | undefined {
@@ -370,7 +398,7 @@ export function aggregationStripReason(
  * @returns Which leaves that executor runs, which the caller must run, and what to announce.
  */
 export function planQueryExecution(
-  descriptor: StudioQueryDescriptor,
+  descriptor: StudioQuery,
   capabilities: StudioQueryCapabilities,
 ): StudioQueryPlan {
   const acceptedLeaves: StudioFilterLeaf[] = [];
@@ -474,5 +502,11 @@ export function leafToFilterState(leaf: StudioFilterLeaf): StudioFilterState {
     // everything), but a `'condition'` restamp makes `isConditionComplete('in', [])` true and
     // re-applies `in []` as a real predicate that matches NOTHING — inverting the filter.
     filterMode: leaf.filterMode ?? 'condition',
+    // Restored rather than defaulted. `applyFilters` reads `rankDirection ?? 'top'` and branches on
+    // the presence of `rankByField`, so dropping these does not fail — it answers a different
+    // question: "bottom 5 by revenue" becomes "top 5 by the dimension's own value".
+    rankDirection: leaf.rankDirection,
+    rankByField: leaf.rankByField,
+    rankMultiSeriesBy: leaf.rankMultiSeriesBy,
   } as unknown as StudioFilterState;
 }

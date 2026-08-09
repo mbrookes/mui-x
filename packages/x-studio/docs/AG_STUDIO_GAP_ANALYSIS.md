@@ -1,9 +1,28 @@
 # @mui/x-studio Gap Analysis vs AG Studio Clone Requirements
 
-**Date:** 2026-06-15 (last updated; originally 2026-04-29)
-**Reviewer:** Copilot (automated code review)
+**Date:** 2026-08-09 (last updated; originally 2026-04-29)
+**Reviewer:** Copilot (automated code review), maintained since by hand
 **Scope:** `packages/x-studio/src/` vs `AG_STUDIO_CLONE_REQUIREMENTS.md`
 **AG Studio reference:** https://www.ag-grid.com/studio/react/reference/
+
+> **A baseline check, not the roadmap.**
+> [ADR 0003](./decisions/0003-ai-assistant-product-scope.md) (2026-08-09) chose an **AI-native
+> dashboard builder**, so parity with AG Studio is a floor to clear rather than the definition of
+> done. This document is still worth keeping and still worth updating — a competitor is a good
+> checklist for the unglamorous things a dashboard product must not be missing, and several entries
+> below found real gaps.
+>
+> What it structurally cannot tell you is where this product is going. **A capability AG Studio does
+> not have never appears here as an opportunity — it does not appear at all.** The entire AI
+> subsystem, the largest thing in the tree, is visible in these pages only as an occasional ⚡. So a
+> reader deciding what to build next should not work down the ❌ column; they should read the
+> decision log, and treat this as the check that the floor has not fallen through.
+>
+> The comparison itself is also a first pass, taken from public materials in April 2026 (see §4 of
+> the requirements for what was and was not verifiable), and AG Studio has not stood still since.
+> Individual verdicts here have gone stale twice on our OWN code — three "gaps" in the a11y section
+> and all three in XS-LAYOUT-004 turned out to be already implemented — so a claim in this file is a
+> prompt to go and look, not a finding.
 
 ---
 
@@ -782,9 +801,16 @@ These are present in the MUI X Studio implementation but are absent from or not
 
 ---
 
-## Priority gaps for MVP completion
+## Parity floor — remaining items
 
-Based on the MVP definition in section 9 of the requirements, these gaps should be addressed before the MVP can be considered complete:
+These were written as "gaps to close before MVP", against §9 of the requirements. Since
+[ADR 0003](./decisions/0003-ai-assistant-product-scope.md) that framing no longer holds: §9's MVP
+boundary is a historical baseline, not the release criteria, and clearing this list is not the same
+as being ready to ship.
+
+What the list still is: the parity floor. Every item is something a dashboard product is expected to
+have, so an entry left open here is a thing a prospective user will notice by its absence. Worth
+tracking on those terms — just not worth mistaking for a plan.
 
 1. ~~**XS-LAYOUT-002 / XS-CANVAS-002: Widget resize handles**~~ ✅ Done — 12-column resize handle implemented.
 2. ~~**XS-GRID-002: Grid grouping**~~ ✅ Done — `rowGroupingModel` and `aggregationModel` are wired through `DataGridPremium`, giving runtime group expand/collapse.

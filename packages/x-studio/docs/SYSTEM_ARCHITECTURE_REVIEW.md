@@ -52,7 +52,7 @@ From `AG_STUDIO_CLONE_REQUIREMENTS.md`, the parts that constrain structure:
 | :---- | :------------------------------------------------------------------------------------------------------------------------ | :---------------------------------------------------------------------- |
 | §2.1  | "Framework-ready embedding strategy for React, **Angular, Vue 3, and vanilla JavaScript** hosts"                          | Unblocked — `@mui/x-studio-core` is the framework-agnostic half (A1)    |
 | §8.4  | "Angular: wrapper/integration package. Vue 3: wrapper/integration package. JavaScript: framework-agnostic embedding API." | Not addressed                                                           |
-| §9    | "MVP **excludes**: AI assistant."                                                                                         | Inverted — see A3                                                       |
+| §9    | "MVP **excludes**: AI assistant."                                                                                         | Struck by ADR 0003 — AI is the product, not an exclusion (A3)           |
 | §2.2  | "Out of scope (MVP): Multi-user real-time collaborative editing."                                                         | Deferred, and the current model forecloses it cheaply enough to be fine |
 | §5 P5 | Principle: "Extensible architecture (future widgets, data backends)."                                                     | Widgets: genuinely achieved. Data backends: partly — see A5             |
 | §2.1  | "Data modeling support for multiple sources, relationships, measures, and calculated fields"                              | Built, but with no home of its own — see A4                             |
@@ -81,8 +81,8 @@ shape, and one explicit requirement is incompatible with it.
 | :-- | :------------------------------------------------------------------------ | :-------------------- | :-------------------------------------------------------------------------------------- |
 | A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED**   | Done — `@mui/x-studio-core` is extracted and React-free.                                |
 | A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**              | Cheap now. A breaking API change later.                                                 |
-| A3  | The MVP-excluded subsystem is the largest one built                       | Medium                | Costs nothing to fix — it needs a decision recorded, not code moved                     |
-| A4  | The semantic model is embedded per-dashboard with no path to a shared one | Medium                | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
+| A3  | The MVP-excluded subsystem is the largest one built                       | ~~Medium~~ **CLOSED** | Done — ADR 0003 chose AI-native; §2.2/§9 corrected in place.                            |
+| A4  | The semantic model is embedded per-dashboard with no path to a shared one | **High** (was Medium) | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
 | A5  | Two execution engines with no shared correctness contract                 | ~~Medium~~ **CLOSED** | Done — the descriptor is the execution contract, split by declared capabilities.        |
 | A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**    | Done — both wires carry a version and a compatibility rule.                             |
 
@@ -230,6 +230,18 @@ grep. This one may simply not have been asked yet; it needs to be asked before r
 after.
 
 ## A3 — The largest subsystem is the one the MVP excludes
+
+> **Closed 2026-08-09 by [ADR 0003](./decisions/0003-ai-assistant-product-scope.md).** The product is
+> AI-native: the AI subsystem is the differentiator, and AG Studio parity is a baseline rather than
+> the goal. The requirements' §2.2 and §9 exclusions are struck in place, and both AG Studio
+> documents now carry a header saying they are historical baselines rather than current scope.
+>
+> The finding was that the codebase and the requirements asserted different products with no
+> artifact saying which was current. That is what has been fixed — the code did not move.
+>
+> **This raises A4 from Medium to High.** A governed semantic layer is the anti-hallucination
+> substrate an AI-native product rests on, so where the semantic model lives stops being a tidying
+> question. It remains cheap only while dashboards are unpublished.
 
 Requirements §9, verbatim: **"MVP excludes: AI assistant."** §2.2 also lists "AI assistant and
 natural-language authoring flows" as out of scope for MVP.

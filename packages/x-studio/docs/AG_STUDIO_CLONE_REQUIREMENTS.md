@@ -1,5 +1,15 @@
 # AG Studio Clone Requirements (MUI X + Material UI)
 
+> **Historical baseline — not current scope.** This is a competitor teardown written before the
+> product direction was set. [ADR 0003](./decisions/0003-ai-assistant-product-scope.md) (2026-08-09)
+> chose an **AI-native dashboard builder**: AG Studio parity is a baseline to clear, not the target
+> to hit. The MVP boundary below is therefore not the release criteria.
+>
+> Read it for what it is good at — a thorough account of what this category of product has to do,
+> and the acceptance criteria for each area. Do not read a feature's absence here as a decision, and
+> do not read §9's exclusions as current. The AI entries in §2.2 and §9 are corrected in place
+> below; the rest stands as written.
+
 ## 1. Document purpose
 
 This document defines a detailed feature and requirement specification for building an AG Studio-like experience using MUI X (Data Grid, Charts) and Material UI components.
@@ -27,7 +37,9 @@ It is organized for product, design, and engineering use, and includes:
 
 - Multi-user real-time collaborative editing.
 - Backend implementation details (storage/auth/permissions service internals).
-- AI assistant and natural-language authoring flows.
+- ~~AI assistant and natural-language authoring flows.~~ **Superseded by
+  [ADR 0003](./decisions/0003-ai-assistant-product-scope.md).** AI is the product's differentiator,
+  not an exclusion: `x-studio-ai-middleware` and `StudioChatPanel` are shipping subsystems.
 - Production-ready code generation/export for framework-specific host apps.
 - Full export suite beyond core CSV for tabular widgets.
 
@@ -697,7 +709,8 @@ MVP includes:
 
 MVP excludes:
 
-- AI assistant.
+- ~~AI assistant.~~ **Superseded by [ADR 0003](./decisions/0003-ai-assistant-product-scope.md)** —
+  it is the differentiator, not an exclusion.
 - Real-time collaboration.
 - Advanced export formats beyond CSV.
 - Production-ready framework code generation/export.

@@ -1,7 +1,9 @@
 # 0004 — Where the semantic model lives
 
-**Status:** Open. Raised 2026-08-07. **Cheap while dashboards are unpublished; a data migration
-across every stored document afterwards.**
+**Status:** Open. Raised 2026-08-07. **Urgent since 2026-08-09** — [ADR
+0003](./0003-ai-assistant-product-scope.md) chose an AI-native product, which makes a governed
+semantic layer the anti-hallucination substrate rather than a tidying exercise. **Cheap while
+dashboards are unpublished; a data migration across every stored document afterwards.**
 
 ## Context
 

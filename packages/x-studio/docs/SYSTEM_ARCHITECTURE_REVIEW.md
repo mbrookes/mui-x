@@ -77,14 +77,14 @@ framework-agnostic engine, a React component library, and an application shell, 
 three things were written in that order into the same directory. No requirement asked for that
 shape, and one explicit requirement is incompatible with it.
 
-| #   | Finding                                                                   | Severity              | Cost now vs. later                                                                      |
-| :-- | :------------------------------------------------------------------------ | :-------------------- | :-------------------------------------------------------------------------------------- |
-| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED**   | Done — `@mui/x-studio-core` is extracted and React-free.                                |
-| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**              | Cheap now. A breaking API change later.                                                 |
-| A3  | The MVP-excluded subsystem is the largest one built                       | ~~Medium~~ **CLOSED** | Done — ADR 0003 chose AI-native; §2.2/§9 corrected in place.                            |
-| A4  | The semantic model is embedded per-dashboard with no path to a shared one | **High** (was Medium) | Cheap now (schema change + migration). Very expensive once dashboards are in the field. |
-| A5  | Two execution engines with no shared correctness contract                 | ~~Medium~~ **CLOSED** | Done — the descriptor is the execution contract, split by declared capabilities.        |
-| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**    | Done — both wires carry a version and a compatibility rule.                             |
+| #   | Finding                                                                   | Severity              | Cost now vs. later                                                               |
+| :-- | :------------------------------------------------------------------------ | :-------------------- | :------------------------------------------------------------------------------- |
+| A1  | Package boundary does not serve the Angular/Vue/JS requirement            | ~~High~~ **CLOSED**   | Done — `@mui/x-studio-core` is extracted and React-free.                         |
+| A2  | No MIT/Pro/Premium tiering seam, unlike every sibling product             | **High**              | Cheap now. A breaking API change later.                                          |
+| A3  | The MVP-excluded subsystem is the largest one built                       | ~~Medium~~ **CLOSED** | Done — ADR 0003 chose AI-native; §2.2/§9 corrected in place.                     |
+| A4  | The semantic model is embedded per-dashboard with no path to a shared one | ~~High~~ **CLOSED**   | Done — ADR 0004: the model is named, inline by default, host-overridable by id.  |
+| A5  | Two execution engines with no shared correctness contract                 | ~~Medium~~ **CLOSED** | Done — the descriptor is the execution contract, split by declared capabilities. |
+| A6  | Host integration is two handlers, not a versioned contract                | ~~Low~~ **CLOSED**    | Done — both wires carry a version and a compatibility rule.                      |
 
 ## A1 — The package boundary does not serve the multi-framework requirement
 
@@ -272,6 +272,18 @@ An architecture cannot be assessed against an intent nobody has written down. **
 costs no code to fix and blocks the correct prioritization of the others.**
 
 ## A4 — The semantic model has no home of its own
+
+> **Closed 2026-08-09 by [ADR 0004](./decisions/0004-semantic-model-home.md).** The model now has an
+> identity: `StudioDoc.semanticModel` carries an `id`, and a host can register one under
+> `runtime.semanticModels` so every dashboard naming it resolves to one governed definition —
+> without editing any of them. Still inline by default, so a dashboard remains self-contained.
+>
+> The finding was that the model was embedded with no PATH to a shared one. The path exists now; the
+> shared layer itself (an authoring surface, permissions, versioning apart from the dashboard) is
+> ADR 0004's option 3 and is deliberately not built.
+>
+> Taken without a schema version bump, because x-studio is unpublished and there is nothing in the
+> field to migrate — which is exactly the window this finding said would close.
 
 `StudioDoc` carries `relationships`, `expressionFields` (calculated columns and measures), and
 per-source field metadata. These are a **semantic model**: the definitions of what the business

@@ -22,8 +22,9 @@ import {
   screenWidgets,
 } from './docScreening';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
+import { createDefaultSemanticModel, DEFAULT_SEMANTIC_MODEL_ID } from './semanticModel';
+import type { StudioSemanticModel } from './semanticModel';
 import type { StudioState, StudioDoc, StudioSession, StudioRuntime } from './stateTypes';
-import type { StudioExpressionField } from './expressionTypes';
 import type { StudioWidget, StudioWidgetConfig } from './widgetTypes';
 import type { StudioAIState } from './aiTypes';
 
@@ -44,8 +45,17 @@ export interface SerializedStudioState {
   pages: StudioDoc['pages'];
   widgets: StudioDoc['widgets'];
   filters: StudioDoc['filters'];
-  relationships?: StudioDoc['relationships'];
-  expressionFields?: StudioExpressionField[];
+  /**
+   * The dashboard's semantic model — joins, calculated columns, measures (ADR 0004).
+   *
+   * One object rather than the two top-level `relationships` / `expressionFields` arrays it
+   * replaces, so an exported dashboard carries the model's IDENTITY. Without the id, a host with a
+   * governed model has no way to tell which model a document means, and the whole point of naming
+   * it is lost at exactly the boundary where the model leaves the app.
+   *
+   * Omitted when the model is empty, matching how the arrays behaved.
+   */
+  semanticModel?: StudioSemanticModel;
   filterPresets?: StudioDoc['filterPresets'];
   /**
    * AI conversation threads. Optional — omitted when no threads exist.
@@ -314,23 +324,26 @@ function findMissingRequiredField(state: Record<string, unknown>): string | null
   // paths (`ef.sourceId`, `r.sourceId`, `preset.filters[*].id`) with no optional chaining.
   // `deserializeState` ALSO drops these defensively for its direct-call surface; naming
   // them here is the loud `migrateState` counterpart, exactly as `filters` is treated.
-  if (state.relationships !== undefined) {
-    if (!Array.isArray(state.relationships)) {
-      return 'relationships';
+  // Both model arrays now live under `semanticModel`, so the names reported here are qualified
+  // (`semanticModel.relationships[2]`). A caller fixing a document needs the path it can actually
+  // edit; the unqualified name would point at a key the document no longer has.
+  if (state.semanticModel !== undefined) {
+    if (!isRecord(state.semanticModel)) {
+      return 'semanticModel';
     }
-    for (let i = 0; i < state.relationships.length; i += 1) {
-      if (!isRecord(state.relationships[i])) {
-        return `relationships[${i}]`;
+    const model = state.semanticModel;
+    for (const key of ['relationships', 'expressionFields'] as const) {
+      const entries = model[key];
+      if (entries === undefined) {
+        continue;
       }
-    }
-  }
-  if (state.expressionFields !== undefined) {
-    if (!Array.isArray(state.expressionFields)) {
-      return 'expressionFields';
-    }
-    for (let i = 0; i < state.expressionFields.length; i += 1) {
-      if (!isRecord(state.expressionFields[i])) {
-        return `expressionFields[${i}]`;
+      if (!Array.isArray(entries)) {
+        return `semanticModel.${key}`;
+      }
+      for (let i = 0; i < entries.length; i += 1) {
+        if (!isRecord(entries[i])) {
+          return `semanticModel.${key}[${i}]`;
+        }
       }
     }
   }
@@ -596,6 +609,62 @@ export function migrateState(state: unknown): MigrationResult {
  * every other one — see {@link pruneDependsOn} and the body comment below for the
  * user-visible cascade this used to shorten on every reload.
  */
+/**
+ * True when a model declares nothing, so it can be omitted from the wire.
+ *
+ * Checked on contents rather than on the object, because a fresh dashboard always HAS a model —
+ * `createDefaultSemanticModel()` — and serializing an empty one on every save would put a
+ * meaningless key in every exported document.
+ */
+function isSemanticModelEmpty(model: StudioSemanticModel): boolean {
+  return model.relationships.length === 0 && model.expressionFields.length === 0;
+}
+
+/**
+ * Read the semantic model out of a serialized document.
+ *
+ * Accepts the pre-ADR-0004 shape — top-level `relationships` / `expressionFields` arrays — and
+ * rebuilds a model from it. x-studio is unpublished, so this is not a compatibility promise and
+ * there is no schema version bump behind it; it exists because the alternative is that a developer
+ * with a dashboard saved from last week's build silently loses every join and calculated field on
+ * load. `screenRelationships(undefined)` returns `[]`, so without this branch the loss would be
+ * total, silent, and look like a bug in the dashboard rather than a format change.
+ *
+ * It announces itself, and it heals on the next save: the document is rewritten in the new shape,
+ * so the warning fires at most once per stored document.
+ * @param raw The parsed serialized document.
+ * @returns The document's model.
+ */
+function readSemanticModel(raw: Record<string, unknown>): StudioSemanticModel {
+  if (isRecord(raw.semanticModel)) {
+    const model = raw.semanticModel as Partial<StudioSemanticModel>;
+    return {
+      id: typeof model.id === 'string' && model.id !== '' ? model.id : DEFAULT_SEMANTIC_MODEL_ID,
+      ...(typeof model.label === 'string' ? { label: model.label } : {}),
+      relationships: screenRelationships(model.relationships),
+      expressionFields: screenExpressionFields(model.expressionFields),
+    };
+  }
+
+  const legacy = {
+    ...createDefaultSemanticModel(),
+    relationships: screenRelationships(raw.relationships),
+    expressionFields: screenExpressionFields(raw.expressionFields),
+  };
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    (legacy.relationships.length > 0 || legacy.expressionFields.length > 0)
+  ) {
+    console.warn(
+      `MUI X Studio: This dashboard stores its relationships and expression fields in the ` +
+        `pre-semantic-model layout, so it was written by a build from before those moved under ` +
+        `\`semanticModel\`. They have been read across and the document will be saved in the ` +
+        `current shape, so this notice should not repeat. See ADR 0004.`,
+    );
+  }
+  return legacy;
+}
+
 export function serializeDoc(doc: StudioDoc): SerializedStudioState {
   const { filters, ...rest } = doc;
   const keptFilters = filters.filter(
@@ -620,8 +689,10 @@ export function serializeDoc(doc: StudioDoc): SerializedStudioState {
     // Pruning HERE makes the serialized doc self-consistent, so what a reload restores is
     // what was written rather than what survived a second, later prune.
     filters: pruneDependsOn(keptFilters, new Set(keptFilters.map((f) => f.id))),
-    relationships: doc.relationships.length > 0 ? doc.relationships : undefined,
-    expressionFields: doc.expressionFields.length > 0 ? doc.expressionFields : undefined,
+    // The DOCUMENT's own model, never the resolved one. A host-provided override is runtime state:
+    // serializing it would bake somebody else's definitions into this dashboard and make the
+    // override permanent and invisible the next time the document was opened.
+    semanticModel: isSemanticModelEmpty(doc.semanticModel) ? undefined : doc.semanticModel,
     filterPresets: (doc.filterPresets?.length ?? 0) > 0 ? doc.filterPresets : undefined,
     ai: doc.ai?.threads && doc.ai.threads.length > 0 ? doc.ai : undefined,
   };
@@ -897,8 +968,7 @@ export function deserializeState(
       // Defensive PER-ENTRY screening for the three optional collections, symmetric with
       // the pages/widgets/filters/ai.threads screens above and shared with
       // `createDefaultStudioState` — see `docScreening.ts` for each screen's rationale.
-      relationships: screenRelationships(raw.relationships),
-      expressionFields: screenExpressionFields(raw.expressionFields),
+      semanticModel: readSemanticModel(raw),
       filterPresets: screenFilterPresets(raw.filterPresets),
       // `doc.ai` validation (container + per-entry) is computed as `normalizedAi` above.
       ai: normalizedAi,

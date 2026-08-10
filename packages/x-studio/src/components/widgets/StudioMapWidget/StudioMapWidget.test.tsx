@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, act, fireEvent } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -167,15 +168,21 @@ interface StateOverrides {
   pages?: StudioState['doc']['pages'];
   widgets?: StudioState['doc']['widgets'];
   dataSources?: StudioState['runtime']['dataSources'];
-  relationships?: StudioState['doc']['relationships'];
+  relationships?: StudioState['doc']['semanticModel']['relationships'];
   filters?: StudioState['doc']['filters'];
-  expressionFields?: StudioState['doc']['expressionFields'];
+  expressionFields?: StudioState['doc']['semanticModel']['expressionFields'];
   shell?: Partial<StudioState['session']['shell']>;
 }
 
 function createState(overrides?: StateOverrides): StudioState {
   return {
     doc: {
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        relationships: overrides?.relationships ?? [],
+        expressionFields: overrides?.expressionFields ?? [],
+      },
+
       schemaVersion: 1,
       dashboard: {
         id: 'dashboard-1',
@@ -188,9 +195,7 @@ function createState(overrides?: StateOverrides): StudioState {
         ...overrides?.pages,
       },
       widgets: overrides?.widgets ?? {},
-      relationships: overrides?.relationships ?? [],
       filters: overrides?.filters ?? [],
-      expressionFields: overrides?.expressionFields ?? [],
     },
     session: {
       mode: 'edit',
@@ -677,7 +682,7 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
           type: 'number',
           format: 'currency',
         },
-      ] as unknown as StudioState['doc']['expressionFields'],
+      ] as unknown as StudioState['doc']['semanticModel']['expressionFields'],
     });
     configureStudioContextMock({ getState: () => mockState, controller });
 
@@ -783,7 +788,7 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
       sourceField: 'customerId',
       targetField: 'id',
       type: 'many-to-one',
-    } as unknown as StudioState['doc']['relationships'][number];
+    } as unknown as StudioState['doc']['semanticModel']['relationships'][number];
     mockState = createState({
       widgets: { 'map-1': widget },
       dataSources: { sales: dataSource, customers: customersSource },
@@ -798,7 +803,7 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
           type: 'number',
           format: 'currency',
         },
-      ] as unknown as StudioState['doc']['expressionFields'],
+      ] as unknown as StudioState['doc']['semanticModel']['expressionFields'],
     });
     configureStudioContextMock({ getState: () => mockState, controller });
 
@@ -839,7 +844,7 @@ describe('<StudioMapWidget /> value-field lookup — expression + cross-source f
           },
           format: 'currency',
         },
-      ] as unknown as StudioState['doc']['expressionFields'],
+      ] as unknown as StudioState['doc']['semanticModel']['expressionFields'],
     });
     configureStudioContextMock({ getState: () => mockState, controller });
 
@@ -1039,7 +1044,7 @@ describe('<StudioMapWidget /> cross-source fan-in dedup', () => {
       sourceField: 'orderId',
       targetField: 'id',
     },
-  ] as unknown as StudioState['doc']['relationships'];
+  ] as unknown as StudioState['doc']['semanticModel']['relationships'];
 
   async function renderCrossSource(aggregation: string) {
     const widget = {

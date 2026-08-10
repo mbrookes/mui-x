@@ -10,7 +10,7 @@ import {
 } from '@mui/material';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDayjs } from '@mui/x-date-pickers/AdapterDayjs';
-import { Studio, createBatchingAdapter } from '@mui/x-studio';
+import { Studio, createBatchingAdapter, resolveSemanticModel } from '@mui/x-studio';
 import type {
   StudioHandle,
   StudioMode,
@@ -594,14 +594,14 @@ export default function App() {
       fetchFn,
       mutationEndpoint: salesMutationEndpoint,
       dataSources: state.runtime.dataSources,
-      relationships: state.doc.relationships,
-      expressionFields: state.doc.expressionFields,
+      relationships: resolveSemanticModel(state).relationships,
+      expressionFields: resolveSemanticModel(state).expressionFields,
     });
     const crmAdapter = createBatchingAdapter(crmEndpoint, {
       fetchFn,
       dataSources: state.runtime.dataSources,
-      relationships: state.doc.relationships,
-      expressionFields: state.doc.expressionFields,
+      relationships: resolveSemanticModel(state).relationships,
+      expressionFields: resolveSemanticModel(state).expressionFields,
     });
 
     for (const source of Object.values(state.runtime.dataSources)) {

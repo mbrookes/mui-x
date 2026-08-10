@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createDefaultSemanticModel } from '@mui/x-studio-schema';
 import type { MockInstance } from 'vitest';
 import {
   applyMutation,
@@ -2351,35 +2352,47 @@ describe('StudioController expression fields', () => {
   it('addExpressionField appends a new field', () => {
     const controller = new StudioController();
     controller.addExpressionField(ef);
-    expect(controller.getState().doc.expressionFields).toHaveLength(1);
-    expect(controller.getState().doc.expressionFields[0].id).toBe('ef1');
+    expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(1);
+    expect(controller.getState().doc.semanticModel.expressionFields[0].id).toBe('ef1');
   });
 
   it('addExpressionField is a no-op when the id already exists', () => {
-    const controller = new StudioController({ doc: { expressionFields: [ef] } });
+    const controller = new StudioController({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef] } },
+    });
     controller.addExpressionField({ ...ef, label: 'Different' });
-    expect(controller.getState().doc.expressionFields).toHaveLength(1);
-    expect(controller.getState().doc.expressionFields[0].label).toBe('Margin');
+    expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(1);
+    expect(controller.getState().doc.semanticModel.expressionFields[0].label).toBe('Margin');
   });
 
   it('updateExpressionField merges partial changes', () => {
-    const controller = new StudioController({ doc: { expressionFields: [ef] } });
+    const controller = new StudioController({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef] } },
+    });
     controller.updateExpressionField('ef1', { label: 'Profit Margin' });
-    expect(controller.getState().doc.expressionFields[0].label).toBe('Profit Margin');
-    expect(controller.getState().doc.expressionFields[0].expression).toEqual(ef.expression);
+    expect(controller.getState().doc.semanticModel.expressionFields[0].label).toBe('Profit Margin');
+    expect(controller.getState().doc.semanticModel.expressionFields[0].expression).toEqual(
+      ef.expression,
+    );
   });
 
   it('updateExpressionField is a no-op for unknown id', () => {
-    const controller = new StudioController({ doc: { expressionFields: [ef] } });
+    const controller = new StudioController({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef] } },
+    });
     controller.updateExpressionField('nonexistent', { label: 'X' });
-    expect(controller.getState().doc.expressionFields[0].label).toBe('Margin');
+    expect(controller.getState().doc.semanticModel.expressionFields[0].label).toBe('Margin');
   });
 
   it('removeExpressionField removes the matching field', () => {
     const ef2 = { ...ef, id: 'ef2', label: 'Other' };
-    const controller = new StudioController({ doc: { expressionFields: [ef, ef2] } });
+    const controller = new StudioController({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef, ef2] } },
+    });
     controller.removeExpressionField('ef1');
-    expect(controller.getState().doc.expressionFields.map((field) => field.id)).toEqual(['ef2']);
+    expect(
+      controller.getState().doc.semanticModel.expressionFields.map((field) => field.id),
+    ).toEqual(['ef2']);
   });
 
   // Finding 2.14: deleting a calculated field used to silently strand every widget / filter /
@@ -2394,7 +2407,8 @@ describe('StudioController expression fields', () => {
     };
     const controller = new StudioController({
       doc: {
-        expressionFields: [ef, efUser],
+        semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef, efUser] },
+
         widgets: {
           w1: {
             id: 'w1',
@@ -2439,11 +2453,12 @@ describe('StudioController expression fields', () => {
     // legitimately be dropped before this count ever ran.
     const controller = new StudioController({
       doc: {
+        semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef] },
+
         pages: {
           'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [] },
           'page-2': { id: 'page-2', title: 'Page 2', widgetRows: [] },
         },
-        expressionFields: [ef],
         filters: [
           {
             id: 'rankBy',
@@ -2475,7 +2490,8 @@ describe('StudioController expression fields', () => {
   it('removeExpressionField still deletes a referenced field and returns the reference count', () => {
     const controller = new StudioController({
       doc: {
-        expressionFields: [ef],
+        semanticModel: { ...createDefaultSemanticModel(), expressionFields: [ef] },
+
         filters: [
           {
             id: 'flt',
@@ -2491,7 +2507,7 @@ describe('StudioController expression fields', () => {
     const count = controller.removeExpressionField('ef1');
     warnSpy.mockRestore();
     // Guard-and-continue: the field is removed even though a filter still references it...
-    expect(controller.getState().doc.expressionFields).toHaveLength(0);
+    expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(0);
     // ...and the reference count is surfaced to the caller.
     expect(count).toBe(1);
   });
@@ -4583,7 +4599,11 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
 
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('updateRelationship / removeRelationship with an unknown id are no-ops', () => {
-    const controller = new StudioController({ doc: { relationships: [relationship('r1')] } });
+    const controller = new StudioController({
+      doc: {
+        semanticModel: { ...createDefaultSemanticModel(), relationships: [relationship('r1')] },
+      },
+    });
     assertNoOp(controller, () => {
       controller.updateRelationship('nope', { targetId: 'z' });
       controller.removeRelationship('nope');
@@ -4595,11 +4615,15 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
   // event — appended a second entry sharing `id`, and `updateRelationship`/
   // `removeRelationship` (both keyed on `rel.id`) would then act on both at once.
   it('addRelationship with an already-existing id is a no-op (T3.3)', () => {
-    const controller = new StudioController({ doc: { relationships: [relationship('r1')] } });
+    const controller = new StudioController({
+      doc: {
+        semanticModel: { ...createDefaultSemanticModel(), relationships: [relationship('r1')] },
+      },
+    });
     assertNoOp(controller, () =>
       controller.addRelationship({ ...relationship('r1'), targetId: 'different-target' }),
     );
-    expect(controller.getState().doc.relationships).toHaveLength(1);
+    expect(controller.getState().doc.semanticModel.relationships).toHaveLength(1);
   });
 
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
@@ -4615,7 +4639,11 @@ describe('StudioController — identity-preserving no-op writers (1.6)', () => {
 
   // eslint-disable-next-line vitest/expect-expect -- assertions live in the shared assertNoOp helper
   it('removeExpressionField with an unknown id is a no-op', () => {
-    const controller = new StudioController({ doc: { expressionFields: [expressionField] } });
+    const controller = new StudioController({
+      doc: {
+        semanticModel: { ...createDefaultSemanticModel(), expressionFields: [expressionField] },
+      },
+    });
     assertNoOp(controller, () => controller.removeExpressionField('nope'));
   });
 
@@ -5317,16 +5345,19 @@ describe('StudioController — value-identical page/relationship writes are no-o
   it('updateRelationship with a value-identical patch preserves the redo stack', () => {
     const controller = new StudioController({
       doc: {
-        relationships: [
-          {
-            id: 'r1',
-            sourceId: 'a',
-            sourceField: 'x',
-            targetId: 'b',
-            targetField: 'y',
-            type: 'many-to-one' as const,
-          },
-        ],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          relationships: [
+            {
+              id: 'r1',
+              sourceId: 'a',
+              sourceField: 'x',
+              targetId: 'b',
+              targetField: 'y',
+              type: 'many-to-one' as const,
+            },
+          ],
+        },
       },
     });
     controller.setDashboardTitle('edit');
@@ -5341,7 +5372,7 @@ describe('StudioController — value-identical page/relationship writes are no-o
 
     // A genuine change still commits (and clears redo), proving the guard isn't over-broad.
     controller.updateRelationship('r1', { targetId: 'c' });
-    expect(controller.getState().doc.relationships[0].targetId).toBe('c');
+    expect(controller.getState().doc.semanticModel.relationships[0].targetId).toBe('c');
     expect(controller.canRedo()).toBe(false);
   });
 
@@ -5349,19 +5380,22 @@ describe('StudioController — value-identical page/relationship writes are no-o
   it('updateExpressionField with value-identical updates preserves the redo stack (2.6)', () => {
     const controller = new StudioController({
       doc: {
-        expressionFields: [
-          {
-            id: 'ef1',
-            label: 'Margin',
-            expression: {
-              operator: 'subtract' as const,
-              inputs: [{ id: 'revenue' }, { id: 'cost' }],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields: [
+            {
+              id: 'ef1',
+              label: 'Margin',
+              expression: {
+                operator: 'subtract' as const,
+                inputs: [{ id: 'revenue' }, { id: 'cost' }],
+              },
+              sourceId: 'orders',
+              type: 'number' as const,
+              isMeasure: false,
             },
-            sourceId: 'orders',
-            type: 'number' as const,
-            isMeasure: false,
-          },
-        ],
+          ],
+        },
       },
     });
     controller.setDashboardTitle('edit');
@@ -5377,7 +5411,7 @@ describe('StudioController — value-identical page/relationship writes are no-o
 
     // A genuine change still commits (and clears redo), proving the guard isn't over-broad.
     controller.updateExpressionField('ef1', { label: 'Gross Margin' });
-    expect(controller.getState().doc.expressionFields[0].label).toBe('Gross Margin');
+    expect(controller.getState().doc.semanticModel.expressionFields[0].label).toBe('Gross Margin');
     expect(controller.canRedo()).toBe(false);
   });
 
@@ -6179,7 +6213,12 @@ describe('StudioController — expression-field / relationship edits invalidate 
 
   it('updateExpressionField invalidates both the previous and the new source', () => {
     const controller = new StudioController({
-      doc: { expressionFields: [{ ...cacheExpressionField, sourceId: 'customers' }] },
+      doc: {
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields: [{ ...cacheExpressionField, sourceId: 'customers' }],
+        },
+      },
     });
     withSpy((spy) => {
       controller.updateExpressionField('ef1', {
@@ -6191,7 +6230,14 @@ describe('StudioController — expression-field / relationship edits invalidate 
   });
 
   it('updateExpressionField does not invalidate for a rejected / no-op write', () => {
-    const controller = new StudioController({ doc: { expressionFields: [cacheExpressionField] } });
+    const controller = new StudioController({
+      doc: {
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields: [cacheExpressionField],
+        },
+      },
+    });
     withSpy((spy) => {
       controller.updateExpressionField('nope', { label: 'x' }); // not-found
       controller.updateExpressionField('ef1', { label: cacheExpressionField.label }); // value-equal
@@ -6214,7 +6260,9 @@ describe('StudioController — expression-field / relationship edits invalidate 
   });
 
   it('updateRelationship invalidates both endpoints, before and after the repoint', () => {
-    const controller = new StudioController({ doc: { relationships: [relationship] } });
+    const controller = new StudioController({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [relationship] } },
+    });
     withSpy((spy) => {
       controller.updateRelationship('rel1', { targetId: 'accounts', targetField: 'id' });
       expect(invalidatedIds(spy)).toEqual(['accounts', 'customers', 'orders']);
@@ -6236,7 +6284,9 @@ describe('StudioController — expression-field / relationship edits invalidate 
   });
 
   it('updateRelationship does not invalidate for a rejected / no-op write', () => {
-    const controller = new StudioController({ doc: { relationships: [relationship] } });
+    const controller = new StudioController({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [relationship] } },
+    });
     withSpy((spy) => {
       controller.updateRelationship('nope', { targetField: 'x' }); // not-found
       controller.updateRelationship('rel1', { targetField: relationship.targetField }); // equal

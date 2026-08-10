@@ -1,4 +1,5 @@
 // @ts-nocheck
+import { DEFAULT_SEMANTIC_MODEL_ID } from '@mui/x-studio';
 import { mainDemoState } from './vendor/mainDemoState';
 
 export const MAIN_DEMO_PAGES = [
@@ -887,9 +888,12 @@ export function createXStudioOfficeSuppliesState(sourceIds) {
         activePageId,
       },
       pages: pageMap,
-      relationships: createRelationships(sourceIds),
       widgets,
-      expressionFields: createExpressionFields(sourceIds),
+      semanticModel: {
+        id: DEFAULT_SEMANTIC_MODEL_ID,
+        relationships: createRelationships(sourceIds),
+        expressionFields: createExpressionFields(sourceIds),
+      },
       filters: createFilters(sourceIds),
     },
   };

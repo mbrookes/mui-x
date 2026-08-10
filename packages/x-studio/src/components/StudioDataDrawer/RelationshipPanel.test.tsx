@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, screen, fireEvent } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { StudioDataSource, StudioRelationship } from '../../models';
@@ -105,7 +106,9 @@ describe('RelationshipPanel', () => {
   describe('rejected writes keep the dialog open (H8)', () => {
     it('keeps the edit dialog open when the relationship was removed from the doc meanwhile', async () => {
       const { controller, wrapper } = createStudioHarness({
-        initialState: { doc: { relationships: [REL] } },
+        initialState: {
+          doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [REL] } },
+        },
       });
       const { user } = render(
         <RelationshipPanel relationships={[REL]} dataSources={DATA_SOURCES} />,
@@ -126,7 +129,9 @@ describe('RelationshipPanel', () => {
 
     it('closes the edit dialog when the update actually lands', async () => {
       const { wrapper } = createStudioHarness({
-        initialState: { doc: { relationships: [REL] } },
+        initialState: {
+          doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [REL] } },
+        },
       });
       const { user } = render(
         <RelationshipPanel relationships={[REL]} dataSources={DATA_SOURCES} />,

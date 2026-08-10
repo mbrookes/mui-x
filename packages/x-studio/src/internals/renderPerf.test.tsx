@@ -25,6 +25,7 @@
  */
 
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, act } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -460,7 +461,7 @@ describe('UI render performance — store-driven re-renders', () => {
     const paintCountBeforeMutation = valueRenders;
     expect(paintCountBeforeMutation).toBeGreaterThan(0);
 
-    // A calculated column authored on a DIFFERENT source. `state.doc.expressionFields`
+    // A calculated column authored on a DIFFERENT source. `state.doc.semanticModel.expressionFields`
     // gets a new array reference, so every widget subscribed to it naively would
     // re-render; `makeSelectExpressionFieldsForSources` is supposed to hand this widget
     // back the previous (empty) array because none of the fields belong to its sources.
@@ -475,8 +476,8 @@ describe('UI render performance — store-driven re-renders', () => {
 
     // Sanity: the write really landed, so a stable render count means "filtered out",
     // not "nothing happened".
-    expect(controller.getState().doc.expressionFields).toHaveLength(1);
-    expect(controller.getState().doc.expressionFields[0].sourceId).toBe('source-2');
+    expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(1);
+    expect(controller.getState().doc.semanticModel.expressionFields[0].sourceId).toBe('source-2');
 
     expect(valueRenders).toBe(paintCountBeforeMutation);
   });
@@ -528,7 +529,7 @@ describe('UI render performance — store-driven re-renders', () => {
   // The two cases above render `StudioKpiWidget` STANDALONE, bypassing the card that wraps
   // EVERY widget in the real tree — so they could not see that `StudioWidgetCard` itself
   // subscribed to `selectExpressionFields`, a whole-slice selector returning
-  // `state.doc.expressionFields` by reference. `addExpressionField({ sourceId: 'unrelated' })`
+  // `state.doc.semanticModel.expressionFields` by reference. `addExpressionField({ sourceId: 'unrelated' })`
   // replaces that array, so every mounted card on every mounted page re-rendered its chrome
   // (including `inferKpiDateSubtitle`, whose deps include `allFilters`) for an edit it can
   // never reach. Mount THROUGH the card so the ARCHITECTURE.md claim is actually pinned.
@@ -557,7 +558,7 @@ describe('UI render performance — store-driven re-renders', () => {
 
     // Sanity: the write really landed, so a stable render count means "filtered out",
     // not "nothing happened".
-    expect(controller.getState().doc.expressionFields).toHaveLength(1);
+    expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(1);
     expect(cardRenderCount()).toBe(passesBeforeMutation);
   });
 
@@ -605,18 +606,22 @@ describe('UI render performance — the widget card subscribes to RELATED source
     controller = new StudioController({
       ...buildInitialState(),
       doc: {
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          relationships: [
+            {
+              id: 'rel-1',
+              type: 'many-to-one',
+              sourceId: 'source-1',
+              sourceField: 'id',
+              targetId: 'source-2',
+              targetField: 'id',
+            },
+          ],
+        },
+
         ...buildInitialState().doc,
         // `source-2` is one hop from the widget's `source-1`.
-        relationships: [
-          {
-            id: 'rel-1',
-            type: 'many-to-one',
-            sourceId: 'source-1',
-            sourceField: 'id',
-            targetId: 'source-2',
-            targetField: 'id',
-          },
-        ],
       },
     });
     syncState();

@@ -8,6 +8,7 @@
  * memoization that prevents needless re-renders — was untested.
  */
 import { describe, it, expect } from 'vitest';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createDefaultStudioState, type StudioFilterState } from '@mui/x-studio-core/models';
 import type {
   StudioState,
@@ -86,9 +87,14 @@ function state(overrides?: {
 }): StudioState {
   const base = createDefaultStudioState({
     doc: {
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        expressionFields: overrides?.expressionFields ?? [],
+      },
+
       ...(overrides?.filters ? { filters: overrides.filters } : {}),
       ...(overrides?.widgets ? { widgets: overrides.widgets } : {}),
-      ...(overrides?.expressionFields ? { expressionFields: overrides.expressionFields } : {}),
+      ...(overrides?.expressionFields ? {} : {}),
     },
     session: {
       ...(overrides?.mode ? { mode: overrides.mode } : {}),

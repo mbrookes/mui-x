@@ -180,6 +180,17 @@ export type {
   MigrationResult,
 } from '@mui/x-studio-schema';
 
+// ─── Semantic model (ADR 0004) ────────────────────────────────────────────────
+// The definitions layer — joins, calculated columns, measures — with an identity of its own, so a
+// host can supply one governed model across dashboards instead of each document redeclaring it.
+export {
+  DEFAULT_SEMANTIC_MODEL_ID,
+  createDefaultSemanticModel,
+  resolveSemanticModel,
+  isSemanticModelExternal,
+} from '@mui/x-studio-schema';
+export type { StudioSemanticModel } from '@mui/x-studio-schema';
+
 // ─── Models / domain types ────────────────────────────────────────────────────
 export type {
   StudioState,

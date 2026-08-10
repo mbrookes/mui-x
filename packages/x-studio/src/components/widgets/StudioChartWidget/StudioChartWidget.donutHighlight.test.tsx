@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
@@ -98,13 +99,13 @@ interface StateOverrides {
 function createState(overrides?: StateOverrides): StudioState {
   return {
     doc: {
+      semanticModel: { ...createDefaultSemanticModel(), relationships: [], expressionFields: [] },
+
       schemaVersion: 1,
       dashboard: { id: 'd', title: 'D', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'P', widgetRows: [] } },
       widgets: overrides?.widgets ?? {},
-      relationships: [],
       filters: overrides?.filters ?? [],
-      expressionFields: [],
     },
     session: {
       mode: 'edit',

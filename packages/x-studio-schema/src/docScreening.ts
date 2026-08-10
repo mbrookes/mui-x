@@ -34,6 +34,9 @@
  */
 import type { StudioAIState } from './aiTypes';
 import type { StudioExpressionField } from './expressionTypes';
+import type { StudioRelationship } from './dataTypes';
+import { createDefaultSemanticModel, DEFAULT_SEMANTIC_MODEL_ID } from './semanticModel';
+import type { StudioSemanticModel } from './semanticModel';
 import type { StudioDoc, StudioFilterScope, StudioFilterState } from './stateTypes';
 import type { StudioWidget, StudioWidgetConfig } from './widgetTypes';
 import { isSafeKey } from './unsafeKeys';
@@ -455,13 +458,34 @@ export const screenFilterPresets = (value: unknown): StudioDoc['filterPresets'] 
   return (changed ? safe : value) as StudioDoc['filterPresets'];
 };
 
-/** Screen `doc.relationships`: container + per-entry record/own-key/required-leaf checks. */
-export const screenRelationships = (value: unknown): StudioDoc['relationships'] =>
-  screenRecordArray<StudioDoc['relationships'][number]>(value, isRelationshipSafe);
+/** Screen a semantic model's `relationships`: container + per-entry record/own-key/leaf checks. */
+export const screenRelationships = (value: unknown): StudioRelationship[] =>
+  screenRecordArray<StudioRelationship>(value, isRelationshipSafe);
 
-/** Screen `doc.expressionFields`: container + per-entry record/own-key/required-leaf checks. */
+/** Screen a semantic model's `expressionFields`: container + per-entry checks. */
 export const screenExpressionFields = (value: unknown): StudioExpressionField[] =>
   screenRecordArray<StudioExpressionField>(value, isExpressionFieldSafe);
+
+/**
+ * Screen `doc.semanticModel`: the container, its id, and both entry arrays.
+ *
+ * Returns a well-formed empty model for a missing or non-record value rather than passing the junk
+ * through. The model is not optional on `StudioDoc` — every read site dereferences
+ * `semanticModel.relationships` without a guard — so a screen that could yield `undefined` would
+ * move the failure from here to whichever hot path touched it first.
+ */
+export const screenSemanticModel = (value: unknown): StudioSemanticModel => {
+  if (!isRecord(value)) {
+    return createDefaultSemanticModel();
+  }
+  const model = value as Partial<StudioSemanticModel>;
+  return {
+    id: typeof model.id === 'string' && model.id !== '' ? model.id : DEFAULT_SEMANTIC_MODEL_ID,
+    ...(typeof model.label === 'string' ? { label: model.label } : {}),
+    relationships: screenRelationships(model.relationships),
+    expressionFields: screenExpressionFields(model.expressionFields),
+  };
+};
 
 /**
  * Screen the four OPTIONAL widget scalars — delete a non-string `subtitle`/`sourceId` and a
@@ -1006,11 +1030,8 @@ export function screenDoc(doc: Partial<StudioDoc> | undefined): Partial<StudioDo
   if (Object.hasOwn(doc, 'filters')) {
     next.filters = screenFilters(doc.filters);
   }
-  if (Object.hasOwn(doc, 'relationships')) {
-    next.relationships = screenRelationships(doc.relationships);
-  }
-  if (Object.hasOwn(doc, 'expressionFields')) {
-    next.expressionFields = screenExpressionFields(doc.expressionFields);
+  if (Object.hasOwn(doc, 'semanticModel')) {
+    next.semanticModel = screenSemanticModel(doc.semanticModel);
   }
   if (Object.hasOwn(doc, 'filterPresets')) {
     next.filterPresets = screenFilterPresets(doc.filterPresets);

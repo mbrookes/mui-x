@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_STUDIO_LOCALE_TEXT } from '@mui/x-studio-core/engine';
@@ -178,7 +179,11 @@ describe('StudioPivotWidget — measure-expression pivotValueField', () => {
 
     renderWidgetWithState(
       { pivotRowField: 'region', pivotColField: 'product', pivotValueField: 'avgAmount' },
-      { doc: { expressionFields: [measureField] } },
+      {
+        doc: {
+          semanticModel: { ...createDefaultSemanticModel(), expressionFields: [measureField] },
+        },
+      },
     );
 
     // Each region/product combination has exactly one row (amount 10 for EMEA/A,

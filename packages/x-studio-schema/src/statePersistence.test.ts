@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createDefaultSemanticModel, DEFAULT_SEMANTIC_MODEL_ID } from './semanticModel';
 import {
   CURRENT_SCHEMA_VERSION,
   MIGRATION_REGISTRY_FOR_TESTS,
@@ -50,16 +51,19 @@ describe('migrateState', () => {
     const state = completeSerialized({
       schemaVersion: CURRENT_SCHEMA_VERSION,
       widgets: { w1: { id: 'w1', kind: 'chart', title: 'A', config: { chartType: 'bar' } } },
-      relationships: [
-        {
-          id: 'r1',
-          sourceId: 'a',
-          sourceField: 'x',
-          targetId: 'b',
-          targetField: 'y',
-          type: 'many-to-one',
-        },
-      ],
+      semanticModel: {
+        id: 'inline',
+        relationships: [
+          {
+            id: 'r1',
+            sourceId: 'a',
+            sourceField: 'x',
+            targetId: 'b',
+            targetField: 'y',
+            type: 'many-to-one',
+          },
+        ],
+      },
     });
     const result = migrateState(state);
     expect(result.success).toBe(true);
@@ -69,9 +73,15 @@ describe('migrateState', () => {
     expect((migrated.widgets as Record<string, unknown>).w1).not.toBe(
       (state.widgets as Record<string, unknown>).w1,
     );
-    expect(migrated.relationships).not.toBe(
-      (state as unknown as Record<string, unknown>).relationships,
-    );
+    // The semantic model is a nested sub-object like `widgets`, so the same rule applies to it and
+    // to the arrays inside it — a host mutating its own persisted model must not reach live state.
+    const migratedModel = migrated.semanticModel as Record<string, unknown>;
+    const sourceModel = (state as unknown as Record<string, unknown>).semanticModel as Record<
+      string,
+      unknown
+    >;
+    expect(migratedModel).not.toBe(sourceModel);
+    expect(migratedModel.relationships).not.toBe(sourceModel.relationships);
   });
 
   it('returns failure for null', () => {
@@ -330,7 +340,10 @@ describe('migrateState', () => {
   // rather than letting it load and crash the client on first use.
   it('fails a doc with a junk relationships entry, naming the field (Finding 1)', () => {
     const result = migrateState(
-      completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, relationships: [null] }),
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        semanticModel: { id: 'inline', relationships: [null] },
+      }),
     );
     expect(result.success).toBe(false);
     expect(result.errors.join(' ')).toMatch(/relationships\[0\]/);
@@ -338,7 +351,10 @@ describe('migrateState', () => {
 
   it('fails a doc with a junk expressionFields entry, naming the field (Finding 1)', () => {
     const result = migrateState(
-      completeSerialized({ schemaVersion: CURRENT_SCHEMA_VERSION, expressionFields: [42] }),
+      completeSerialized({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        semanticModel: { id: 'inline', expressionFields: [42] },
+      }),
     );
     expect(result.success).toBe(false);
     expect(result.errors.join(' ')).toMatch(/expressionFields\[0\]/);
@@ -370,8 +386,6 @@ describe('migrateState', () => {
     const result = migrateState(
       completeSerialized({
         schemaVersion: CURRENT_SCHEMA_VERSION,
-        relationships: [{ id: 'r1', sourceId: 'a', targetId: 'b' }],
-        expressionFields: [{ id: 'ef1', name: 'Rev', sourceId: 'a' }],
         filterPresets: [
           {
             id: 'p1',
@@ -381,6 +395,11 @@ describe('migrateState', () => {
             ],
           },
         ],
+        semanticModel: {
+          id: 'inline',
+          relationships: [{ id: 'r1', sourceId: 'a', targetId: 'b' }],
+          expressionFields: [{ id: 'ef1', name: 'Rev', sourceId: 'a' }],
+        },
       }),
     );
     expect(result.success).toBe(true);
@@ -503,31 +522,38 @@ describe('serializeState', () => {
   // empty), asymmetric with `expressionFields`/`filterPresets`/`ai`, which are
   // omitted when empty. Symmetry restored: an empty array is now omitted too.
   it('omits relationships when the array is empty (T3.2)', () => {
-    const state = createDefaultStudioState({ doc: { relationships: [] } });
-    expect(serializeState(state).relationships).toBeUndefined();
+    const state = createDefaultStudioState({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [] } },
+    });
+    expect(serializeState(state).semanticModel?.relationships).toBeUndefined();
   });
 
   it('includes relationships when non-empty (T3.2)', () => {
     const state = createDefaultStudioState({
       doc: {
-        relationships: [
-          {
-            id: 'r1',
-            sourceId: 'orders',
-            targetId: 'customers',
-            sourceField: 'customerId',
-            targetField: 'id',
-            type: 'many-to-one' as const,
-          },
-        ],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          relationships: [
+            {
+              id: 'r1',
+              sourceId: 'orders',
+              targetId: 'customers',
+              sourceField: 'customerId',
+              targetField: 'id',
+              type: 'many-to-one' as const,
+            },
+          ],
+        },
       },
     });
-    expect(serializeState(state).relationships).toHaveLength(1);
+    expect(serializeState(state).semanticModel?.relationships).toHaveLength(1);
   });
 
   it('omits expressionFields when the array is empty', () => {
-    const state = createDefaultStudioState({ doc: { expressionFields: [] } });
-    expect(serializeState(state).expressionFields).toBeUndefined();
+    const state = createDefaultStudioState({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), expressionFields: [] } },
+    });
+    expect(serializeState(state).semanticModel?.expressionFields).toBeUndefined();
   });
 
   // The fourth member of the empty→`undefined` family. Its three siblings
@@ -550,22 +576,25 @@ describe('serializeState', () => {
   it('includes expressionFields when non-empty', () => {
     const state = createDefaultStudioState({
       doc: {
-        expressionFields: [
-          {
-            id: 'ef1',
-            label: 'Margin',
-            expression: {
-              operator: 'subtract' as const,
-              inputs: [{ id: 'revenue' }, { id: 'cost' }],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields: [
+            {
+              id: 'ef1',
+              label: 'Margin',
+              expression: {
+                operator: 'subtract' as const,
+                inputs: [{ id: 'revenue' }, { id: 'cost' }],
+              },
+              sourceId: 'orders',
+              type: 'number' as const,
+              isMeasure: false,
             },
-            sourceId: 'orders',
-            type: 'number' as const,
-            isMeasure: false,
-          },
-        ],
+          ],
+        },
       },
     });
-    expect(serializeState(state).expressionFields).toHaveLength(1);
+    expect(serializeState(state).semanticModel?.expressionFields).toHaveLength(1);
   });
 
   it('does not include dataSources', () => {
@@ -625,16 +654,16 @@ describe('deserializeState', () => {
     expect(state.runtime.dataSources).toBe(ds);
   });
 
-  it('defaults relationships to [] when absent from serialized data', () => {
-    const { relationships: ignoredRel, ...withoutRel } = minimalSerialized;
-    const state = deserializeState(withoutRel as typeof minimalSerialized, {});
-    expect(state.doc.relationships).toEqual([]);
-  });
-
-  it('defaults expressionFields to [] when absent from serialized data', () => {
-    const { expressionFields: ignoredEf, ...withoutEf } = minimalSerialized;
-    const state = deserializeState(withoutEf as typeof minimalSerialized, {});
-    expect(state.doc.expressionFields).toEqual([]);
+  it('defaults the semantic model to an empty one when absent from serialized data', () => {
+    // `semanticModel` is NOT optional on `StudioDoc` — every read site dereferences
+    // `.relationships` without a guard — so a serialized document that omits it (the shape
+    // `serializeDoc` writes for an empty model) must still deserialize to a usable model rather
+    // than to `undefined`.
+    const { semanticModel: ignoredModel, ...withoutModel } = minimalSerialized;
+    const state = deserializeState(withoutModel as typeof minimalSerialized, {});
+    expect(state.doc.semanticModel.relationships).toEqual([]);
+    expect(state.doc.semanticModel.expressionFields).toEqual([]);
+    expect(state.doc.semanticModel.id).toEqual(DEFAULT_SEMANTIC_MODEL_ID);
   });
 
   // ── total over a malformed top-level shape (finding 2) ───────────────────────
@@ -1494,13 +1523,16 @@ describe('deserializeState', () => {
     (key) => {
       const serialized = {
         ...minimalSerialized,
-        relationships: JSON.parse(
-          `[{"id":"r1","sourceId":"a","sourceField":"x","targetId":"b","targetField":"y","type":"many-to-one"},` +
-            `{"id":"r2","sourceId":"c","sourceField":"x","targetId":"d","targetField":"y","type":"many-to-one","${key}":{"polluted":true}}]`,
-        ),
+        semanticModel: {
+          id: 'inline',
+          relationships: JSON.parse(
+            `[{"id":"r1","sourceId":"a","sourceField":"x","targetId":"b","targetField":"y","type":"many-to-one"},` +
+              `{"id":"r2","sourceId":"c","sourceField":"x","targetId":"d","targetField":"y","type":"many-to-one","${key}":{"polluted":true}}]`,
+          ),
+        },
       } as unknown as typeof minimalSerialized;
       const state = deserializeState(serialized, {});
-      expect(state.doc.relationships.map((r) => r.id)).toEqual(['r1']);
+      expect(state.doc.semanticModel.relationships.map((r) => r.id)).toEqual(['r1']);
       expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     },
   );
@@ -1510,13 +1542,16 @@ describe('deserializeState', () => {
     (key) => {
       const serialized = {
         ...minimalSerialized,
-        expressionFields: JSON.parse(
-          `[{"id":"ef1","label":"A","sourceId":"a","isMeasure":false,"expression":{"id":"amount"}},` +
-            `{"id":"ef2","label":"B","sourceId":"b","isMeasure":false,"expression":{"id":"amount"},"${key}":{"polluted":true}}]`,
-        ),
+        semanticModel: {
+          id: 'inline',
+          expressionFields: JSON.parse(
+            `[{"id":"ef1","label":"A","sourceId":"a","isMeasure":false,"expression":{"id":"amount"}},` +
+              `{"id":"ef2","label":"B","sourceId":"b","isMeasure":false,"expression":{"id":"amount"},"${key}":{"polluted":true}}]`,
+          ),
+        },
       } as unknown as typeof minimalSerialized;
       const state = deserializeState(serialized, {});
-      expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+      expect(state.doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
       expect(({} as Record<string, unknown>).polluted).toBeUndefined();
     },
   );
@@ -1860,21 +1895,24 @@ describe('deserializeState', () => {
       dashboard: { id: 'd', title: 'T', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'P1', widgetRows: [['w1']] } },
       widgets: { w1: { id: 'w1', kind: 'chart', title: 'C', config: { chartType: 'bar' } } },
-      expressionFields: [
-        {
-          id: 'ef1',
-          sourceId: 's1',
-          label: 'total',
-          isMeasure: false,
-          expression: { operator: 'add', inputs: [{ id: 'a' }, { id: 'b' }] },
-        },
-      ],
       filters: [
         // The sole defect: a well-formed-but-incomplete scope (missing `widgetId`).
         { id: 'bad', field: 'x', operator: 'equals', value: '', scope: { kind: 'widget' } },
         // A fully valid page-scoped filter that MUST survive.
         { id: 'page-f', field: 'date', operator: 'equals', value: '', scope: { kind: 'page' } },
       ],
+      semanticModel: {
+        id: 'inline',
+        expressionFields: [
+          {
+            id: 'ef1',
+            sourceId: 's1',
+            label: 'total',
+            isMeasure: false,
+            expression: { operator: 'add', inputs: [{ id: 'a' }, { id: 'b' }] },
+          },
+        ],
+      },
     });
 
     // Previously this migrate FAILED (returned null) and the whole dashboard was lost.
@@ -1888,7 +1926,7 @@ describe('deserializeState', () => {
     // Everything else is intact.
     expect(Object.keys(state.doc.pages)).toEqual(['page-1']);
     expect(state.doc.widgets.w1).toBeDefined();
-    expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(state.doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
     expect(() => serializeState(state)).not.toThrow();
   });
 
@@ -2006,13 +2044,12 @@ describe('deserializeState', () => {
   it('coerces a non-array relationships/expressionFields/filterPresets to [] (Tier 3)', () => {
     const serialized = {
       ...minimalSerialized,
-      relationships: 'junk',
-      expressionFields: {},
       filterPresets: 42,
+      semanticModel: { id: 'inline', relationships: 'junk', expressionFields: {} },
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
-    expect(state.doc.relationships).toEqual([]);
-    expect(state.doc.expressionFields).toEqual([]);
+    expect(state.doc.semanticModel.relationships).toEqual([]);
+    expect(state.doc.semanticModel.expressionFields).toEqual([]);
     expect(state.doc.filterPresets).toEqual([]);
   });
 
@@ -2037,16 +2074,19 @@ describe('deserializeState', () => {
     };
     const serialized = {
       ...minimalSerialized,
-      relationships: [null, goodRel, 'junk'],
-      expressionFields: [goodEf, 42],
+      semanticModel: {
+        id: 'inline',
+        relationships: [null, goodRel, 'junk'],
+        expressionFields: [goodEf, 42],
+      },
     } as unknown as typeof minimalSerialized;
     let state!: ReturnType<typeof deserializeState>;
     expect(() => {
       state = deserializeState(serialized, {});
     }).not.toThrow();
     // Only the record entries survive; primitives/null are dropped.
-    expect(state.doc.relationships).toEqual([goodRel]);
-    expect(state.doc.expressionFields).toEqual([goodEf]);
+    expect(state.doc.semanticModel.relationships).toEqual([goodRel]);
+    expect(state.doc.semanticModel.expressionFields).toEqual([goodEf]);
     // The cleaned doc round-trips without re-persisting the junk.
     expect(() => serializeState(state)).not.toThrow();
   });
@@ -2114,12 +2154,12 @@ describe('deserializeState', () => {
     ];
     const serialized = {
       ...minimalSerialized,
-      relationships,
+      semanticModel: { id: 'inline', relationships },
       filterPresets,
     } as unknown as typeof minimalSerialized;
     const state = deserializeState(serialized, {});
     // Nothing was dropped, so the SAME array references are carried through (no churn).
-    expect(state.doc.relationships).toBe(relationships);
+    expect(state.doc.semanticModel.relationships).toBe(relationships);
     expect(state.doc.filterPresets).toBe(filterPresets);
     expect(state.doc.filterPresets![0].filters).toBe(filterPresets[0].filters);
   });
@@ -2922,13 +2962,15 @@ describe('serializeState / deserializeState roundtrip', () => {
   // "omitted when empty" serialized shape back to `[]`, exactly like the sibling
   // omitted-when-empty collections (`expressionFields`/`filterPresets`).
   it('roundtrip: empty relationships is omitted on the wire and restored as [] (T3.2)', () => {
-    const state = createDefaultStudioState({ doc: { relationships: [] } });
+    const state = createDefaultStudioState({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [] } },
+    });
     const serialized = serializeState(state);
-    expect(serialized.relationships).toBeUndefined();
+    expect(serialized.semanticModel?.relationships).toBeUndefined();
     const json = JSON.stringify(serialized);
     const migration = migrateState(JSON.parse(json));
     const restored = migration.success ? deserializeState(migration.state!, {}) : null;
-    expect(restored?.doc.relationships).toEqual([]);
+    expect(restored?.doc.semanticModel.relationships).toEqual([]);
   });
 
   it('roundtrip: non-empty relationships survives serialize/deserialize (T3.2)', () => {
@@ -2942,11 +2984,13 @@ describe('serializeState / deserializeState roundtrip', () => {
         type: 'many-to-one' as const,
       },
     ];
-    const state = createDefaultStudioState({ doc: { relationships } });
+    const state = createDefaultStudioState({
+      doc: { semanticModel: { ...createDefaultSemanticModel(), relationships } },
+    });
     const json = JSON.stringify(serializeState(state));
     const migration = migrateState(JSON.parse(json));
     const restored = migration.success ? deserializeState(migration.state!, {}) : null;
-    expect(restored?.doc.relationships).toEqual(relationships);
+    expect(restored?.doc.semanticModel.relationships).toEqual(relationships);
   });
 
   it('retains chart config keys left over from a previously-selected chartType', () => {
@@ -3022,19 +3066,33 @@ describe('serializeState / deserializeState — doc completeness', () => {
   function fullDocState() {
     return createDefaultStudioState({
       doc: {
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          relationships: [
+            {
+              id: 'rel1',
+              sourceId: 'orders',
+              sourceField: 'customerId',
+              targetId: 'customers',
+              targetField: 'id',
+              type: 'many-to-one',
+            },
+          ],
+          expressionFields: [
+            {
+              id: 'ef1',
+              label: 'Margin',
+              expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
+              sourceId: 'orders',
+              type: 'number',
+              isMeasure: false,
+            },
+          ],
+        },
+
         dashboard: { id: 'd', title: 'Full', activePageId: 'p1' },
         pages: { p1: { id: 'p1', title: 'P1', widgetRows: [['w1']] } },
         widgets: { w1: { id: 'w1', kind: 'chart', title: 'W', config: { chartType: 'bar' } } },
-        relationships: [
-          {
-            id: 'rel1',
-            sourceId: 'orders',
-            sourceField: 'customerId',
-            targetId: 'customers',
-            targetField: 'id',
-            type: 'many-to-one',
-          },
-        ],
         filters: [
           {
             id: 'pf',
@@ -3042,16 +3100,6 @@ describe('serializeState / deserializeState — doc completeness', () => {
             operator: 'equals',
             value: '',
             scope: { kind: 'page', pageId: 'p1' },
-          },
-        ],
-        expressionFields: [
-          {
-            id: 'ef1',
-            label: 'Margin',
-            expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
-            sourceId: 'orders',
-            type: 'number',
-            isMeasure: false,
           },
         ],
         filterPresets: [
@@ -3093,9 +3141,8 @@ describe('serializeState / deserializeState — doc completeness', () => {
     dashboard: true,
     pages: true,
     widgets: true,
-    relationships: true,
+    semanticModel: true,
     filters: true,
-    expressionFields: true,
     filterPresets: true,
     ai: true,
   } satisfies Record<keyof StudioDoc, true>;
@@ -3197,39 +3244,50 @@ describe('deserializeState required-leaf screens (M1)', () => {
   it('drops an expressionFields entry with a missing/non-record expression', () => {
     const serialized = {
       ...minimal,
-      expressionFields: [
-        goodEf,
-        // The exact reported shape: everything but `expression`.
-        { id: 'e1', label: 'Margin', sourceId: 's1', isMeasure: false },
-        { ...goodEf, id: 'ef3', expression: '1 + 1' },
-      ],
+      semanticModel: {
+        id: 'inline',
+        expressionFields: [
+          goodEf,
+          // The exact reported shape: everything but `expression`.
+          { id: 'e1', label: 'Margin', sourceId: 's1', isMeasure: false },
+          { ...goodEf, id: 'ef3', expression: '1 + 1' },
+        ],
+      },
     } as unknown as typeof minimal;
     const state = deserializeState(serialized, {});
-    expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(state.doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
     // Self-heals: the junk is not re-persisted.
-    expect(serializeState(state).expressionFields).toEqual([goodEf]);
+    expect(serializeState(state).semanticModel?.expressionFields).toEqual([goodEf]);
   });
 
   it('drops an expressionFields entry with a non-string id/sourceId', () => {
     const serialized = {
       ...minimal,
-      expressionFields: [goodEf, { ...goodEf, id: 42 }, { ...goodEf, id: 'ef3', sourceId: null }],
+      semanticModel: {
+        id: 'inline',
+        expressionFields: [goodEf, { ...goodEf, id: 42 }, { ...goodEf, id: 'ef3', sourceId: null }],
+      },
     } as unknown as typeof minimal;
-    expect(deserializeState(serialized, {}).doc.expressionFields.map((ef) => ef.id)).toEqual([
-      'ef1',
-    ]);
+    expect(
+      deserializeState(serialized, {}).doc.semanticModel.expressionFields.map((ef) => ef.id),
+    ).toEqual(['ef1']);
   });
 
   it('drops a relationships entry missing an endpoint field or carrying an unknown type', () => {
     const serialized = {
       ...minimal,
-      relationships: [
-        goodRel,
-        { ...goodRel, id: 'r2', targetField: undefined },
-        { ...goodRel, id: 'r3', type: 'many-to-many-ish' },
-      ],
+      semanticModel: {
+        id: 'inline',
+        relationships: [
+          goodRel,
+          { ...goodRel, id: 'r2', targetField: undefined },
+          { ...goodRel, id: 'r3', type: 'many-to-many-ish' },
+        ],
+      },
     } as unknown as typeof minimal;
-    expect(deserializeState(serialized, {}).doc.relationships.map((r) => r.id)).toEqual(['r1']);
+    expect(
+      deserializeState(serialized, {}).doc.semanticModel.relationships.map((r) => r.id),
+    ).toEqual(['r1']);
   });
 
   it.each(['many-to-one', 'one-to-one', 'many-to-many'])(
@@ -3237,9 +3295,9 @@ describe('deserializeState required-leaf screens (M1)', () => {
     (type) => {
       const serialized = {
         ...minimal,
-        relationships: [{ ...goodRel, type }],
+        semanticModel: { id: 'inline', relationships: [{ ...goodRel, type }] },
       } as unknown as typeof minimal;
-      expect(deserializeState(serialized, {}).doc.relationships).toHaveLength(1);
+      expect(deserializeState(serialized, {}).doc.semanticModel.relationships).toHaveLength(1);
     },
   );
 
@@ -3277,12 +3335,15 @@ describe('deserializeState required-leaf screens (M1)', () => {
     expect(omittedId).toBe('r1');
     const serialized = {
       ...minimal,
-      relationships: [goodRel, relWithoutId, { ...goodRel, id: 42 }],
+      semanticModel: {
+        id: 'inline',
+        relationships: [goodRel, relWithoutId, { ...goodRel, id: 42 }],
+      },
     } as unknown as typeof minimal;
     const state = deserializeState(serialized, {});
-    expect(state.doc.relationships.map((r) => r.id)).toEqual(['r1']);
+    expect(state.doc.semanticModel.relationships.map((r) => r.id)).toEqual(['r1']);
     // Self-heals: the unaddressable entries are not re-persisted.
-    expect(serializeState(state).relationships).toEqual([goodRel]);
+    expect(serializeState(state).semanticModel?.relationships).toEqual([goodRel]);
   });
 
   // The OUTER sibling of the preset-inner-filter `id` screen just below, and of M1's:
@@ -3371,7 +3432,7 @@ describe('deserializeState schemaVersion gate (M4)', () => {
       // … and every other container is its empty default.
       expect(state.doc.widgets).toEqual({});
       expect(state.doc.filters).toEqual([]);
-      expect(state.doc.relationships).toEqual([]);
+      expect(state.doc.semanticModel.relationships).toEqual([]);
       expect(state.doc.ai).toBeUndefined();
     },
   );
@@ -3587,7 +3648,13 @@ describe('deserializeState expression-field interior screen', () => {
     expression: { operator: 'subtract', inputs: [{ id: 'revenue' }, { id: 'cost' }] },
   };
   const load = (expressionFields: unknown[]) =>
-    deserializeState({ ...minimal, expressionFields } as unknown as typeof minimal, {});
+    deserializeState(
+      {
+        ...minimal,
+        semanticModel: { id: 'inline', expressionFields },
+      } as unknown as typeof minimal,
+      {},
+    );
 
   it('keeps a well-formed entry and every valid expression-node member', () => {
     const entries = [
@@ -3598,7 +3665,7 @@ describe('deserializeState expression-field interior screen', () => {
       // `isMeasure` is documented as defaulting to `false`, so an absent one stays legal.
       { id: 'no-measure', label: 'L', sourceId: 's1', expression: { id: 'revenue' } },
     ];
-    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual([
+    expect(load(entries).doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual([
       'ef1',
       'value',
       'field',
@@ -3614,7 +3681,7 @@ describe('deserializeState expression-field interior screen', () => {
       { ...goodEf, id: 'e2', expression: { operator: 'add', inputs: 'nope' } },
       { ...goodEf, id: 'e3', expression: { operator: 'add', inputs: [{ id: 'a' }, null] } },
     ];
-    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(load(entries).doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
   });
 
   it('drops an unknown operator the way the sibling relationship type check does', () => {
@@ -3629,9 +3696,9 @@ describe('deserializeState expression-field interior screen', () => {
       },
     ];
     const state = load(entries);
-    expect(state.doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(state.doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
     // Self-heals: the junk is not re-persisted.
-    expect(serializeState(state).expressionFields).toEqual([goodEf]);
+    expect(serializeState(state).semanticModel?.expressionFields).toEqual([goodEf]);
   });
 
   it.each([
@@ -3643,19 +3710,19 @@ describe('deserializeState expression-field interior screen', () => {
     ['equal', false],
   ])('operator "%s" is a known member: %s', (operator, kept) => {
     const entry = { ...goodEf, id: 'op', expression: { operator, inputs: [] } };
-    expect(load([entry]).doc.expressionFields).toHaveLength(kept ? 1 : 0);
+    expect(load([entry]).doc.semanticModel.expressionFields).toHaveLength(kept ? 1 : 0);
   });
 
   it('drops an entry whose label is missing or not a string', () => {
     const { label: ignoredLabel, ...noLabel } = goodEf;
     const entries = [goodEf, { ...noLabel, id: 'e1' }, { ...goodEf, id: 'e2', label: 42 }];
-    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(load(entries).doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
   });
 
   it('drops an entry whose present isMeasure is not a boolean', () => {
     // A truthy junk value silently loads a calculated column as a whole-dataset measure.
     const entries = [goodEf, { ...goodEf, id: 'e1', isMeasure: 'no' }];
-    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(load(entries).doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
   });
 
   it('drops a value node with an unknown type and a partial join node', () => {
@@ -3667,7 +3734,7 @@ describe('deserializeState expression-field interior screen', () => {
       // Matches no member at all.
       { ...goodEf, id: 'e3', expression: {} },
     ];
-    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
+    expect(load(entries).doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual(['ef1']);
   });
 
   it('drops an expression tree nested past the depth bound, keeping one just inside it', () => {
@@ -3683,7 +3750,9 @@ describe('deserializeState expression-field interior screen', () => {
       { ...goodEf, id: 'deep-ok', expression: nest(32) },
       { ...goodEf, id: 'too-deep', expression: nest(33) },
     ];
-    expect(load(entries).doc.expressionFields.map((ef) => ef.id)).toEqual(['deep-ok']);
+    expect(load(entries).doc.semanticModel.expressionFields.map((ef) => ef.id)).toEqual([
+      'deep-ok',
+    ]);
   });
 });
 

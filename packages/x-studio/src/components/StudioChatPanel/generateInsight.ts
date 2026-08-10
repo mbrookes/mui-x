@@ -20,6 +20,7 @@ import type {
   StudioDataSource,
   StudioExpressionField,
 } from '@mui/x-studio-core/models';
+import { resolveSemanticModel } from '@mui/x-studio-core/models';
 import {
   createStudioPipeline,
   type StudioPipelineState,
@@ -302,8 +303,8 @@ function formatDate(d: Date): string {
 function toPipelineState(state: StudioState): StudioPipelineState {
   return {
     dataSources: state.runtime.dataSources,
-    relationships: state.doc.relationships,
-    expressionFields: state.doc.expressionFields,
+    relationships: resolveSemanticModel(state).relationships,
+    expressionFields: resolveSemanticModel(state).expressionFields,
     filters: state.doc.filters,
     crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
     globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,
@@ -342,7 +343,7 @@ function buildKpiWidgetSummary(
   // mirrors the same `sourceFieldsWithExpressions` lookup used for `Stats:` below and
   // the widget-level render path's own-source-then-expression-field resolution.
   const fieldLabel = valueField
-    ? (sourceFieldsWithExpressions(source, state.doc.expressionFields).find(
+    ? (sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields).find(
         (f) => f.id === valueField,
       )?.label ?? valueField)
     : 'rows';
@@ -422,7 +423,7 @@ function buildKpiWidgetSummary(
     const stats = buildNumericStats(
       filteredRows,
       [valueField],
-      sourceFieldsWithExpressions(source, state.doc.expressionFields),
+      sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields),
     );
     if (stats) {
       lines.push(`Stats: ${stats}`);
@@ -555,8 +556,8 @@ function buildChartWidgetSummary(
     activeYFields,
     seriesField,
     state.runtime.dataSources,
-    state.doc.relationships,
-    state.doc.expressionFields,
+    resolveSemanticModel(state).relationships,
+    resolveSemanticModel(state).expressionFields,
     chartTypeExtraFields,
     widgetFilters,
   );
@@ -565,7 +566,10 @@ function buildChartWidgetSummary(
   // `source.fields`) so a calculated-field (expression field) y-axis measure shows its
   // configured display label instead of its raw field id — mirrors the same
   // `sourceFieldsWithExpressions` lookup used by the KPI/map/raw-row label paths above.
-  const yFieldSourceFields = sourceFieldsWithExpressions(source, state.doc.expressionFields);
+  const yFieldSourceFields = sourceFieldsWithExpressions(
+    source,
+    resolveSemanticModel(state).expressionFields,
+  );
   const yFieldLabel = (id: string) => yFieldSourceFields.find((f) => f.id === id)?.label ?? id;
 
   const lines: string[] = [];
@@ -598,7 +602,7 @@ function buildChartWidgetSummary(
       // `chartTypeDefs` passes on the canvas path, not a source-scoped subset: the point of
       // this argument is that the insight and the rendered chart agree, and narrowing it here
       // would just reintroduce the divergence in the opposite direction.
-      state.doc.expressionFields,
+      resolveSemanticModel(state).expressionFields,
     );
     const xSlice = result.xLabels.slice(0, maxRows);
     lines.push(
@@ -699,7 +703,7 @@ function buildChartWidgetSummary(
     const stats = buildNumericStats(
       filteredRows,
       activeYFields,
-      sourceFieldsWithExpressions(source, state.doc.expressionFields),
+      sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields),
     );
     if (stats) {
       lines.push(`Stats: ${stats}`);
@@ -773,12 +777,12 @@ function buildMapWidgetSummary(
           widget.sourceId,
           crossSourceFieldRefs,
           state.runtime.dataSources,
-          state.doc.relationships,
+          resolveSemanticModel(state).relationships,
           // Thread the expression fields so a related-source *calculated* country/value field is
           // L2-enriched before the join, matching the fixed shared render path —
           // without this the AI-facing map summary keeps the identical blind spot the render had,
           // and the two silently diverge once the render is fixed.
-          state.doc.expressionFields,
+          resolveSemanticModel(state).expressionFields,
         )
       : filteredRows;
 
@@ -813,7 +817,7 @@ function buildMapWidgetSummary(
   // `source.fields`) so a calculated-field (expression field) map value shows its
   // configured display label instead of its raw field id/expression.
   const valueLabel = valueField
-    ? (sourceFieldsWithExpressions(source, state.doc.expressionFields).find(
+    ? (sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields).find(
         (f) => f.id === valueField,
       )?.label ?? valueField)
     : 'count';
@@ -829,7 +833,7 @@ function buildMapWidgetSummary(
     const stats = buildNumericStats(
       normalizedRows,
       [valueField],
-      sourceFieldsWithExpressions(source, state.doc.expressionFields),
+      sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields),
     );
     if (stats) {
       lines.push(`Stats: ${stats}`);
@@ -991,7 +995,7 @@ export function buildWidgetDataSummary(
     widget.sourceId,
     cfg.columns,
     state.runtime.dataSources,
-    state.doc.relationships,
+    resolveSemanticModel(state).relationships,
   );
 
   // Deduplicate and keep only fields that actually exist in the enriched data. Checking against
@@ -1017,7 +1021,7 @@ export function buildWidgetDataSummary(
           // column isn't found, so it fails `aggregateRows`' `field?.type === 'number'` check and
           // gets bucket/`first`-style sampling instead of numeric aggregation, silently
           // misrepresenting a computed measure in the AI-generated insight summary.
-          sourceFieldsWithExpressions(source, state.doc.expressionFields),
+          sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields),
           maxRows,
         )
       : selectSampleRows(enrichedFilteredRows, options, xFieldId);
@@ -1026,13 +1030,16 @@ export function buildWidgetDataSummary(
   const stats = buildNumericStats(
     enrichedFilteredRows,
     fieldIds,
-    sourceFieldsWithExpressions(source, state.doc.expressionFields),
+    sourceFieldsWithExpressions(source, resolveSemanticModel(state).expressionFields),
   );
 
   // Look up header labels through the same own-source-fields + own-source-expression-fields
   // merge as the stats above (and as `widgetUtils.tsx`'s `buildCsvContent`), so an
   // expression column's header reads its configured label instead of its raw field id.
-  const allFieldsForLabels = sourceFieldsWithExpressions(source, state.doc.expressionFields);
+  const allFieldsForLabels = sourceFieldsWithExpressions(
+    source,
+    resolveSemanticModel(state).expressionFields,
+  );
   const headers = fieldIds.map((id) => {
     const field = allFieldsForLabels.find((f) => f.id === id);
     return field?.label ?? id;

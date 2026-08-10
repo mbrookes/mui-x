@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, screen } from '@mui/internal-test-utils';
 import { describe, expect, it, vi } from 'vitest';
 import type { StudioFilterState, StudioWidget, StudioWidgetConfig } from '../../models';
@@ -179,9 +180,10 @@ describe('WidgetFiltersPanel reachable sources (finding 1)', () => {
     const { wrapper } = createStudioHarness({
       initialState: {
         doc: {
+          semanticModel: { ...createDefaultSemanticModel(), relationships: MANY_TO_MANY },
+
           widgets: { w1: chartWidget({ sourceId: 'orders' }) },
           filters: [filter],
-          relationships: MANY_TO_MANY,
         },
         runtime: {
           dataSources: { orders: ORDERS, customers: CUSTOMERS, orderLines: ORDER_LINES },

@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, flushMicrotasks } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -93,8 +94,12 @@ async function setup() {
   const widget = makeWidget();
   const initialState: CreateDefaultStudioStateOverrides = {
     doc: {
-      relationships: [relationship],
-      expressionFields: [bonusExpr],
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        relationships: [relationship],
+        expressionFields: [bonusExpr],
+      },
+
       widgets: { [widget.id]: widget },
       pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
     },

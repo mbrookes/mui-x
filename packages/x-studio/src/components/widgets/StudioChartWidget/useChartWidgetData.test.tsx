@@ -12,6 +12,7 @@
  * `mockState` — matching the pattern used by the other widget/hook tests.
  */
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, waitFor, act } from '@mui/internal-test-utils';
 import { blueberryTwilightPalette } from '@mui/x-charts/colorPalettes';
@@ -62,15 +63,21 @@ interface StateOverrides {
   pages?: StudioState['doc']['pages'];
   widgets?: StudioState['doc']['widgets'];
   dataSources?: StudioState['runtime']['dataSources'];
-  relationships?: StudioState['doc']['relationships'];
+  relationships?: StudioState['doc']['semanticModel']['relationships'];
   filters?: StudioState['doc']['filters'];
-  expressionFields?: StudioState['doc']['expressionFields'];
+  expressionFields?: StudioState['doc']['semanticModel']['expressionFields'];
   shell?: Partial<StudioState['session']['shell']>;
 }
 
 function createState(overrides: StateOverrides = {}): StudioState {
   return {
     doc: {
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        relationships: overrides.relationships ?? [],
+        expressionFields: overrides.expressionFields ?? [],
+      },
+
       schemaVersion: 1,
       dashboard: {
         id: 'dash-1',
@@ -83,9 +90,7 @@ function createState(overrides: StateOverrides = {}): StudioState {
         ...overrides.pages,
       },
       widgets: overrides.widgets ?? {},
-      relationships: overrides.relationships ?? [],
       filters: overrides.filters ?? [],
-      expressionFields: overrides.expressionFields ?? [],
     },
     session: {
       mode: overrides.mode ?? 'view',

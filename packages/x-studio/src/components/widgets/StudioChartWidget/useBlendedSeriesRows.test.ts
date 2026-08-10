@@ -15,6 +15,7 @@
  * test/studioContextMock.ts).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { renderHook, waitFor } from '@mui/internal-test-utils';
 import { studioRequestCache, resolveRows } from '@mui/x-studio-core/engine';
 import type {
@@ -52,9 +53,8 @@ function createState(overrides: StateOverrides = {}): StudioState {
       dashboard: { id: 'dash-1', title: 'Dashboard', activePageId: 'page-1' },
       pages: { 'page-1': { id: 'page-1', title: 'Overview', widgetRows: [] } },
       widgets: overrides.widgets ?? {},
-      relationships: [],
+      semanticModel: createDefaultSemanticModel(),
       filters: [],
-      expressionFields: [],
     },
     session: {
       mode: 'view',
@@ -620,7 +620,10 @@ describe('useBlendedSeriesRows — a foreign calculated field must be enriched, 
     });
     mockState = {
       ...mockState,
-      doc: { ...mockState.doc, expressionFields: [stockValueExpr] },
+      doc: {
+        ...mockState.doc,
+        semanticModel: { ...mockState.doc.semanticModel, expressionFields: [stockValueExpr] },
+      },
     };
     configureStudioContextMock({ getState: () => mockState });
 
@@ -653,7 +656,10 @@ describe('useBlendedSeriesRows — a foreign calculated field must be enriched, 
     });
     mockState = {
       ...mockState,
-      doc: { ...mockState.doc, expressionFields: [stockValueExpr] },
+      doc: {
+        ...mockState.doc,
+        semanticModel: { ...mockState.doc.semanticModel, expressionFields: [stockValueExpr] },
+      },
     };
     configureStudioContextMock({ getState: () => mockState });
 
@@ -720,8 +726,11 @@ describe("useBlendedSeriesRows — a filter on the foreign source's OWN expressi
       ...mockState,
       doc: {
         ...mockState.doc,
-        relationships,
-        expressionFields: [stockValueExpr],
+        semanticModel: {
+          ...mockState.doc.semanticModel,
+          relationships,
+          expressionFields: [stockValueExpr],
+        },
         filters: [stockValueFilter],
       },
     };
@@ -770,8 +779,11 @@ describe("useBlendedSeriesRows — a filter on the foreign source's OWN expressi
       ...mockState,
       doc: {
         ...mockState.doc,
-        relationships,
-        expressionFields: [stockValueExpr],
+        semanticModel: {
+          ...mockState.doc.semanticModel,
+          relationships,
+          expressionFields: [stockValueExpr],
+        },
         filters: [stockValueFilter],
       },
     };

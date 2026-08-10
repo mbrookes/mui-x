@@ -9,6 +9,7 @@ import {
   studioRequestCache,
 } from '@mui/x-studio-core/engine';
 import { lookup } from '@mui/x-studio-core/utils';
+import { resolveSemanticModel } from '@mui/x-studio-core/models';
 import type { StudioLocaleText } from '@mui/x-studio-core/engine';
 import { exportChartToPng, exportGridToCsv, downloadCsv } from '../../internals/widgetPresentation';
 import { resolveCrossSourceFieldDefs } from '../widgets/StudioGridWidget/StudioGridWidget';
@@ -154,8 +155,8 @@ export function runWidgetExport({
       hasAdapter
         ? {
             dataSources: state.runtime.dataSources,
-            relationships: state.doc.relationships,
-            expressionFields: state.doc.expressionFields,
+            relationships: resolveSemanticModel(state).relationships,
+            expressionFields: resolveSemanticModel(state).expressionFields,
             filters: selectAdapterResidualFilters(state.doc.filters, {
               widgetId: widget.id,
               includeWidgetRank: shouldApplyWidgetRankAtL3(widget),
@@ -182,8 +183,8 @@ export function runWidgetExport({
     if (hasAdapter) {
       const descriptor = buildWidgetQueryDescriptor(widget, pageId, source?.tableName, {
         filters: state.doc.filters,
-        expressionFields: state.doc.expressionFields,
-        relationships: state.doc.relationships,
+        expressionFields: resolveSemanticModel(state).expressionFields,
+        relationships: resolveSemanticModel(state).relationships,
         crossFilterAllPages: state.doc.dashboard.crossFilterAllPages ?? false,
       });
       // Pass the live adapter so this export reads only the cache entry written by its OWN
@@ -257,11 +258,11 @@ export function runWidgetExport({
             widget.sourceId,
             crossSourceFieldRefs,
             state.runtime.dataSources,
-            state.doc.relationships,
+            resolveSemanticModel(state).relationships,
             // A related-source *calculated* column needs an L2 pass over the related
             // source before its value exists — pass all expression fields so
             // it resolves in the export exactly as it does on screen.
-            state.doc.expressionFields,
+            resolveSemanticModel(state).expressionFields,
           )
         : rows;
 
@@ -269,7 +270,7 @@ export function runWidgetExport({
     // calculated-field column matches the on-screen grid instead of falling back to the
     // raw field id with no number/currency formatting (finding — grid CSV export drifts
     // from on-screen rendering for expression-field columns).
-    const ownExpressionFields = state.doc.expressionFields.filter(
+    const ownExpressionFields = resolveSemanticModel(state).expressionFields.filter(
       (ef) => ef.sourceId === widget.sourceId,
     );
 
@@ -282,7 +283,7 @@ export function runWidgetExport({
         gridColumns,
         widget.sourceId,
         state.runtime.dataSources,
-        state.doc.expressionFields,
+        resolveSemanticModel(state).expressionFields,
       ).values(),
     );
 

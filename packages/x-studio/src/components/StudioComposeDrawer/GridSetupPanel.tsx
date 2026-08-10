@@ -33,6 +33,7 @@ import { getReachableSourceIds } from '@mui/x-studio-core/engine';
 // (`StudioGridWidget`'s `resolveAggregationFieldKeys`) so producer and consumer can
 // never drift on the key format — see `columnAggKey`'s doc comment.
 import { columnAggKey } from '@mui/x-studio-core/utils';
+import { resolveSemanticModel } from '@mui/x-studio-core/models';
 import {
   buildFieldCatalog,
   buildSourceFieldEntries,
@@ -454,7 +455,9 @@ export function GridSetupPanel(props: { widgetId: string }) {
   const handleCalculatedColumnSaved = (fieldId: string) => {
     const baselineDoc = calcGestureBaselineDocRef.current;
     calcGestureBaselineDocRef.current = null;
-    const created = controller.getState().doc.expressionFields.find((ef) => ef.id === fieldId);
+    const created = resolveSemanticModel(controller.getState()).expressionFields.find(
+      (ef) => ef.id === fieldId,
+    );
     if (!created || created.isMeasure || !source) {
       return;
     }

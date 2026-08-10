@@ -13,6 +13,7 @@
  */
 import { createStudioPipeline } from '@mui/x-studio-core/engine';
 import { fieldHasCapability } from '@mui/x-studio-core/utils';
+import { resolveSemanticModel } from '@mui/x-studio-core/models';
 import type { StudioController } from '@mui/x-studio-core/store';
 import type {
   StudioState,
@@ -120,8 +121,8 @@ function buildFieldStats(state: StudioState): Record<string, StudioAIFieldStat> 
   // different cross-filter regimes.
   const pipeline = createStudioPipeline({
     dataSources: state.runtime.dataSources,
-    relationships: state.doc.relationships,
-    expressionFields: state.doc.expressionFields,
+    relationships: resolveSemanticModel(state).relationships,
+    expressionFields: resolveSemanticModel(state).expressionFields,
     filters: state.doc.filters,
     crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
     globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,

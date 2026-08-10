@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, act, screen } from '@mui/internal-test-utils';
 import { ThemeProvider, createTheme } from '@mui/material/styles';
 import { ChartsReferenceLine } from '@mui/x-charts/ChartsReferenceLine';
@@ -114,15 +115,21 @@ interface StateOverrides {
   pages?: StudioState['doc']['pages'];
   widgets?: StudioState['doc']['widgets'];
   dataSources?: StudioState['runtime']['dataSources'];
-  relationships?: StudioState['doc']['relationships'];
+  relationships?: StudioState['doc']['semanticModel']['relationships'];
   filters?: StudioState['doc']['filters'];
-  expressionFields?: StudioState['doc']['expressionFields'];
+  expressionFields?: StudioState['doc']['semanticModel']['expressionFields'];
   shell?: Partial<StudioState['session']['shell']>;
 }
 
 function createState(overrides?: StateOverrides): StudioState {
   return {
     doc: {
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        relationships: overrides?.relationships ?? [],
+        expressionFields: overrides?.expressionFields ?? [],
+      },
+
       schemaVersion: 1,
       dashboard: {
         id: 'dashboard-1',
@@ -139,9 +146,7 @@ function createState(overrides?: StateOverrides): StudioState {
         ...overrides?.pages,
       },
       widgets: overrides?.widgets ?? {},
-      relationships: overrides?.relationships ?? [],
       filters: overrides?.filters ?? [],
-      expressionFields: overrides?.expressionFields ?? [],
     },
     session: {
       mode: overrides?.mode ?? 'edit',

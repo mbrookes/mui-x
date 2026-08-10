@@ -5,6 +5,7 @@ import type {
   StudioExpressionField,
   StudioFilterOperator,
   StudioFilterState,
+  StudioMutationRejectionReason,
 } from '../models';
 import { DEFAULT_STUDIO_LOCALE_TEXT, type StudioLocaleText } from './localeText';
 import { buildFieldCatalog } from './fieldCatalog';
@@ -28,7 +29,7 @@ import { getOperatorLabel, getOperatorsForFieldType } from './filterOperatorMeta
  * translation bundles carry `filterRankConflictMessage`.
  */
 export function filterMutationRejectionMessage(
-  reason: 'duplicate-id' | 'not-found' | 'cycle' | 'rank-conflict' | 'invalid',
+  reason: StudioMutationRejectionReason,
   localeText: Partial<StudioLocaleText>,
 ): string {
   const generic = localeText.saveRejectedMessage ?? DEFAULT_STUDIO_LOCALE_TEXT.saveRejectedMessage;

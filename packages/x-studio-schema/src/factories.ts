@@ -13,6 +13,7 @@ import type {
   StudioWidgetConfigForKind,
 } from './widgetTypes';
 import { CURRENT_SCHEMA_VERSION } from './stateTypes';
+import { createDefaultSemanticModel } from './semanticModel';
 import { screenDoc } from './docScreening';
 // The per-page rank-uniqueness sweep, shared with the reducer's layout handlers and the
 // persistence load boundary. It lives in its own dependency-free module precisely so this
@@ -253,9 +254,8 @@ export function createDefaultStudioState(
       },
     },
     widgets: {},
-    relationships: [],
+    semanticModel: createDefaultSemanticModel(),
     filters: [],
-    expressionFields: [],
   };
   const baseSession: StudioSession = {
     mode: 'edit',

@@ -373,3 +373,29 @@ export interface MutationEnvelope<T = StateMutation> {
   at: string;
   mutation: T;
 }
+
+/**
+ * Why a controller mutation refused its caller.
+ *
+ * Declared here rather than beside `StudioController` because two layers need it and only one of
+ * them may import the other: `filterDrawerUtils` (engine) maps a reason to a message, and the
+ * controller (store) produces it — but store imports engine, so engine cannot import store. The
+ * engine side had therefore re-typed the union BY HAND, and adding a member broke five call sites
+ * with a type error rather than silently falling through to the generic message. That is the good
+ * outcome of a bad arrangement; putting the union where both can see it removes the arrangement.
+ */
+export type StudioMutationRejectionReason =
+  | 'duplicate-id'
+  | 'not-found'
+  | 'cycle'
+  | 'rank-conflict'
+  | 'invalid'
+  /**
+   * The semantic model in effect belongs to the HOST, not to this document (ADR 0004).
+   *
+   * The reducer writes to the document's own model, so an edit accepted here would be applied to
+   * something nothing reads — a silent no-op the author would see as the app ignoring them.
+   * Editing a shared model needs a permission and versioning story x-studio does not have; that is
+   * ADR 0004's option 3. Until then the honest answer is to decline out loud.
+   */
+  | 'external-semantic-model';

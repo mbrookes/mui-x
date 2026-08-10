@@ -1,5 +1,5 @@
 import { createSelectorMemoized } from '@mui/x-internals/store';
-import { isWidgetOfKind } from '../models';
+import { isWidgetOfKind, resolveSemanticModel } from '../models';
 import type {
   StudioDoc,
   StudioExpressionField,
@@ -22,8 +22,10 @@ const EMPTY_FILTER_PRESETS: NonNullable<StudioDoc['filterPresets']> = [];
 export const selectFilterPresets = (state: StudioState) =>
   state.doc.filterPresets ?? EMPTY_FILTER_PRESETS;
 export const selectDataSources = (state: StudioState) => state.runtime.dataSources;
-export const selectRelationships = (state: StudioState) => state.doc.relationships;
-export const selectExpressionFields = (state: StudioState) => state.doc.expressionFields;
+export const selectRelationships = (state: StudioState) =>
+  resolveSemanticModel(state).relationships;
+export const selectExpressionFields = (state: StudioState) =>
+  resolveSemanticModel(state).expressionFields;
 export const selectWidgets = (state: StudioState) => state.doc.widgets;
 export const selectMode = (state: StudioState) => state.session.mode;
 export const selectShell = (state: StudioState) => state.session.shell;
@@ -102,7 +104,7 @@ export function makeSelectExpressionFieldsForSource(sourceId: string) {
   let lastResult: StudioExpressionField[] | undefined;
 
   return (state: StudioState): StudioExpressionField[] => {
-    const exprFields = state.doc.expressionFields;
+    const exprFields = resolveSemanticModel(state).expressionFields;
     if (exprFields === lastInput && lastResult !== undefined) {
       return lastResult;
     }
@@ -139,7 +141,7 @@ export function makeSelectExpressionFieldsForSources(sourceIds: ReadonlySet<stri
   let lastResult: StudioExpressionField[] | undefined;
 
   return (state: StudioState): StudioExpressionField[] => {
-    const exprFields = state.doc.expressionFields;
+    const exprFields = resolveSemanticModel(state).expressionFields;
     if (exprFields === lastInput && lastResult !== undefined) {
       return lastResult;
     }

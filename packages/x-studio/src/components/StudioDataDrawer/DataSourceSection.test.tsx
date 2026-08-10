@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { act, createRenderer, screen, fireEvent, waitFor, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { StudioDataSource, StudioExpressionField } from '../../models';
@@ -286,7 +287,10 @@ describe('DataSourceSection', () => {
     it('asks before deleting a field that is still referenced', async () => {
       const { controller, wrapper } = createStudioHarness({
         initialState: {
-          doc: { expressionFields: [EXPR_FIELD], widgets: { w1: REFERENCING_WIDGET } },
+          doc: {
+            semanticModel: { ...createDefaultSemanticModel(), expressionFields: [EXPR_FIELD] },
+            widgets: { w1: REFERENCING_WIDGET },
+          },
         },
       });
       const removeSpy = vi.spyOn(controller, 'removeExpressionField');
@@ -323,7 +327,10 @@ describe('DataSourceSection', () => {
     it('keeps the field when the confirmation is cancelled', async () => {
       const { controller, wrapper } = createStudioHarness({
         initialState: {
-          doc: { expressionFields: [EXPR_FIELD], widgets: { w1: REFERENCING_WIDGET } },
+          doc: {
+            semanticModel: { ...createDefaultSemanticModel(), expressionFields: [EXPR_FIELD] },
+            widgets: { w1: REFERENCING_WIDGET },
+          },
         },
       });
       const removeSpy = vi.spyOn(controller, 'removeExpressionField');
@@ -352,7 +359,11 @@ describe('DataSourceSection', () => {
 
     it('deletes an unreferenced field in one click, with no confirmation', async () => {
       const { controller, wrapper } = createStudioHarness({
-        initialState: { doc: { expressionFields: [EXPR_FIELD] } },
+        initialState: {
+          doc: {
+            semanticModel: { ...createDefaultSemanticModel(), expressionFields: [EXPR_FIELD] },
+          },
+        },
       });
       const removeSpy = vi.spyOn(controller, 'removeExpressionField');
       const { user } = render(

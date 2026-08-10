@@ -32,9 +32,12 @@ import {
   // dangling `dependsOn` ids in the LIVE doc that only `serializeDoc` pruned — the in-memory
   // cascade and the saved one disagreeing until the next reload. They route through the reducer
   // now; this stays for the transforms that still compose a doc directly.
+  isSameManagedFilterContent,
+  isSemanticModelExternal,
+  resolveSemanticModel,
 } from '@mui/x-studio-schema';
+import type { StudioMutationRejectionReason } from '@mui/x-studio-schema';
 
-import { isSameManagedFilterContent } from '@mui/x-studio-schema';
 import {
   createDefaultStudioState,
   type CreateDefaultStudioStateOverrides,
@@ -114,12 +117,7 @@ import * as runtimeTransforms from './runtimeTransforms';
  *    (`updateFilter`, `updateActivePage`) run the same shared screens against the keys they
  *    write and report the same reason. The caller's values were discarded.
  */
-export type StudioMutationRejectionReason =
-  | 'duplicate-id'
-  | 'not-found'
-  | 'cycle'
-  | 'rank-conflict'
-  | 'invalid';
+export type { StudioMutationRejectionReason };
 
 /**
  * The outcome of a controller mutation that can reject its caller's request.
@@ -154,6 +152,10 @@ const MUTATION_RANK_CONFLICT: StudioMutationResult = Object.freeze({
   reason: 'rank-conflict',
 });
 const MUTATION_INVALID: StudioMutationResult = Object.freeze({ ok: false, reason: 'invalid' });
+const MUTATION_EXTERNAL_MODEL: StudioMutationResult = Object.freeze({
+  ok: false,
+  reason: 'external-semantic-model',
+});
 
 export class StudioController {
   readonly store: Store<StudioState>;
@@ -509,8 +511,7 @@ export class StudioController {
     return (
       prevDoc.pages === nextDoc.pages &&
       prevDoc.widgets === nextDoc.widgets &&
-      prevDoc.relationships === nextDoc.relationships &&
-      prevDoc.expressionFields === nextDoc.expressionFields &&
+      prevDoc.semanticModel === nextDoc.semanticModel &&
       prevDoc.filterPresets === nextDoc.filterPresets &&
       prevDoc.dashboard.id === nextDoc.dashboard.id &&
       prevDoc.dashboard.title === nextDoc.dashboard.title &&
@@ -1032,9 +1033,41 @@ export class StudioController {
    *   close a circular dependency. Callers that surface the outcome to a user must branch on
    *   this rather than assuming the write landed.
    */
+  /**
+   * Refuse a semantic-model edit whose effect nothing would see (ADR 0004).
+   *
+   * The reducer writes to the DOCUMENT's model. When a host has supplied a model under the same id,
+   * `resolveSemanticModel` returns the host's, so the write would land somewhere no read looks —
+   * the author edits a join, presses save, and the dashboard is unchanged with no explanation.
+   *
+   * Declining is the honest outcome rather than a limitation to route around: editing a shared
+   * model needs a permission story and a versioning story (ADR 0004 option 3), and inventing either
+   * one silently inside a setter is how a governed model stops being governed.
+   * @param operation The method name, for the warning.
+   * @returns Whether the caller should abort.
+   */
+  private declineIfExternalSemanticModel(operation: string): boolean {
+    if (!isSemanticModelExternal(this.store.state)) {
+      return false;
+    }
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(
+        `MUI X Studio: "${operation}" was ignored because this dashboard resolves against a ` +
+          `semantic model supplied by the host (id "${this.store.state.doc.semanticModel.id}"). ` +
+          `Editing a host-provided model is not supported — the change would be written to the ` +
+          `document's own model, which nothing reads while the host's is in effect. Remove the ` +
+          `model from \`runtime.semanticModels\` to author it in this dashboard.`,
+      );
+    }
+    return true;
+  }
+
   addExpressionField = (field: StudioExpressionField): StudioMutationResult => {
     const state = this.store.state;
-    const exists = state.doc.expressionFields.some(
+    if (this.declineIfExternalSemanticModel('addExpressionField')) {
+      return MUTATION_EXTERNAL_MODEL;
+    }
+    const exists = resolveSemanticModel(state).expressionFields.some(
       (ef: StudioExpressionField) => ef.id === field.id,
     );
     if (exists) {
@@ -1051,7 +1084,7 @@ export class StudioController {
     // it: this method is also reachable from host code and from a persisted doc replayed
     // through here, neither of which inspects the result, so the warning stays the only
     // signal on those paths. The `reason` serves the callers that DO branch on it.
-    const nextFields = [...state.doc.expressionFields, field];
+    const nextFields = [...resolveSemanticModel(state).expressionFields, field];
     if (hasExpressionCycle(field, nextFields)) {
       if (process.env.NODE_ENV !== 'production') {
         console.warn(
@@ -1087,7 +1120,10 @@ export class StudioController {
     updates: Partial<Omit<StudioExpressionField, 'id'>>,
   ): StudioMutationResult => {
     const state = this.store.state;
-    const existing = state.doc.expressionFields.find(
+    if (this.declineIfExternalSemanticModel('updateExpressionField')) {
+      return MUTATION_EXTERNAL_MODEL;
+    }
+    const existing = resolveSemanticModel(state).expressionFields.find(
       (ef: StudioExpressionField) => ef.id === fieldId,
     );
     if (!existing) {
@@ -1104,8 +1140,8 @@ export class StudioController {
       return MUTATION_NOOP;
     }
     const updatedField = { ...existing, ...updates };
-    const nextFields = state.doc.expressionFields.map((ef: StudioExpressionField) =>
-      ef.id === fieldId ? updatedField : ef,
+    const nextFields = resolveSemanticModel(state).expressionFields.map(
+      (ef: StudioExpressionField) => (ef.id === fieldId ? updatedField : ef),
     );
     // Cycle guard at the mutation boundary (2.8): see `addExpressionField`. An update
     // that changes the field's `expression` can newly introduce a cycle just as an add
@@ -1137,7 +1173,7 @@ export class StudioController {
    */
   getExpressionFieldReferenceCount = (fieldId: string): number => {
     const state = this.store.state;
-    const target = state.doc.expressionFields.find(
+    const target = resolveSemanticModel(state).expressionFields.find(
       (ef: StudioExpressionField) => ef.id === fieldId,
     );
     if (!target) {
@@ -1166,7 +1202,7 @@ export class StudioController {
       }
     }
     // Other same-source expression fields that reference this one in their formula.
-    for (const ef of state.doc.expressionFields as StudioExpressionField[]) {
+    for (const ef of resolveSemanticModel(state).expressionFields as StudioExpressionField[]) {
       if (
         ef.id !== fieldId &&
         ef.sourceId === target.sourceId &&
@@ -1190,6 +1226,9 @@ export class StudioController {
    */
   removeExpressionField = (fieldId: string): number => {
     const state = this.store.state;
+    if (this.declineIfExternalSemanticModel('removeExpressionField')) {
+      return 0;
+    }
     // Reference check BEFORE the filter-out (2.14): warn in dev when live references remain.
     const referenceCount = this.getExpressionFieldReferenceCount(fieldId);
     if (referenceCount > 0 && process.env.NODE_ENV !== 'production') {
@@ -1204,16 +1243,18 @@ export class StudioController {
     // unknown id would otherwise commit a fresh-but-identical `expressionFields`
     // as an undoable, logged step. Pass the ORIGINAL array when nothing was removed
     // so `commitMutation`'s reference-equality guard turns it into a clean no-op.
-    const next = state.doc.expressionFields.filter(
+    const next = resolveSemanticModel(state).expressionFields.filter(
       (ef: StudioExpressionField) => ef.id !== fieldId,
     );
-    if (next.length !== state.doc.expressionFields.length) {
+    if (next.length !== resolveSemanticModel(state).expressionFields.length) {
       // Evict the source's cached adapter responses — a widget still selecting the deleted field
       // keeps its `cacheKey` (nothing about expression fields feeds the key) but its response no
       // longer carries the column. Only on a REAL removal: an unknown id must stay a clean no-op.
       // See `invalidateSources`.
       this.invalidateSources(
-        state.doc.expressionFields.find((ef: StudioExpressionField) => ef.id === fieldId)?.sourceId,
+        resolveSemanticModel(state).expressionFields.find(
+          (ef: StudioExpressionField) => ef.id === fieldId,
+        )?.sourceId,
       );
     }
     this.commitMutation({ type: 'removeExpressionField', args: { fieldId } });
@@ -2050,11 +2091,14 @@ export class StudioController {
     relationship: import('../models').StudioRelationship,
   ): StudioMutationResult => {
     const state = this.store.state;
+    if (this.declineIfExternalSemanticModel('addRelationship')) {
+      return MUTATION_EXTERNAL_MODEL;
+    }
     // Idempotent, mirroring `addExpressionField`: without this guard a double-add
     // (e.g. a re-delivered AI/wire `addRelationship` event) appends a second entry sharing
     // `relationship.id`, and `updateRelationship`/`removeRelationship` (both keyed on
     // `rel.id`) would then silently act on both instead of the one the caller intended.
-    const exists = state.doc.relationships.some(
+    const exists = resolveSemanticModel(state).relationships.some(
       (rel: StudioRelationship) => rel.id === relationship.id,
     );
     if (exists) {
@@ -2082,11 +2126,16 @@ export class StudioController {
     patch: Partial<import('../models').StudioRelationship>,
   ): StudioMutationResult => {
     const state = this.store.state;
+    if (this.declineIfExternalSemanticModel('updateRelationship')) {
+      return MUTATION_EXTERNAL_MODEL;
+    }
     // The existence and value-equality checks are hoisted OUT of the `map` callback (they
     // used to live inside it and be visible only as "the array reference didn't change") so
     // the two outcomes they produce can be told apart and reported: an absent id is a
     // REJECTION the caller must surface, while a value-identical patch is an accepted no-op.
-    const existing = state.doc.relationships.find((rel: StudioRelationship) => rel.id === id);
+    const existing = resolveSemanticModel(state).relationships.find(
+      (rel: StudioRelationship) => rel.id === id,
+    );
     if (!existing) {
       return MUTATION_NOT_FOUND;
     }
@@ -2115,9 +2164,16 @@ export class StudioController {
 
   removeRelationship = (id: string) => {
     const state = this.store.state;
-    const existing = state.doc.relationships.find((rel: StudioRelationship) => rel.id === id);
-    const next = state.doc.relationships.filter((rel: StudioRelationship) => rel.id !== id);
-    if (next.length !== state.doc.relationships.length) {
+    if (this.declineIfExternalSemanticModel('removeRelationship')) {
+      return;
+    }
+    const existing = resolveSemanticModel(state).relationships.find(
+      (rel: StudioRelationship) => rel.id === id,
+    );
+    const next = resolveSemanticModel(state).relationships.filter(
+      (rel: StudioRelationship) => rel.id !== id,
+    );
+    if (next.length !== resolveSemanticModel(state).relationships.length) {
       // Evict both endpoints' cached adapter responses: the removed JOIN was baked into them and
       // nothing about relationships feeds the request `cacheKey`. Only on a REAL removal — an
       // unknown id must stay a clean no-op. See `invalidateSources`.

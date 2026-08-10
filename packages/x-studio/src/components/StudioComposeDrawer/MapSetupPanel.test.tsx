@@ -1,4 +1,5 @@
 import { createRenderer, screen, within } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioWidgetConfig } from '../../models';
 import {
@@ -15,6 +16,8 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: { ...createDefaultSemanticModel(), relationships: [], expressionFields: [] },
+
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -28,8 +31,6 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [],
-    expressionFields: [],
     filters: [] as any[],
   },
   runtime: {
@@ -83,7 +84,7 @@ describe('MapSetupPanel', () => {
 
   afterEach(() => {
     // Some tests populate expression fields / filters; reset so they don't leak (isolate: false).
-    mockState.doc.expressionFields = [];
+    mockState.doc.semanticModel.expressionFields = [];
     mockState.doc.filters = [];
   });
 
@@ -317,7 +318,7 @@ describe('MapSetupPanel', () => {
 
   // ─── Finding 2.1 ────────────────────────────────────────────────────────────
   it('excludes non-numeric expression fields from the value-field options', async () => {
-    mockState.doc.expressionFields = [
+    mockState.doc.semanticModel.expressionFields = [
       {
         id: 'expr-num',
         label: 'Margin',
@@ -334,7 +335,7 @@ describe('MapSetupPanel', () => {
         isMeasure: false,
         expression: { type: 'number', value: 0 },
       },
-    ] as unknown as typeof mockState.doc.expressionFields;
+    ] as unknown as typeof mockState.doc.semanticModel.expressionFields;
     configureStudioContextMock({ getState: () => mockState, controller });
 
     const { user } = render(<MapSetupPanel widgetId="widget-1" />);
@@ -352,7 +353,7 @@ describe('MapSetupPanel', () => {
   // the type check above. `StudioMapWidget`'s per-region reducer reads `row[valueField]`, and a
   // measure has no per-row value — every region then aggregated an empty value list.
   it('excludes measure expression fields from the value and country field options', async () => {
-    mockState.doc.expressionFields = [
+    mockState.doc.semanticModel.expressionFields = [
       {
         id: 'expr-num',
         label: 'Margin',
@@ -377,7 +378,7 @@ describe('MapSetupPanel', () => {
         isMeasure: true,
         expression: { type: 'number', value: 0 },
       },
-    ] as unknown as typeof mockState.doc.expressionFields;
+    ] as unknown as typeof mockState.doc.semanticModel.expressionFields;
     configureStudioContextMock({ getState: () => mockState, controller });
 
     const { user } = render(<MapSetupPanel widgetId="widget-1" />);
@@ -565,7 +566,7 @@ describe('MapSetupPanel value-field source adoption (H3)', () => {
     };
     // The measure lives across a declared relationship, so it is reachable (and therefore
     // selectable) from the widget's own source.
-    mockState.doc.relationships = [
+    mockState.doc.semanticModel.relationships = [
       {
         id: 'rel-customers-orders',
         sourceId: 'customers',
@@ -589,7 +590,7 @@ describe('MapSetupPanel value-field source adoption (H3)', () => {
         mapValueSourceId: 'orders',
       });
     } finally {
-      mockState.doc.relationships = [];
+      mockState.doc.semanticModel.relationships = [];
     }
   });
 });

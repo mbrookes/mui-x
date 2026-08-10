@@ -5,7 +5,24 @@
  * both are pure record edits with no layout consequences.
  */
 import { isPlainRecord } from '../internalGuards';
+import type { StudioDoc } from '../stateTypes';
+import type { StudioSemanticModel } from '../semanticModel';
 import type { HandlersFor } from './shared';
+
+/**
+ * Write one of the semantic model's two arrays back onto the doc.
+ *
+ * The handlers below edit the DOCUMENT's model — `state` here is a `StudioDoc`, so a host-provided
+ * override is not visible from inside the reducer, and that is the right split: the reducer's job
+ * is what the document says. `StudioController` holds the runtime and is where an edit made while a
+ * shared model is in effect gets reported, since only it can see that the edit will be shadowed.
+ */
+function patchModel(
+  state: StudioDoc,
+  patch: Partial<Pick<StudioSemanticModel, 'relationships' | 'expressionFields'>>,
+): StudioDoc {
+  return { ...state, semanticModel: { ...state.semanticModel, ...patch } };
+}
 
 export const MODEL_MUTATION_HANDLERS: HandlersFor<
   | 'addRelationship'
@@ -33,10 +50,12 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
       }
       // Re-delivery safe, matching `addWidget`: an id already present returns the SAME doc, so a
       // duplicated envelope is a clean no-op rather than a second entry.
-      if (state.relationships.some((rel) => rel.id === relationship.id)) {
+      if (state.semanticModel.relationships.some((rel) => rel.id === relationship.id)) {
         return state;
       }
-      return { ...state, relationships: [...state.relationships, relationship] };
+      return patchModel(state, {
+        relationships: [...state.semanticModel.relationships, relationship],
+      });
     },
     label: (args) => `addRelationship:${args.relationship?.id}`,
   },
@@ -48,7 +67,7 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
         return state;
       }
       let changed = false;
-      const next = state.relationships.map((rel) => {
+      const next = state.semanticModel.relationships.map((rel) => {
         if (rel.id !== relationshipId) {
           return rel;
         }
@@ -59,7 +78,7 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
         changed = true;
         return { ...rel, ...patch };
       });
-      return changed ? { ...state, relationships: next } : state;
+      return changed ? patchModel(state, { relationships: next }) : state;
     },
     label: (args) => `updateRelationship:${args.relationshipId}`,
   },
@@ -70,8 +89,10 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
       if (typeof relationshipId !== 'string') {
         return state;
       }
-      const next = state.relationships.filter((rel) => rel.id !== relationshipId);
-      return next.length === state.relationships.length ? state : { ...state, relationships: next };
+      const next = state.semanticModel.relationships.filter((rel) => rel.id !== relationshipId);
+      return next.length === state.semanticModel.relationships.length
+        ? state
+        : patchModel(state, { relationships: next });
     },
     label: (args) => `removeRelationship:${args.relationshipId}`,
   },
@@ -82,10 +103,12 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
       if (!isPlainRecord(field) || typeof field.id !== 'string') {
         return state;
       }
-      if (state.expressionFields.some((ef) => ef.id === field.id)) {
+      if (state.semanticModel.expressionFields.some((ef) => ef.id === field.id)) {
         return state;
       }
-      return { ...state, expressionFields: [...state.expressionFields, field] };
+      return patchModel(state, {
+        expressionFields: [...state.semanticModel.expressionFields, field],
+      });
     },
     label: (args) => `addExpressionField:${args.field?.id}`,
   },
@@ -97,7 +120,7 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
         return state;
       }
       let changed = false;
-      const next = state.expressionFields.map((ef) => {
+      const next = state.semanticModel.expressionFields.map((ef) => {
         if (ef.id !== fieldId) {
           return ef;
         }
@@ -110,7 +133,7 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
         // true for an untyped caller too.
         return { ...ef, ...updates, id: ef.id };
       });
-      return changed ? { ...state, expressionFields: next } : state;
+      return changed ? patchModel(state, { expressionFields: next }) : state;
     },
     label: (args) => `updateExpressionField:${args.fieldId}`,
   },
@@ -121,14 +144,14 @@ export const MODEL_MUTATION_HANDLERS: HandlersFor<
       if (typeof fieldId !== 'string') {
         return state;
       }
-      const next = state.expressionFields.filter((ef) => ef.id !== fieldId);
+      const next = state.semanticModel.expressionFields.filter((ef) => ef.id !== fieldId);
       // Dangling references are deliberately NOT cascaded: a widget or filter naming a removed
       // field keeps naming it, resolving to no value. The controller warns with a reference
       // count so the author can repoint them. Silently rewriting a widget's own config to
       // absorb a data-model deletion would be the more surprising behaviour.
-      return next.length === state.expressionFields.length
+      return next.length === state.semanticModel.expressionFields.length
         ? state
-        : { ...state, expressionFields: next };
+        : patchModel(state, { expressionFields: next });
     },
     label: (args) => `removeExpressionField:${args.fieldId}`,
   },

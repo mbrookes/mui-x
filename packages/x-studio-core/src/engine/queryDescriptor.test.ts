@@ -974,7 +974,7 @@ describe('buildWidgetQueryDescriptor (finding 2.3)', () => {
       sharedState,
     );
     // Simulates the CSV export path (`runWidgetExport`), built independently from the same
-    // underlying state (mirroring `state.doc.filters` / `state.doc.relationships` /
+    // underlying state (mirroring `state.doc.filters` / `state.doc.semanticModel.relationships` /
     // `state.doc.dashboard.crossFilterAllPages` read at export time) via the same shared helper.
     const exportDescriptor = buildWidgetQueryDescriptor(widget, PAGE_ID, 'orders_table', {
       filters: sharedState.filters,

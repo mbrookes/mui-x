@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import {
   computeDateRangePreset,
   computePreviousPeriodRange,
@@ -32,8 +33,11 @@ function makeState(
 ): StudioState {
   return createDefaultStudioState({
     doc: {
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        expressionFields: overrides.expressionFields ?? [],
+      },
       ...(overrides.filters ? { filters: overrides.filters } : {}),
-      ...(overrides.expressionFields ? { expressionFields: overrides.expressionFields } : {}),
     },
     runtime: {
       ...(overrides.dataSources ? { dataSources: overrides.dataSources } : {}),
@@ -383,7 +387,9 @@ describe('buildWidgetDataSummary', () => {
       };
       const source = makeSource({ fields, rows });
       const state = createDefaultStudioState({
-        doc: { expressionFields: [marginField] },
+        doc: {
+          semanticModel: { ...createDefaultSemanticModel(), expressionFields: [marginField] },
+        },
         runtime: { dataSources: { orders: source } },
       });
       const widget = makeWidget({
@@ -439,17 +445,21 @@ describe('buildWidgetDataSummary', () => {
       } as StudioFilterState;
       const state = createDefaultStudioState({
         doc: {
+          semanticModel: {
+            ...createDefaultSemanticModel(),
+            relationships: [
+              {
+                id: 'r1',
+                sourceId: 'orders',
+                targetId: 'customers',
+                sourceField: 'customerId',
+                targetField: 'id',
+                type: 'many-to-one',
+              },
+            ],
+          },
+
           filters: [anchorFilter],
-          relationships: [
-            {
-              id: 'r1',
-              sourceId: 'orders',
-              targetId: 'customers',
-              sourceField: 'customerId',
-              targetField: 'id',
-              type: 'many-to-one',
-            },
-          ],
         },
         runtime: {
           dataSources: {
@@ -734,7 +744,7 @@ describe('buildWidgetDataSummary', () => {
     // finding 1.1: a related-source *calculated* value field must be L2-enriched before the
     // cross-source join, or the AI-facing map summary sums `undefined` (→ 0) for every region,
     // diverging from the (now-fixed) rendered map. `buildMapWidgetSummary` threads
-    // `state.doc.expressionFields` into its `enrichWithCrossSourceFields` call so the value resolves.
+    // `state.doc.semanticModel.expressionFields` into its `enrichWithCrossSourceFields` call so the value resolves.
     it('resolves a related-source calculated value field (bonus = spend * 2) instead of summing 0', () => {
       const ordersFields = [
         { id: 'country', label: 'Country', type: 'string' as const },
@@ -773,7 +783,13 @@ describe('buildWidgetDataSummary', () => {
         },
       };
       const state = createDefaultStudioState({
-        doc: { relationships: [relationship], expressionFields: [bonusField] },
+        doc: {
+          semanticModel: {
+            ...createDefaultSemanticModel(),
+            relationships: [relationship],
+            expressionFields: [bonusField],
+          },
+        },
         runtime: {
           dataSources: {
             orders: makeSource({ id: 'orders', fields: ordersFields, rows: ordersRows }),
@@ -1340,7 +1356,9 @@ describe('buildWidgetDataSummary', () => {
       };
       const source = makeSource({ fields, rows });
       const state = createDefaultStudioState({
-        doc: { expressionFields: [doubledField] },
+        doc: {
+          semanticModel: { ...createDefaultSemanticModel(), expressionFields: [doubledField] },
+        },
         runtime: { dataSources: { orders: source } },
       });
       const widget = makeWidget({
@@ -1391,7 +1409,7 @@ describe('buildWidgetDataSummary', () => {
         type: 'many-to-one',
       };
       const state = createDefaultStudioState({
-        doc: { relationships: [relationship] },
+        doc: { semanticModel: { ...createDefaultSemanticModel(), relationships: [relationship] } },
         runtime: {
           dataSources: {
             orders: makeSource({ id: 'orders', fields: ordersFields, rows: ordersRows }),
@@ -1447,7 +1465,9 @@ describe('buildWidgetDataSummary', () => {
       };
       const source = makeSource({ fields, rows });
       const state = createDefaultStudioState({
-        doc: { expressionFields: [doubledField] },
+        doc: {
+          semanticModel: { ...createDefaultSemanticModel(), expressionFields: [doubledField] },
+        },
         runtime: { dataSources: { orders: source } },
       });
       const widget = makeWidget({

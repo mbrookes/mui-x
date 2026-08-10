@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, screen, within } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, afterEach } from 'vitest';
 import type { StudioDataSource, StudioExpression, StudioExpressionField } from '../../models';
@@ -63,10 +64,13 @@ function setup(
   const { controller, wrapper } = createStudioHarness({
     initialState: {
       doc: {
-        expressionFields:
-          options.storedExpressionFields ??
-          (props.expressionFields as StudioExpressionField[]) ??
-          [],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields:
+            options.storedExpressionFields ??
+            (props.expressionFields as StudioExpressionField[]) ??
+            [],
+        },
       },
     },
   });
@@ -225,7 +229,7 @@ describe('StudioExpressionFieldDialog', () => {
       // The first save lands and closes; a host would normally unmount or re-key the dialog here.
       await user.click(screen.getByRole('button', { name: 'Add Field' }));
       expect(onClose).toHaveBeenCalledOnce();
-      expect(controller.getState().doc.expressionFields).toHaveLength(1);
+      expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(1);
 
       // This instance is still mounted holding the SAME generated id (`newFieldIdRef` only
       // regenerates when `open`/`existingField` change), so a second save is exactly the
@@ -234,7 +238,7 @@ describe('StudioExpressionFieldDialog', () => {
       onSaved.mockClear();
       await user.click(screen.getByRole('button', { name: 'Add Field' }));
 
-      expect(controller.getState().doc.expressionFields).toHaveLength(1);
+      expect(controller.getState().doc.semanticModel.expressionFields).toHaveLength(1);
       expect(onClose).not.toHaveBeenCalled();
       expect(onSaved).not.toHaveBeenCalled();
       expect(screen.getByText(/could not be saved/i)).not.toBe(null);

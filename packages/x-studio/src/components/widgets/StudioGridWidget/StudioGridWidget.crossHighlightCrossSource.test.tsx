@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer } from '@mui/internal-test-utils';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -97,7 +98,7 @@ function setup() {
   const widget = makeWidget();
   const initialState: CreateDefaultStudioStateOverrides = {
     doc: {
-      relationships,
+      semanticModel: { ...createDefaultSemanticModel(), relationships },
       widgets: { [widget.id]: widget },
       pages: { 'page-1': { id: 'page-1', title: 'Page 1', widgetRows: [[widget.id]] } },
       // Incoming chart-click cross-filter from a DIFFERENT widget: region === 'EU'.

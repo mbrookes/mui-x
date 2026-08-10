@@ -14,6 +14,7 @@ export * from './baseTypes';
 export * from './dataTypes';
 export * from './widgetTypes';
 export * from './expressionTypes';
+export * from './semanticModel';
 export * from './stateTypes';
 export * from './aiTypes';
 // `StudioAIToolName` is re-exported via `aiTypes.ts` above (which re-exports it

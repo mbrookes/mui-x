@@ -1,4 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { StudioController } from '@mui/x-studio-core/store';
 import {
   buildQueryDescriptor,
@@ -229,7 +230,7 @@ describe('runWidgetExport', () => {
     const controller = new StudioController({
       doc: {
         widgets: { [widget.id]: widget },
-        relationships,
+        semanticModel: { ...createDefaultSemanticModel(), relationships },
       },
       runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
     });
@@ -406,7 +407,10 @@ describe('runWidgetExport', () => {
     const controller = new StudioController({
       doc: {
         widgets: { [widget.id]: widget },
-        expressionFields: [ownField, otherSourceField],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields: [ownField, otherSourceField],
+        },
       },
       runtime: { dataSources: { s1: source } },
     });
@@ -474,7 +478,10 @@ describe('runWidgetExport', () => {
       } as StudioWidgetConfig,
     };
     const controller = new StudioController({
-      doc: { widgets: { [widget.id]: widget }, relationships },
+      doc: {
+        widgets: { [widget.id]: widget },
+        semanticModel: { ...createDefaultSemanticModel(), relationships },
+      },
       runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
     });
 
@@ -557,8 +564,11 @@ describe('runWidgetExport', () => {
     const controller = new StudioController({
       doc: {
         widgets: { [widget.id]: widget },
-        relationships,
-        expressionFields: [bonusExpr],
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          relationships,
+          expressionFields: [bonusExpr],
+        },
       },
       runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
     });
@@ -645,7 +655,7 @@ describe('runWidgetExport', () => {
     const controller = new StudioController({
       doc: {
         widgets: { [widget.id]: widget },
-        relationships,
+        semanticModel: { ...createDefaultSemanticModel(), relationships },
         filters: [crossPageCrossFilter],
       },
       runtime: { dataSources: { orders: ordersSource, customers: customersSource } },
@@ -658,8 +668,8 @@ describe('runWidgetExport', () => {
     // equality assertion the regression is about.
     const liveRenderDescriptor = buildWidgetQueryDescriptor(widget, 'page-1', 'orders', {
       filters: state.doc.filters,
-      expressionFields: state.doc.expressionFields,
-      relationships: state.doc.relationships,
+      expressionFields: state.doc.semanticModel.expressionFields,
+      relationships: state.doc.semanticModel.relationships,
       crossFilterAllPages: state.doc.dashboard.crossFilterAllPages ?? false,
     });
     expect(liveRenderDescriptor.hasIncomingCrossOrInteractiveFilters).toBe(true);
@@ -717,8 +727,8 @@ describe('runWidgetExport', () => {
     const stateA = controllerA.getState();
     const descriptorA = buildWidgetQueryDescriptor(widget, 'page-1', undefined, {
       filters: stateA.doc.filters,
-      expressionFields: stateA.doc.expressionFields,
-      relationships: stateA.doc.relationships,
+      expressionFields: stateA.doc.semanticModel.expressionFields,
+      relationships: stateA.doc.semanticModel.relationships,
       crossFilterAllPages: stateA.doc.dashboard.crossFilterAllPages ?? false,
     });
     // Instance A's cache entry, namespaced to adapterA.
@@ -971,8 +981,8 @@ describe('runWidgetExport adapter residual filter scope (M1b)', () => {
     const state = controller.getState();
     const descriptor = buildWidgetQueryDescriptor(widget, 'page-1', undefined, {
       filters: state.doc.filters,
-      expressionFields: state.doc.expressionFields,
-      relationships: state.doc.relationships,
+      expressionFields: state.doc.semanticModel.expressionFields,
+      relationships: state.doc.semanticModel.relationships,
       crossFilterAllPages: false,
     });
     studioRequestCache.set(

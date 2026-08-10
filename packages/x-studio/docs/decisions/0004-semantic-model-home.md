@@ -1,9 +1,9 @@
 # 0004 — Where the semantic model lives
 
-**Status:** Open. Raised 2026-08-07. **Urgent since 2026-08-09** — [ADR
-0003](./0003-ai-assistant-product-scope.md) chose an AI-native product, which makes a governed
-semantic layer the anti-hallucination substrate rather than a tidying exercise. **Cheap while
-dashboards are unpublished; a data migration across every stored document afterwards.**
+**Status:** **Option 2 accepted, 2026-08-09. Implemented.** The semantic model has its own
+identity and stays inline by default. Taken at the point [ADR
+0003](./0003-ai-assistant-product-scope.md) made it urgent — a governed semantic layer is the
+anti-hallucination substrate an AI-native product rests on — and while it was still free.
 
 ## Context
 
@@ -58,23 +58,52 @@ ADR 0003.
 
 ## Decision
 
-**Open**, with a recommendation: **option 2 is the move that costs least and forecloses least.**
-It is not a commitment to the shared-layer branch — it is the schema shape that leaves that branch
-open, taken at the only moment it is cheap.
+**Option 2. The model has its own identity; it stays inline by default.**
+
+Not a commitment to the shared-layer branch — it is the schema shape that leaves that branch open,
+taken at the only moment it was free.
+
+`StudioDoc.relationships` and `StudioDoc.expressionFields` are replaced by
+`StudioDoc.semanticModel: StudioSemanticModel`, which carries an `id`. That id is the entire
+mechanism: two documents naming the same model are asserting they mean the same thing, so a host can
+register one under `runtime.semanticModels` and both resolve to it, with no edit to either document.
+`resolveSemanticModel(state)` is the one indirection, and the inline model is never deleted when
+overridden — an exported dashboard is still self-contained and still opens in a host with no
+registry.
+
+**No schema version bump.** x-studio is unpublished, so there is nothing in the field to migrate;
+the ADR's original cost estimate assumed otherwise. `deserializeState` does read the pre-ADR
+top-level arrays and warn, which is not a compatibility promise — it exists so a developer with a
+dashboard saved from last week's build does not silently lose every join and calculated field, and
+it heals on the next save.
+
+### What implementing it revealed
+
+**Editing a host-provided model had to be refused, not quietly dropped.** The reducer writes to the
+document's own model, so with a host model in effect an accepted edit lands where nothing reads:
+the author changes a join, saves, and the dashboard is unchanged with no explanation. The controller
+now declines those six mutations with a new `external-semantic-model` rejection reason and a dev
+warning. Editing a shared model needs a permission and versioning story — that is option 3 — and
+inventing one silently inside a setter is how a governed model stops being governed.
+
+**The rejection-reason union was duplicated by hand.** `filterDrawerUtils` (engine) re-typed it
+because store imports engine and so engine cannot import store. Adding a member broke five call
+sites with a type error rather than silently falling through to a generic message — the good outcome
+of a bad arrangement. The union now lives in `x-studio-schema`, where both layers can see it.
 
 ## Consequences
 
-**Of option 2 now:** one `CURRENT_SCHEMA_VERSION` bump, one migration keyed by the previous
-version, and a fixture test — the repo already has the machinery and the convention
-(`CLAUDE.md`, "Schema migrations"). The `applyMutation` reducer gains an indirection on the
-relationship and expression-field handlers.
+**Realized:** the model is nameable, so a shared layer is now a host feature rather than a schema
+change. The reducer gained one indirection on the model handlers. Every read site that had a
+`StudioState` moved to `resolveSemanticModel(state)`; sites that legitimately concern the DOCUMENT —
+serialization, screening — still read `doc.semanticModel` directly, which is the distinction that
+makes the override safe.
 
-**Of option 2 later:** the same schema change, plus a data migration across every dashboard stored
-by every host — including hosts running an older `@mui/x-studio` — with no way to reach documents
-that have already been exported to JSON.
+**Still open (option 3):** an authoring surface for a shared model, a permission story, versioning
+of a model apart from its dashboards, and editing a host-provided model. None of it is foreclosed,
+and none of it is built.
 
-**Of option 1 permanently:** the product is a workbook tool. That is a real product with real
-customers, and it should be stated in the requirements rather than inferred from a field's
-location.
+**Of having done this later:** the same schema change, plus a data migration across every dashboard
+stored by every host — with no way to reach documents already exported to JSON.
 
 Corresponds to finding A4 of [`SYSTEM_ARCHITECTURE_REVIEW.md`](../SYSTEM_ARCHITECTURE_REVIEW.md).

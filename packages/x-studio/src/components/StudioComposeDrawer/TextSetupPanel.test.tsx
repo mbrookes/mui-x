@@ -1,4 +1,5 @@
 import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioWidgetConfig } from '../../models';
@@ -16,6 +17,8 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: { ...createDefaultSemanticModel(), relationships: [], expressionFields: [] },
+
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -26,8 +29,6 @@ const mockState = {
         config: {} as StudioWidgetConfig,
       },
     },
-    relationships: [],
-    expressionFields: [],
   },
   runtime: { dataSources: {} },
 };

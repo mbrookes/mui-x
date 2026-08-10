@@ -8,7 +8,7 @@ import type {
   StudioState,
   StudioWidget,
 } from '../models';
-import { isWidgetOfKind, resolveChartType } from '../models';
+import { isWidgetOfKind, resolveChartType, resolveSemanticModel } from '../models';
 import { resolveChartRowsForAggregation } from './chartAggregation';
 import { selectFiltersForWidget } from './filterScoping';
 import { resolveRowsCached } from './resolvedRowsCache';
@@ -241,8 +241,10 @@ export function createStudioPipeline(state: StudioPipelineState | StudioState): 
     'doc' in state
       ? {
           dataSources: state.runtime.dataSources,
-          relationships: state.doc.relationships,
-          expressionFields: state.doc.expressionFields,
+          // The EFFECTIVE model: a host-provided override is exactly the case the pipeline must
+          // honour, since it is what decides how rows join and what a computed field evaluates to.
+          relationships: resolveSemanticModel(state).relationships,
+          expressionFields: resolveSemanticModel(state).expressionFields,
           filters: state.doc.filters,
           crossFilterAllPages: state.doc.dashboard.crossFilterAllPages,
           globalCrossFilterMode: state.doc.dashboard.globalCrossFilterMode,

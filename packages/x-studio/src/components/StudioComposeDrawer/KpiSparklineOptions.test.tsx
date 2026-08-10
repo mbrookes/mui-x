@@ -1,4 +1,5 @@
 import { createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 import type { StudioFilterState, StudioWidgetConfig } from '../../models';
 import {
@@ -14,6 +15,8 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: { ...createDefaultSemanticModel(), relationships: [], expressionFields: [] },
+
     dashboard: { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' },
     widgets: {
       'widget-1': {
@@ -25,8 +28,6 @@ const mockState = {
       },
     },
     filters: [] as StudioFilterState[],
-    relationships: [],
-    expressionFields: [],
   },
   runtime: {
     dataSources: {
@@ -166,14 +167,14 @@ describe('KpiSparklineOptions hostile relationship id (Tier1 crash fix)', () => 
       title: 'Orders',
       config: {} as StudioWidgetConfig,
     };
-    mockState.doc.relationships = [
+    mockState.doc.semanticModel.relationships = [
       { id: 'rel-1', type: 'many-to-one', sourceId: 'orders', targetId: 'constructor' },
-    ] as unknown as typeof mockState.doc.relationships;
+    ] as unknown as typeof mockState.doc.semanticModel.relationships;
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
   afterEach(() => {
-    mockState.doc.relationships = [];
+    mockState.doc.semanticModel.relationships = [];
   });
 
   it('does not throw when a relationship targetId is a prototype-chain key like "constructor"', () => {
@@ -267,7 +268,7 @@ describe('KpiSparklineOptions hostile widget sourceId', () => {
   beforeEach(() => {
     controller.updateWidgetConfig.mockClear();
     mockState.doc.dashboard = { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' };
-    mockState.doc.relationships = [];
+    mockState.doc.semanticModel.relationships = [];
     mockState.doc.widgets['widget-1'] = {
       id: 'widget-1',
       kind: 'kpi',
@@ -326,15 +327,15 @@ describe('KpiSparklineOptions time-field source disambiguation (finding 7)', () 
         rows: [],
       },
     } as typeof previousSources;
-    mockState.doc.relationships = [
+    mockState.doc.semanticModel.relationships = [
       { id: 'rel-1', type: 'many-to-one', sourceId: 'orders', targetId: 'customers' },
-    ] as unknown as typeof mockState.doc.relationships;
+    ] as unknown as typeof mockState.doc.semanticModel.relationships;
     configureStudioContextMock({ getState: () => mockState, controller });
   });
 
   afterEach(() => {
     mockState.runtime.dataSources = previousSources;
-    mockState.doc.relationships = [];
+    mockState.doc.semanticModel.relationships = [];
   });
 
   it('displays the field from the source recorded in kpiSparklineSourceId, not the first same-id match', () => {

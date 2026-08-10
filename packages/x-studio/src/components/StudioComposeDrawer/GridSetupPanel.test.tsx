@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, screen, waitFor } from '@mui/internal-test-utils';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioController } from '@mui/x-studio-core/store';
@@ -21,6 +22,12 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: {
+      ...createDefaultSemanticModel(),
+      relationships: [] as StudioRelationship[],
+      expressionFields: [],
+    },
+
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -31,8 +38,6 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [] as StudioRelationship[],
-    expressionFields: [],
   },
   runtime: {
     dataSources: {
@@ -240,11 +245,11 @@ describe('GridSetupPanel', () => {
   it("keys per-column summary aggregation by composite sourceId/fieldId so a primary and a cross-source column sharing a bare field id ('id') don't collide", async () => {
     controller.updateWidgetConfig.mockClear();
     const previousWidget = mockState.doc.widgets['widget-1'];
-    const previousRelationships = mockState.doc.relationships;
+    const previousRelationships = mockState.doc.semanticModel.relationships;
     const previousCustomers = mockState.runtime.dataSources.customers;
 
     try {
-      mockState.doc.relationships = [
+      mockState.doc.semanticModel.relationships = [
         {
           id: 'rel-orders-customers',
           type: 'many-to-one',
@@ -293,7 +298,7 @@ describe('GridSetupPanel', () => {
       });
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
-      mockState.doc.relationships = previousRelationships;
+      mockState.doc.semanticModel.relationships = previousRelationships;
       mockState.runtime.dataSources.customers = previousCustomers;
     }
   });
@@ -443,7 +448,7 @@ describe('GridSetupPanel — calculated column (findings 3 & 4)', () => {
     const { user } = render(<GridSetupPanel widgetId="widget-1" />);
     await createCalculatedField(user, 'Margin');
 
-    const created = realController.getState().doc.expressionFields[0];
+    const created = realController.getState().doc.semanticModel.expressionFields[0];
     expect(created).not.toBe(undefined);
     expect(created.label).toBe('Margin');
     // The gesture launched from "Add column" produced a column.
@@ -458,7 +463,7 @@ describe('GridSetupPanel — calculated column (findings 3 & 4)', () => {
     // together, never landing on "field created but not assigned".
     expect(realController.canUndo()).toBe(true);
     realController.undo();
-    expect(realController.getState().doc.expressionFields).toEqual([]);
+    expect(realController.getState().doc.semanticModel.expressionFields).toEqual([]);
     expect(
       (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig).columns,
     ).toEqual([{ fieldId: 'id' }, { fieldId: 'total' }]);
@@ -472,7 +477,7 @@ describe('GridSetupPanel — calculated column (findings 3 & 4)', () => {
     const { user } = render(<GridSetupPanel widgetId="widget-1" />);
     await createCalculatedField(user, 'Total revenue', { measure: true });
 
-    const created = realController.getState().doc.expressionFields[0];
+    const created = realController.getState().doc.semanticModel.expressionFields[0];
     expect(created.isMeasure).toBe(true);
     // A measure aggregates the whole dataset and has no per-row value, so it cannot be a
     // table column — `config.columns` is untouched.

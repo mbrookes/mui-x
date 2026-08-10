@@ -18,7 +18,7 @@ written down.
 | [0001](./0001-engine-binding-package-split.md) | Engine / binding package split      | **Accepted** — implemented                                           |
 | [0002](./0002-commercial-tiering-seam.md)      | Commercial tiering seam             | **Open** — decision needed                                           |
 | [0003](./0003-ai-assistant-product-scope.md)   | AI assistant's place in the product | **Accepted** — AI-native; parity is a baseline, not the goal         |
-| [0004](./0004-semantic-model-home.md)          | Where the semantic model lives      | **Open** — decision needed, made urgent by 0003                      |
+| [0004](./0004-semantic-model-home.md)          | Where the semantic model lives      | **Accepted** — named model, inline by default; implemented           |
 | [0005](./0005-primary-execution-path.md)       | Which execution engine is primary   | **Accepted** — the descriptor is the execution contract; implemented |
 | [0006](./0006-wire-protocol-versioning.md)     | Versioning the two host wires       | **Accepted** — implemented                                           |
 

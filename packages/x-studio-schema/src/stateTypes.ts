@@ -5,8 +5,8 @@ import type {
   StudioCrossFilterMode,
 } from './baseTypes';
 import type { StudioWidget, StudioPage, StudioPageTheme } from './widgetTypes';
-import type { StudioDataSource, StudioDataField, StudioRelationship } from './dataTypes';
-import type { StudioExpressionField } from './expressionTypes';
+import type { StudioDataSource, StudioDataField } from './dataTypes';
+import type { StudioSemanticModel } from './semanticModel';
 import type { StudioAIState } from './aiTypes';
 
 /**
@@ -166,7 +166,19 @@ export interface StudioDoc {
   dashboard: StudioDashboardState;
   pages: Record<string, StudioPage>;
   widgets: Record<string, StudioWidget>;
-  relationships: StudioRelationship[];
+  /**
+   * What this dashboard's data MEANS — joins, calculated columns, measures (ADR 0004).
+   *
+   * Was two bare arrays here (`relationships`, `expressionFields`). Naming the model and giving it
+   * an `id` is what lets a host supply one governed definition across dashboards instead of each
+   * document redeclaring it; see `semanticModel.ts`. Still inline by default, so a dashboard
+   * remains a self-contained artifact.
+   *
+   * Read the EFFECTIVE model through `resolveSemanticModel(state)`, which honours a host-provided
+   * override. Read this field directly only where the question is genuinely about the document —
+   * serialization and screening, which must see what the document itself says.
+   */
+  semanticModel: StudioSemanticModel;
   /**
    * All filter entries, INCLUDING session-flavoured cross-filter and interactive
    * entries. Both live here (not in `session`) because the shared reducer itself
@@ -176,8 +188,6 @@ export interface StudioDoc {
    * !== 'interactive'` filter in `statePersistence.ts`).
    */
   filters: StudioFilterState[];
-  /** User-authored expression fields (calculated columns and measures). Persisted. */
-  expressionFields: StudioExpressionField[];
   /** Saved filter presets (named snapshots of page-level filters). */
   filterPresets?: StudioFilterPreset[];
   /**
@@ -206,6 +216,18 @@ export interface StudioSession {
  */
 export interface StudioRuntime {
   dataSources: Record<string, StudioDataSource>;
+  /**
+   * Semantic models the HOST supplies, by id (ADR 0004).
+   *
+   * Runtime rather than doc for the same reason `dataSources` is: host-injected, never persisted,
+   * never undone. A document's own `semanticModel` is overridden by an entry here with a matching
+   * id — see `resolveSemanticModel` — which is how one governed definition of `revenue` reaches
+   * every dashboard that names it, without editing any of them.
+   *
+   * Absent for every host that has not opted in, which is all of them today: an undefined registry
+   * resolves every dashboard to its inline model, exactly as before.
+   */
+  semanticModels?: Record<string, StudioSemanticModel>;
 }
 
 /**

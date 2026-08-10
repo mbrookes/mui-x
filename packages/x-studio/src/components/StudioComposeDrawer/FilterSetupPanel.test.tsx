@@ -1,4 +1,5 @@
 import { act, createRenderer, fireEvent, screen } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
@@ -17,6 +18,8 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: { ...createDefaultSemanticModel(), relationships: [], expressionFields: [] },
+
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -28,8 +31,6 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [],
-    expressionFields: [],
   },
   runtime: {
     dataSources: {
@@ -559,7 +560,7 @@ describe('FilterSetupPanel — slider bound cross-validation', () => {
 // as a filter-widget field, with nothing in the UI explaining the absence. Every other setup
 // panel goes through `buildFieldCatalog`/`buildSourceFieldEntries`.
 describe('FilterSetupPanel — calculated fields are selectable (finding 8)', () => {
-  const previousExpressionFields = mockState.doc.expressionFields;
+  const previousExpressionFields = mockState.doc.semanticModel.expressionFields;
 
   beforeEach(() => {
     controller.updateWidgetConfig.mockClear();
@@ -572,7 +573,7 @@ describe('FilterSetupPanel — calculated fields are selectable (finding 8)', ()
         filterWidgetField: 'status',
       } as StudioWidgetConfig,
     };
-    mockState.doc.expressionFields = [
+    mockState.doc.semanticModel.expressionFields = [
       {
         id: 'expr-tier',
         label: 'Customer Tier',
@@ -586,7 +587,7 @@ describe('FilterSetupPanel — calculated fields are selectable (finding 8)', ()
   });
 
   afterEach(() => {
-    mockState.doc.expressionFields = previousExpressionFields;
+    mockState.doc.semanticModel.expressionFields = previousExpressionFields;
   });
 
   it('offers a calculated field as a filter-widget field', async () => {
@@ -619,8 +620,8 @@ describe('FilterSetupPanel — calculated fields are selectable (finding 8)', ()
   // could never filter anything: `MultiSelectControl` derives its options from the distinct row
   // values and came up empty, with nothing anywhere explaining why.
   it('does not offer a measure expression field as a filter-widget field', async () => {
-    mockState.doc.expressionFields = [
-      ...(mockState.doc.expressionFields as unknown as unknown[]),
+    mockState.doc.semanticModel.expressionFields = [
+      ...(mockState.doc.semanticModel.expressionFields as unknown as unknown[]),
       {
         id: 'aov',
         label: 'Avg order value',

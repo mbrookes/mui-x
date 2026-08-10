@@ -1,4 +1,5 @@
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { createRenderer, fireEvent, screen, act } from '@mui/internal-test-utils';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type {
@@ -59,9 +60,12 @@ function setup(
   const { controller, wrapper } = createStudioHarness({
     initialState: {
       doc: {
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          expressionFields: options.expressionFields ?? [],
+        },
         widgets: { [w.id]: w },
         ...(options.filters ? { filters: options.filters } : {}),
-        ...(options.expressionFields ? { expressionFields: options.expressionFields } : {}),
       },
       session: {
         ...(options.mode ? { mode: options.mode } : {}),

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { createDefaultSemanticModel } from './semanticModel';
 import {
   createDefaultWidget,
   createDefaultStudioState,
@@ -464,13 +465,17 @@ describe('createDefaultStudioState screens its doc override', () => {
   it('drops junk relationships / expressionFields / filterPresets entries', () => {
     const state = createDefaultStudioState({
       doc: {
-        relationships: [null, { id: 'r1' }] as any,
-        expressionFields: [{ id: 'e1', sourceId: 's', label: 'L' }] as any,
+        semanticModel: {
+          ...createDefaultSemanticModel(),
+          relationships: [null, { id: 'r1' }] as any,
+          expressionFields: [{ id: 'e1', sourceId: 's', label: 'L' }] as any,
+        },
+
         filterPresets: [{ name: 'no id', filters: [] }] as any,
       },
     });
-    expect(state.doc.relationships).toEqual([]);
-    expect(state.doc.expressionFields).toEqual([]);
+    expect(state.doc.semanticModel.relationships).toEqual([]);
+    expect(state.doc.semanticModel.expressionFields).toEqual([]);
     expect(state.doc.filterPresets).toEqual([]);
   });
 

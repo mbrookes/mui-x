@@ -1,4 +1,5 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioWidget, StudioWidgetConfig } from '../../models';
@@ -17,6 +18,8 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: { ...createDefaultSemanticModel(), relationships: [], expressionFields: [] },
+
     dashboard: { id: 'dashboard-1', title: 'Dashboard', activePageId: 'page-1' },
     widgets: {
       'widget-1': {
@@ -29,8 +32,6 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [],
-    expressionFields: [],
     filters: [],
   },
   runtime: {
@@ -389,7 +390,7 @@ describe('KpiSetupPanel', () => {
   it('resolves the value field scoped to the widget source, avoiding a spurious aggregation repair (finding 1.7)', () => {
     const previousWidget = mockState.doc.widgets['widget-1'];
     const previousSources = mockState.runtime.dataSources;
-    const previousRels = mockState.doc.relationships;
+    const previousRels = mockState.doc.semanticModel.relationships;
     controller.updateWidgetConfig.mockClear();
 
     try {
@@ -404,7 +405,7 @@ describe('KpiSetupPanel', () => {
         ...previousSources,
       } as typeof previousSources;
       // Make 'aaa' reachable from the widget's source so it enters `reachableFields`.
-      mockState.doc.relationships = [
+      mockState.doc.semanticModel.relationships = [
         {
           sourceId: 'orders',
           targetId: 'aaa',
@@ -429,7 +430,7 @@ describe('KpiSetupPanel', () => {
     } finally {
       mockState.doc.widgets['widget-1'] = previousWidget;
       mockState.runtime.dataSources = previousSources;
-      mockState.doc.relationships = previousRels;
+      mockState.doc.semanticModel.relationships = previousRels;
     }
   });
 });

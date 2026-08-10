@@ -9,6 +9,7 @@
  * mutable `mockState` object — matching the pattern used by other widget tests.
  */
 import * as React from 'react';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, render, act } from '@mui/internal-test-utils';
 import { studioRequestCache } from '@mui/x-studio-core/engine';
@@ -56,15 +57,21 @@ interface StateOverrides {
   pages?: StudioState['doc']['pages'];
   widgets?: StudioState['doc']['widgets'];
   dataSources?: StudioState['runtime']['dataSources'];
-  relationships?: StudioState['doc']['relationships'];
+  relationships?: StudioState['doc']['semanticModel']['relationships'];
   filters?: StudioState['doc']['filters'];
-  expressionFields?: StudioState['doc']['expressionFields'];
+  expressionFields?: StudioState['doc']['semanticModel']['expressionFields'];
   shell?: Partial<StudioState['session']['shell']>;
 }
 
 function createState(overrides: StateOverrides = {}): StudioState {
   return {
     doc: {
+      semanticModel: {
+        ...createDefaultSemanticModel(),
+        relationships: overrides.relationships ?? [],
+        expressionFields: overrides.expressionFields ?? [],
+      },
+
       schemaVersion: 1,
       dashboard: {
         id: 'dash-1',
@@ -77,9 +84,7 @@ function createState(overrides: StateOverrides = {}): StudioState {
         ...overrides.pages,
       },
       widgets: overrides.widgets ?? {},
-      relationships: overrides.relationships ?? [],
       filters: overrides.filters ?? [],
-      expressionFields: overrides.expressionFields ?? [],
     },
     session: {
       mode: overrides.mode ?? 'view',
@@ -1300,7 +1305,7 @@ describe('related-source calculated cross-source field enrichment (finding 1.1)'
     sourceField: 'customerId',
     targetId: 'customers',
     targetField: 'id',
-  } as unknown as StudioState['doc']['relationships'][number];
+  } as unknown as StudioState['doc']['semanticModel']['relationships'][number];
 
   // customers.bonus = spend * 2 — a calculated column owned by the related source.
   const bonusExpr = {
@@ -1309,7 +1314,7 @@ describe('related-source calculated cross-source field enrichment (finding 1.1)'
     sourceId: 'customers',
     isMeasure: false,
     expression: { operator: 'multiply', inputs: [{ id: 'spend' }, { type: 'number', value: 2 }] },
-  } as unknown as StudioState['doc']['expressionFields'][number];
+  } as unknown as StudioState['doc']['semanticModel']['expressionFields'][number];
 
   const ordersSource = makeDataSource(
     [
@@ -1406,8 +1411,8 @@ describe('usedFieldIds cache-key scoping', () => {
     // on every mockState reassignment would defeat the cache hit this test
     // observes.
     const stableDataSources = { src1: makeDataSource(rows) };
-    const stableRelationships: StudioState['doc']['relationships'] = [];
-    const stableExpressionFields: StudioState['doc']['expressionFields'] = [];
+    const stableRelationships: StudioState['doc']['semanticModel']['relationships'] = [];
+    const stableExpressionFields: StudioState['doc']['semanticModel']['expressionFields'] = [];
     const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
 
     mockState = createState({
@@ -1447,8 +1452,8 @@ describe('usedFieldIds cache-key scoping', () => {
 
   it('a widget-scoped filter belonging to a DIFFERENT widget does not change this widget cache key', () => {
     const stableDataSources = { src1: makeDataSource(rows) };
-    const stableRelationships: StudioState['doc']['relationships'] = [];
-    const stableExpressionFields: StudioState['doc']['expressionFields'] = [];
+    const stableRelationships: StudioState['doc']['semanticModel']['relationships'] = [];
+    const stableExpressionFields: StudioState['doc']['semanticModel']['expressionFields'] = [];
     const widget = makeWidget({ id: 'w1', sourceId: 'src1' });
 
     mockState = createState({
@@ -1503,7 +1508,7 @@ describe('deferred window enrichment field set (finding 2.1)', () => {
     sourceId: 'src1',
     isMeasure: false,
     expression: { operator: 'multiply', inputs: [{ id: 'amount' }, { type: 'number', value: 2 }] },
-  } as unknown as StudioState['doc']['expressionFields'][number];
+  } as unknown as StudioState['doc']['semanticModel']['expressionFields'][number];
 
   // amount: 100 → 200, 200 → 400, 150 → 300. Filter doubleAmount > 250 keeps ids 2 and 3.
   const exprFilter = makeFilter({
@@ -1524,7 +1529,7 @@ describe('deferred window enrichment field set (finding 2.1)', () => {
       fields: [{ id: 'amount', label: 'Amount', type: 'number' }],
     });
     const stableDataSources = { src1: dataSource };
-    const stableRelationships: StudioState['doc']['relationships'] = [];
+    const stableRelationships: StudioState['doc']['semanticModel']['relationships'] = [];
     const stableExpressionFields = [doubleExpr];
     // KPI widget with an empty config → its own field set never includes doubleAmount.
     const widget = makeWidget({ id: 'w1', kind: 'kpi', config: {} } as Partial<StudioWidget>);

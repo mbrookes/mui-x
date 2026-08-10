@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { createDefaultSemanticModel } from '@mui/x-studio-schema';
 import { createStudioPipeline, shouldApplyWidgetRankAtL3 } from './StudioPipeline';
 import type {
   StudioDataSource,
@@ -598,6 +599,12 @@ describe('createStudioPipeline', () => {
     ): StudioState {
       return {
         doc: {
+          semanticModel: {
+            ...createDefaultSemanticModel(),
+            relationships: [],
+            expressionFields: [],
+          },
+
           schemaVersion: 1,
           dashboard: {
             id: 'd1',
@@ -608,9 +615,7 @@ describe('createStudioPipeline', () => {
           },
           pages: {},
           widgets: {},
-          relationships: [],
           filters: overrides.filters ?? [],
-          expressionFields: [],
         },
         session: {
           mode: 'view',

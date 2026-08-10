@@ -1,4 +1,5 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StudioController } from '@mui/x-studio-core/store';
 import type { StudioWidget, StudioWidgetConfig } from '../../../models';
@@ -16,6 +17,37 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: {
+      ...createDefaultSemanticModel(),
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: 'orders',
+          sourceField: 'customerId',
+          targetId: 'customers',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-orderitems-orders',
+          sourceId: 'orderItems',
+          sourceField: 'orderId',
+          targetId: 'orders',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-shipments-orders',
+          sourceId: 'shipments',
+          sourceField: 'orderId',
+          targetId: 'orders',
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      expressionFields: [],
+    },
+
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -28,33 +60,6 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [
-      {
-        id: 'rel-orders-customers',
-        sourceId: 'orders',
-        sourceField: 'customerId',
-        targetId: 'customers',
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-orderitems-orders',
-        sourceId: 'orderItems',
-        sourceField: 'orderId',
-        targetId: 'orders',
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-shipments-orders',
-        sourceId: 'shipments',
-        sourceField: 'orderId',
-        targetId: 'orders',
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-    ],
-    expressionFields: [],
   },
   runtime: {
     dataSources: {
@@ -1640,9 +1645,9 @@ describe('ChartSetupPanel — measure expression fields', () => {
   beforeEach(() => {
     configureStudioContextMock({ getState: () => mockState, controller });
     previousWidget = mockState.doc.widgets['widget-1'];
-    previousExpressionFields = mockState.doc.expressionFields;
+    previousExpressionFields = mockState.doc.semanticModel.expressionFields;
     previousOrdersFields = mockState.runtime.dataSources.orders.fields;
-    mockState.doc.expressionFields = [AOV] as never;
+    mockState.doc.semanticModel.expressionFields = [AOV] as never;
     mockState.runtime.dataSources.orders = {
       ...mockState.runtime.dataSources.orders,
       fields: [
@@ -1654,7 +1659,7 @@ describe('ChartSetupPanel — measure expression fields', () => {
 
   afterEach(() => {
     mockState.doc.widgets['widget-1'] = previousWidget;
-    mockState.doc.expressionFields = previousExpressionFields as never;
+    mockState.doc.semanticModel.expressionFields = previousExpressionFields as never;
     mockState.runtime.dataSources.orders = {
       ...mockState.runtime.dataSources.orders,
       fields: previousOrdersFields as never,

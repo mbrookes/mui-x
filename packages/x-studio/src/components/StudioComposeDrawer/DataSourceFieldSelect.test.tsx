@@ -378,7 +378,7 @@ describe('DataSourceFieldSelect — calculated-field creation folds to one undo 
     await user.click(screen.getByRole('button', { name: 'Add Field' }));
 
     // The gesture reached the intended state: field created AND selected.
-    const created = realController.getState().doc.expressionFields[0];
+    const created = realController.getState().doc.semanticModel.expressionFields[0];
     expect(created?.label).toBe('Margin');
     expect(
       (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig)
@@ -388,7 +388,7 @@ describe('DataSourceFieldSelect — calculated-field creation folds to one undo 
     // Exactly ONE undo entry: the single undo reverts BOTH commits together...
     expect(realController.canUndo()).toBe(true);
     realController.undo();
-    expect(realController.getState().doc.expressionFields).toEqual([]);
+    expect(realController.getState().doc.semanticModel.expressionFields).toEqual([]);
     expect(
       (realController.getState().doc.widgets['widget-1'].config as StudioWidgetConfig)
         .kpiValueField,

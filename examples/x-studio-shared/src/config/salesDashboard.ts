@@ -1,4 +1,5 @@
 import type { StudioState, RelativeDateValue } from '@mui/x-studio';
+import { DEFAULT_SEMANTIC_MODEL_ID } from '@mui/x-studio';
 import {
   CUSTOMERS_SOURCE_ID,
   EXCHANGE_RATES_SOURCE_ID,
@@ -148,123 +149,356 @@ export const INITIAL_STATE: Partial<StudioState> = {
         ],
       },
     },
-    relationships: [
-      {
-        id: 'rel-orders-customers',
-        sourceId: ORDERS_SOURCE_ID,
-        sourceField: 'customerId',
-        targetId: CUSTOMERS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-orderitems-orders',
-        sourceId: ORDER_ITEMS_SOURCE_ID,
-        sourceField: 'orderId',
-        targetId: ORDERS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-orderitems-products',
-        sourceId: ORDER_ITEMS_SOURCE_ID,
-        sourceField: 'productId',
-        targetId: PRODUCTS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-shipments-orders',
-        sourceId: SHIPMENTS_SOURCE_ID,
-        sourceField: 'orderId',
-        targetId: ORDERS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-shipmentitems-shipments',
-        sourceId: SHIPMENT_ITEMS_SOURCE_ID,
-        sourceField: 'shipmentId',
-        targetId: SHIPMENTS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-shipmentitems-orderitems',
-        sourceId: SHIPMENT_ITEMS_SOURCE_ID,
-        sourceField: 'orderItemId',
-        targetId: ORDER_ITEMS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      // M:N relationship so "ship date" cross-filters can apply to order-items widgets.
-      // ORDER_ITEMS ↔ SHIPMENTS via SHIPMENT_ITEMS junction
-      {
-        id: 'rel-orderitems-shipments-mn',
-        sourceId: ORDER_ITEMS_SOURCE_ID,
-        sourceField: 'id',
-        targetId: SHIPMENTS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-many',
-        junctionSourceId: SHIPMENT_ITEMS_SOURCE_ID,
-        junctionSourceField: 'orderItemId',
-        junctionTargetField: 'shipmentId',
-      },
-      // CRM-internal relationships (all within the CRM database — SQL JOINs work server-side)
-      {
-        id: 'rel-crm-activities-contacts',
-        sourceId: CRM_ACTIVITIES_SOURCE_ID,
-        sourceField: 'contactId',
-        targetId: CRM_CONTACTS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-crm-activities-deals',
-        sourceId: CRM_ACTIVITIES_SOURCE_ID,
-        sourceField: 'dealId',
-        targetId: CRM_DEALS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-crm-deals-contacts',
-        sourceId: CRM_DEALS_SOURCE_ID,
-        sourceField: 'primaryContactId',
-        targetId: CRM_CONTACTS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      // Cross-database joins: CRM (deals/contacts) → Sales (customers)
-      // Both CRM sources share a `customerId` FK that maps to `customers.id`
-      {
-        id: 'rel-crm-deals-customers',
-        sourceId: CRM_DEALS_SOURCE_ID,
-        sourceField: 'customerId',
-        targetId: CUSTOMERS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      {
-        id: 'rel-crm-contacts-customers',
-        sourceId: CRM_CONTACTS_SOURCE_ID,
-        sourceField: 'customerId',
-        targetId: CUSTOMERS_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-      // Orders → Exchange Rates (many-to-one on composite rate key)
-      // rateKey = currency + '-' + YYYY-MM, so each order resolves the rate for its
-      // currency and month. Enables expr-order-total-usd without a multi-column join.
-      {
-        id: 'rel-orders-exchange-rates',
-        sourceId: ORDERS_SOURCE_ID,
-        sourceField: 'rateKey',
-        targetId: EXCHANGE_RATES_SOURCE_ID,
-        targetField: 'id',
-        type: 'many-to-one',
-      },
-    ],
+    semanticModel: {
+      id: DEFAULT_SEMANTIC_MODEL_ID,
+      relationships: [
+        {
+          id: 'rel-orders-customers',
+          sourceId: ORDERS_SOURCE_ID,
+          sourceField: 'customerId',
+          targetId: CUSTOMERS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-orderitems-orders',
+          sourceId: ORDER_ITEMS_SOURCE_ID,
+          sourceField: 'orderId',
+          targetId: ORDERS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-orderitems-products',
+          sourceId: ORDER_ITEMS_SOURCE_ID,
+          sourceField: 'productId',
+          targetId: PRODUCTS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-shipments-orders',
+          sourceId: SHIPMENTS_SOURCE_ID,
+          sourceField: 'orderId',
+          targetId: ORDERS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-shipmentitems-shipments',
+          sourceId: SHIPMENT_ITEMS_SOURCE_ID,
+          sourceField: 'shipmentId',
+          targetId: SHIPMENTS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-shipmentitems-orderitems',
+          sourceId: SHIPMENT_ITEMS_SOURCE_ID,
+          sourceField: 'orderItemId',
+          targetId: ORDER_ITEMS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        // M:N relationship so "ship date" cross-filters can apply to order-items widgets.
+        // ORDER_ITEMS ↔ SHIPMENTS via SHIPMENT_ITEMS junction
+        {
+          id: 'rel-orderitems-shipments-mn',
+          sourceId: ORDER_ITEMS_SOURCE_ID,
+          sourceField: 'id',
+          targetId: SHIPMENTS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-many',
+          junctionSourceId: SHIPMENT_ITEMS_SOURCE_ID,
+          junctionSourceField: 'orderItemId',
+          junctionTargetField: 'shipmentId',
+        },
+        // CRM-internal relationships (all within the CRM database — SQL JOINs work server-side)
+        {
+          id: 'rel-crm-activities-contacts',
+          sourceId: CRM_ACTIVITIES_SOURCE_ID,
+          sourceField: 'contactId',
+          targetId: CRM_CONTACTS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-crm-activities-deals',
+          sourceId: CRM_ACTIVITIES_SOURCE_ID,
+          sourceField: 'dealId',
+          targetId: CRM_DEALS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-crm-deals-contacts',
+          sourceId: CRM_DEALS_SOURCE_ID,
+          sourceField: 'primaryContactId',
+          targetId: CRM_CONTACTS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        // Cross-database joins: CRM (deals/contacts) → Sales (customers)
+        // Both CRM sources share a `customerId` FK that maps to `customers.id`
+        {
+          id: 'rel-crm-deals-customers',
+          sourceId: CRM_DEALS_SOURCE_ID,
+          sourceField: 'customerId',
+          targetId: CUSTOMERS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        {
+          id: 'rel-crm-contacts-customers',
+          sourceId: CRM_CONTACTS_SOURCE_ID,
+          sourceField: 'customerId',
+          targetId: CUSTOMERS_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+        // Orders → Exchange Rates (many-to-one on composite rate key)
+        // rateKey = currency + '-' + YYYY-MM, so each order resolves the rate for its
+        // currency and month. Enables expr-order-total-usd without a multi-column join.
+        {
+          id: 'rel-orders-exchange-rates',
+          sourceId: ORDERS_SOURCE_ID,
+          sourceField: 'rateKey',
+          targetId: EXCHANGE_RATES_SOURCE_ID,
+          targetField: 'id',
+          type: 'many-to-one',
+        },
+      ],
+      expressionFields: [
+        {
+          id: 'expr-order-total-usd',
+          label: 'Order Total (USD)',
+          description:
+            'Order total normalized to USD using the monthly exchange rate for the order currency',
+          sourceId: ORDERS_SOURCE_ID,
+          isMeasure: false,
+          type: 'number',
+          format: 'currency',
+          currencyCode: 'USD',
+          expression: {
+            operator: 'multiply',
+            inputs: [{ id: 'total' }, { joinSourceId: EXCHANGE_RATES_SOURCE_ID, fieldId: 'toUsd' }],
+          },
+        },
+        {
+          id: 'expr-order-country',
+          label: 'Country',
+          description: 'Country of the customer who placed the order',
+          sourceId: ORDERS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'country',
+          },
+        },
+        {
+          id: 'expr-order-segment',
+          label: 'Segment',
+          description: 'Segment of the customer who placed the order',
+          sourceId: ORDERS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'segment',
+          },
+        },
+        {
+          id: 'expr-order-company',
+          label: 'Company',
+          description: 'Company of the customer who placed the order',
+          sourceId: ORDERS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'company',
+          },
+        },
+        {
+          id: 'expr-product-inventory-value',
+          label: 'Inventory Value',
+          description: 'Total stock value (stock × unit price)',
+          sourceId: PRODUCTS_SOURCE_ID,
+          isMeasure: false,
+          type: 'number',
+          format: 'currency',
+          expression: {
+            operator: 'multiply',
+            inputs: [{ id: 'stock' }, { id: 'price' }],
+          },
+        },
+        {
+          id: 'expr-product-margin',
+          label: 'Unit Margin',
+          description: 'Selling price minus cost per unit',
+          sourceId: PRODUCTS_SOURCE_ID,
+          isMeasure: false,
+          type: 'number',
+          format: 'currency',
+          expression: {
+            operator: 'subtract',
+            inputs: [{ id: 'price' }, { id: 'cost' }],
+          },
+        },
+        {
+          id: 'expr-product-margin-pct',
+          label: 'Margin %',
+          description: 'Gross margin as a percentage of selling price',
+          sourceId: PRODUCTS_SOURCE_ID,
+          isMeasure: false,
+          type: 'number',
+          format: 'percent',
+          expression: {
+            operator: 'divide',
+            inputs: [
+              {
+                operator: 'subtract',
+                inputs: [{ id: 'price' }, { id: 'cost' }],
+              },
+              { id: 'price' },
+            ],
+          },
+        },
+        {
+          id: 'expr-shipment-delivery-days',
+          label: 'Delivery Days',
+          description: 'Actual transit time in days (ship date → actual delivery date)',
+          sourceId: SHIPMENTS_SOURCE_ID,
+          isMeasure: false,
+          type: 'number',
+          format: 'integer',
+          expression: {
+            operator: 'datediff',
+            inputs: [
+              { type: 'string', value: 'day' },
+              { id: 'shipDate' },
+              { id: 'actualDeliveryDate' },
+            ],
+          },
+        },
+        // Cross-database expression fields: CRM deals → Sales customers
+        // These join the CRM database to the sales customer records via `customerId`,
+        // enabling CRM widgets to display and group by sales-side attributes.
+        {
+          id: 'expr-deal-segment',
+          label: 'Customer Segment',
+          description: 'Customer segment from the sales database, joined via customerId',
+          sourceId: CRM_DEALS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'segment',
+          },
+        },
+        {
+          id: 'expr-deal-country',
+          label: 'Customer Country',
+          description: 'Customer country from the sales database, joined via customerId',
+          sourceId: CRM_DEALS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'country',
+          },
+        },
+        // Cross-database expression fields: CRM contacts → Sales customers
+        {
+          id: 'expr-contact-segment',
+          label: 'Customer Segment',
+          description: 'Customer segment from the sales database, joined via customerId',
+          sourceId: CRM_CONTACTS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'segment',
+          },
+        },
+        {
+          id: 'expr-contact-country',
+          label: 'Customer Country',
+          description: 'Customer country from the sales database, joined via customerId',
+          sourceId: CRM_CONTACTS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CUSTOMERS_SOURCE_ID,
+            fieldId: 'country',
+          },
+        },
+        // CRM-internal expression fields: deals → contacts (same CRM database — resolved via SQL JOIN)
+        {
+          id: 'expr-deal-contact-role',
+          label: 'Primary Contact Role',
+          description: 'Role of the primary contact on this deal',
+          sourceId: CRM_DEALS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CRM_CONTACTS_SOURCE_ID,
+            fieldId: 'role',
+          },
+        },
+        {
+          id: 'expr-deal-contact-dept',
+          label: 'Primary Contact Department',
+          description: 'Department of the primary contact on this deal',
+          sourceId: CRM_DEALS_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CRM_CONTACTS_SOURCE_ID,
+            fieldId: 'department',
+          },
+        },
+        // CRM-internal expression fields: activities → contacts (same CRM database — resolved via SQL JOIN)
+        {
+          id: 'expr-activity-department',
+          label: 'Contact Department',
+          description: 'Department of the contact who performed this activity',
+          sourceId: CRM_ACTIVITIES_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CRM_CONTACTS_SOURCE_ID,
+            fieldId: 'department',
+          },
+        },
+        {
+          id: 'expr-activity-role',
+          label: 'Contact Role',
+          description: 'Role of the contact who performed this activity',
+          sourceId: CRM_ACTIVITIES_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CRM_CONTACTS_SOURCE_ID,
+            fieldId: 'role',
+          },
+        },
+        // CRM-internal expression fields: activities → deals (same CRM database — resolved via SQL JOIN)
+        {
+          id: 'expr-activity-deal-stage',
+          label: 'Deal Stage',
+          description: 'Sales stage of the deal this activity is linked to',
+          sourceId: CRM_ACTIVITIES_SOURCE_ID,
+          isMeasure: false,
+          type: 'string',
+          expression: {
+            joinSourceId: CRM_DEALS_SOURCE_ID,
+            fieldId: 'stage',
+          },
+        },
+      ],
+    },
     widgets: {
       // ── Page 1: Overview ────────────────────────────────────────────────────
 
@@ -1710,236 +1944,6 @@ export const INITIAL_STATE: Partial<StudioState> = {
         dateRangePreset: 'last_12_months' as const,
         fieldType: 'date' as const,
         filterSourceId: CRM_ACTIVITIES_SOURCE_ID,
-      },
-    ],
-    expressionFields: [
-      {
-        id: 'expr-order-total-usd',
-        label: 'Order Total (USD)',
-        description:
-          'Order total normalized to USD using the monthly exchange rate for the order currency',
-        sourceId: ORDERS_SOURCE_ID,
-        isMeasure: false,
-        type: 'number',
-        format: 'currency',
-        currencyCode: 'USD',
-        expression: {
-          operator: 'multiply',
-          inputs: [{ id: 'total' }, { joinSourceId: EXCHANGE_RATES_SOURCE_ID, fieldId: 'toUsd' }],
-        },
-      },
-      {
-        id: 'expr-order-country',
-        label: 'Country',
-        description: 'Country of the customer who placed the order',
-        sourceId: ORDERS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'country',
-        },
-      },
-      {
-        id: 'expr-order-segment',
-        label: 'Segment',
-        description: 'Segment of the customer who placed the order',
-        sourceId: ORDERS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'segment',
-        },
-      },
-      {
-        id: 'expr-order-company',
-        label: 'Company',
-        description: 'Company of the customer who placed the order',
-        sourceId: ORDERS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'company',
-        },
-      },
-      {
-        id: 'expr-product-inventory-value',
-        label: 'Inventory Value',
-        description: 'Total stock value (stock × unit price)',
-        sourceId: PRODUCTS_SOURCE_ID,
-        isMeasure: false,
-        type: 'number',
-        format: 'currency',
-        expression: {
-          operator: 'multiply',
-          inputs: [{ id: 'stock' }, { id: 'price' }],
-        },
-      },
-      {
-        id: 'expr-product-margin',
-        label: 'Unit Margin',
-        description: 'Selling price minus cost per unit',
-        sourceId: PRODUCTS_SOURCE_ID,
-        isMeasure: false,
-        type: 'number',
-        format: 'currency',
-        expression: {
-          operator: 'subtract',
-          inputs: [{ id: 'price' }, { id: 'cost' }],
-        },
-      },
-      {
-        id: 'expr-product-margin-pct',
-        label: 'Margin %',
-        description: 'Gross margin as a percentage of selling price',
-        sourceId: PRODUCTS_SOURCE_ID,
-        isMeasure: false,
-        type: 'number',
-        format: 'percent',
-        expression: {
-          operator: 'divide',
-          inputs: [
-            {
-              operator: 'subtract',
-              inputs: [{ id: 'price' }, { id: 'cost' }],
-            },
-            { id: 'price' },
-          ],
-        },
-      },
-      {
-        id: 'expr-shipment-delivery-days',
-        label: 'Delivery Days',
-        description: 'Actual transit time in days (ship date → actual delivery date)',
-        sourceId: SHIPMENTS_SOURCE_ID,
-        isMeasure: false,
-        type: 'number',
-        format: 'integer',
-        expression: {
-          operator: 'datediff',
-          inputs: [
-            { type: 'string', value: 'day' },
-            { id: 'shipDate' },
-            { id: 'actualDeliveryDate' },
-          ],
-        },
-      },
-      // Cross-database expression fields: CRM deals → Sales customers
-      // These join the CRM database to the sales customer records via `customerId`,
-      // enabling CRM widgets to display and group by sales-side attributes.
-      {
-        id: 'expr-deal-segment',
-        label: 'Customer Segment',
-        description: 'Customer segment from the sales database, joined via customerId',
-        sourceId: CRM_DEALS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'segment',
-        },
-      },
-      {
-        id: 'expr-deal-country',
-        label: 'Customer Country',
-        description: 'Customer country from the sales database, joined via customerId',
-        sourceId: CRM_DEALS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'country',
-        },
-      },
-      // Cross-database expression fields: CRM contacts → Sales customers
-      {
-        id: 'expr-contact-segment',
-        label: 'Customer Segment',
-        description: 'Customer segment from the sales database, joined via customerId',
-        sourceId: CRM_CONTACTS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'segment',
-        },
-      },
-      {
-        id: 'expr-contact-country',
-        label: 'Customer Country',
-        description: 'Customer country from the sales database, joined via customerId',
-        sourceId: CRM_CONTACTS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CUSTOMERS_SOURCE_ID,
-          fieldId: 'country',
-        },
-      },
-      // CRM-internal expression fields: deals → contacts (same CRM database — resolved via SQL JOIN)
-      {
-        id: 'expr-deal-contact-role',
-        label: 'Primary Contact Role',
-        description: 'Role of the primary contact on this deal',
-        sourceId: CRM_DEALS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CRM_CONTACTS_SOURCE_ID,
-          fieldId: 'role',
-        },
-      },
-      {
-        id: 'expr-deal-contact-dept',
-        label: 'Primary Contact Department',
-        description: 'Department of the primary contact on this deal',
-        sourceId: CRM_DEALS_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CRM_CONTACTS_SOURCE_ID,
-          fieldId: 'department',
-        },
-      },
-      // CRM-internal expression fields: activities → contacts (same CRM database — resolved via SQL JOIN)
-      {
-        id: 'expr-activity-department',
-        label: 'Contact Department',
-        description: 'Department of the contact who performed this activity',
-        sourceId: CRM_ACTIVITIES_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CRM_CONTACTS_SOURCE_ID,
-          fieldId: 'department',
-        },
-      },
-      {
-        id: 'expr-activity-role',
-        label: 'Contact Role',
-        description: 'Role of the contact who performed this activity',
-        sourceId: CRM_ACTIVITIES_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CRM_CONTACTS_SOURCE_ID,
-          fieldId: 'role',
-        },
-      },
-      // CRM-internal expression fields: activities → deals (same CRM database — resolved via SQL JOIN)
-      {
-        id: 'expr-activity-deal-stage',
-        label: 'Deal Stage',
-        description: 'Sales stage of the deal this activity is linked to',
-        sourceId: CRM_ACTIVITIES_SOURCE_ID,
-        isMeasure: false,
-        type: 'string',
-        expression: {
-          joinSourceId: CRM_DEALS_SOURCE_ID,
-          fieldId: 'stage',
-        },
       },
     ],
   },

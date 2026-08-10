@@ -1,4 +1,5 @@
 import { createRenderer, screen } from '@mui/internal-test-utils';
+import { createDefaultSemanticModel } from '@mui/x-studio-core/models';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { StudioDataSource, StudioExpressionField, StudioWidgetConfig } from '../../models';
 import {
@@ -15,6 +16,12 @@ const controller = {
 
 const mockState = {
   doc: {
+    semanticModel: {
+      ...createDefaultSemanticModel(),
+      relationships: [],
+      expressionFields: [] as StudioExpressionField[],
+    },
+
     widgets: {
       'widget-1': {
         id: 'widget-1',
@@ -28,8 +35,6 @@ const mockState = {
         } as StudioWidgetConfig,
       },
     },
-    relationships: [],
-    expressionFields: [] as StudioExpressionField[],
     filters: [] as any[],
   },
   runtime: {
@@ -271,7 +276,7 @@ describe('PivotSetupPanel', () => {
         isMeasure: true,
         expression: { type: 'number', value: 1 },
       };
-      mockState.doc.expressionFields = [measureField];
+      mockState.doc.semanticModel.expressionFields = [measureField];
 
       try {
         const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
@@ -281,7 +286,7 @@ describe('PivotSetupPanel', () => {
 
         expect(await screen.findByRole('option', { name: /MeasureField$/ })).toBeVisible();
       } finally {
-        mockState.doc.expressionFields = [];
+        mockState.doc.semanticModel.expressionFields = [];
       }
     });
 
@@ -294,7 +299,7 @@ describe('PivotSetupPanel', () => {
         isMeasure: true,
         expression: { type: 'number', value: 1 },
       };
-      mockState.doc.expressionFields = [sameSourceMeasure];
+      mockState.doc.semanticModel.expressionFields = [sameSourceMeasure];
 
       try {
         const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
@@ -304,7 +309,7 @@ describe('PivotSetupPanel', () => {
         // Same-source measure expression field is offered (no measure exclusion for pivot).
         expect(await screen.findByRole('option', { name: /SameSourceMeasure$/ })).toBeVisible();
       } finally {
-        mockState.doc.expressionFields = [];
+        mockState.doc.semanticModel.expressionFields = [];
       }
     });
 
@@ -317,7 +322,7 @@ describe('PivotSetupPanel', () => {
         isMeasure: false,
         expression: { type: 'string', value: 'x' },
       };
-      mockState.doc.expressionFields = [otherSourceField];
+      mockState.doc.semanticModel.expressionFields = [otherSourceField];
 
       try {
         const { user } = render(<PivotSetupPanel widgetId="widget-1" />);
@@ -329,7 +334,7 @@ describe('PivotSetupPanel', () => {
         // mismatch data.
         expect(screen.queryByRole('option', { name: /OtherSourceField$/ })).toBeNull();
       } finally {
-        mockState.doc.expressionFields = [];
+        mockState.doc.semanticModel.expressionFields = [];
       }
     });
 

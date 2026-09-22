@@ -97,7 +97,18 @@ function buildCrmDbConfig(): DbConfig {
   };
 }
 
+const DEV_JWT_SECRET = 'dev-secret-change-in-production';
+
 export function buildConfig(): Config {
+  // `@mui/x-studio-data-middleware` derives its cache-key HMAC from
+  // `CACHE_HMAC_SECRET ?? JWT_SECRET` read straight off `process.env`, and fails
+  // closed when both are unset — so without this, a checkout with no `.env.local`
+  // starts fine and then errors on EVERY widget query. Mirror the in-process dev
+  // fallback back into the environment so the zero-config path works.
+  if (!process.env.CACHE_HMAC_SECRET && !process.env.JWT_SECRET) {
+    process.env.CACHE_HMAC_SECRET = DEV_JWT_SECRET;
+  }
+
   return {
     port: optionalInt('PORT', 3020),
     salesDb: buildSalesDbConfig(),
@@ -109,7 +120,7 @@ export function buildConfig(): Config {
       model: process.env.LLM_MODEL ?? 'gpt-4o',
       maxTokens: process.env.LLM_MAX_TOKENS ? parseInt(process.env.LLM_MAX_TOKENS, 10) : undefined,
     },
-    jwtSecret: process.env.JWT_SECRET ?? 'dev-secret-change-in-production',
+    jwtSecret: process.env.JWT_SECRET ?? DEV_JWT_SECRET,
     studioToken: optional('STUDIO_TOKEN'),
     allowedOrigins: (
       process.env.ALLOWED_ORIGINS ??

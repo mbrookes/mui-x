@@ -364,6 +364,9 @@ export function generateExchangeRatesSource(): StudioDataSource {
   return {
     id: EXCHANGE_RATES_SOURCE_ID,
     label: 'Exchange Rates',
+    // Without this, server mode sends the SOURCE ID as the table name and every
+    // widget reading `expr-order-total-usd` fails the schema allowlist.
+    tableName: 'exchange_rates',
     fields: [
       { id: 'id', label: 'Rate Key', type: 'string', hidden: true },
       { id: 'currency', label: 'Currency', type: 'string' },

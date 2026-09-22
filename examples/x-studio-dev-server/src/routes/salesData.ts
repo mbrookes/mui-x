@@ -12,6 +12,7 @@ const SALES_SCHEMA_ALLOWLIST = [
   'order_items',
   'shipments',
   'shipment_items',
+  'exchange_rates',
 ];
 
 /**

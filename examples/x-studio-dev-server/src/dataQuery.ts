@@ -21,6 +21,7 @@ export const SALES_SCHEMA_ALLOWLIST = [
   'order_items',
   'shipments',
   'shipment_items',
+  'exchange_rates',
 ];
 
 export const CRM_SCHEMA_ALLOWLIST = ['contacts', 'deals', 'activities', 'deal_stage_transitions'];

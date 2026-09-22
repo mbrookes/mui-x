@@ -42,6 +42,8 @@ export async function createTables(db: Knex): Promise<void> {
       t.string('status').notNullable();
       t.float('total').notNullable();
       t.string('currency').notNullable();
+      // Joins each order to its month's row in the exchange-rates source.
+      t.string('rateKey').notNullable();
     });
   }
 
@@ -49,6 +51,7 @@ export async function createTables(db: Knex): Promise<void> {
     await db.schema.createTable('order_items', (t) => {
       t.string('id').primary();
       t.string('orderId').notNullable();
+      t.string('date').notNullable();
       t.string('productId').notNullable();
       t.string('product').notNullable();
       t.string('category').notNullable();
@@ -71,6 +74,16 @@ export async function createTables(db: Knex): Promise<void> {
       t.string('status').notNullable();
       t.boolean('onTime').notNullable();
       t.integer('itemCount').notNullable();
+    });
+  }
+
+  if (!(await db.schema.hasTable('exchange_rates'))) {
+    await db.schema.createTable('exchange_rates', (t) => {
+      // `id` is the composite rate key (`<currency>-<YYYY-MM>`) that orders join on.
+      t.string('id').primary();
+      t.string('currency').notNullable();
+      t.string('rateMonth').notNullable();
+      t.float('toUsd').notNullable();
     });
   }
 
@@ -127,6 +140,7 @@ export async function createTables(db: Knex): Promise<void> {
 
 /** Table names in dependency order (used for drops during reseed). */
 export const TABLE_NAMES = [
+  'exchange_rates',
   'shipment_items',
   'shipments',
   'order_items',

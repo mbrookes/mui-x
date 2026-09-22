@@ -286,6 +286,16 @@ No setup needed. The database file is created automatically at `SALES_DB_FILENAM
 > ```
 > Alternatively, use PostgreSQL or MySQL instead.
 
+> **`Could not locate the bindings file`:** `better-sqlite3` is an optional
+> dependency, so a failed prebuilt-binary download during `pnpm install` is
+> swallowed silently and only surfaces when the server first opens the database.
+> Fetch the binary on its own:
+>
+> ```bash
+> cd node_modules/.pnpm/better-sqlite3@*/node_modules/better-sqlite3
+> ./node_modules/.bin/prebuild-install || npx node-gyp rebuild --release
+> ```
+
 ### PostgreSQL
 
 ```env

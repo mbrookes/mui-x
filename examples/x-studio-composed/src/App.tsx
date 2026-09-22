@@ -388,8 +388,10 @@ function DashboardLayout({
     localStorageKeyRef.current = getLocalStorageKey(dataset);
   }
 
-  // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts
-  useStudioKeyboardShortcuts();
+  // Register Cmd+Z / Cmd+Shift+Z keyboard shortcuts, scoped to this layout's root node — the
+  // hook only acts while focus is inside the element the ref points at.
+  const rootRef = React.useRef<HTMLDivElement>(null);
+  useStudioKeyboardShortcuts(rootRef);
 
   // Read reactive state via selectors
   const mode = useStudioSelector(selectMode);
@@ -691,7 +693,7 @@ function DashboardLayout({
   );
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
+    <Box ref={rootRef} sx={{ display: 'flex', flexDirection: 'column', height: '100vh' }}>
       <AppToolbar
         title={dashboard.title}
         mode={mode as StudioMode}

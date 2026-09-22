@@ -1,6 +1,6 @@
 import * as React from 'react';
 import { Box } from '@mui/material';
-import { useStudioController, useStudioKeyboardShortcuts } from '@mui/x-studio';
+import { useStudioController } from '@mui/x-studio';
 import type { StudioAIConfig } from '@mui/x-studio';
 import { downloadJson, uploadJson } from 'x-studio-shared';
 import type { SupportedLocale } from './locales';
@@ -39,7 +39,6 @@ export function AppLayout({
   onSaveController,
 }: AppLayoutProps) {
   const controller = useStudioController();
-  useStudioKeyboardShortcuts();
 
   const [searchOpen, setSearchOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);

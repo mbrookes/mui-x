@@ -137,7 +137,13 @@ declare module '@mui/x-studio' {
 
   export function useStudioSelector<T>(selector: (state: StudioState) => T): T;
   export function useStudioController(): StudioController;
-  export function useStudioKeyboardShortcuts(): void;
+  export interface UseStudioKeyboardShortcutsOptions {
+    onWidgetRemoved?: () => void;
+  }
+  export function useStudioKeyboardShortcuts(
+    rootRef: React.RefObject<HTMLElement | null>,
+    options?: UseStudioKeyboardShortcutsOptions,
+  ): void;
 
   export interface StudioProviderProps {
     controller: StudioController;

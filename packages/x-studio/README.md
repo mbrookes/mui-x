@@ -37,7 +37,6 @@ Additional MUI developer reference documentation in this package:
 | [AG_STUDIO_CLONE_REQUIREMENTS.md](./docs/AG_STUDIO_CLONE_REQUIREMENTS.md)  | Feature requirements modelled on AG Studio                                                             |
 | [AG_STUDIO_GAP_ANALYSIS.md](./docs/AG_STUDIO_GAP_ANALYSIS.md)              | Gap analysis against AG Studio clone requirements                                                      |
 | [X_STUDIO_PROGRESS.md](./docs/X_STUDIO_PROGRESS.md)                        | Requirements progress tracker                                                                          |
-| [BACKLOG.md](./BACKLOG.md)                                                 | Known issues and planned work                                                                          |
 | Architecture                                                               |
 | [ARCHITECTURE.md](./ARCHITECTURE.md)                                       | **Canonical.** State management, data pipeline, widgets, canvas, filters, persistence, AI integration  |
 | [docs/SYSTEM_ARCHITECTURE_REVIEW.md](./docs/SYSTEM_ARCHITECTURE_REVIEW.md) | **System shape** vs. product requirements: package boundaries, tiering, semantic model, execution path |

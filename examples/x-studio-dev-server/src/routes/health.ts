@@ -1,6 +1,6 @@
 import { Router, type Request, type Response } from 'express';
 import type { Knex } from 'knex';
-import type { TABLE_NAMES } from '../db/schema.js';
+import { TABLE_NAMES } from '../db/schema.js';
 
 export function makeHealthRouter(salesDb: Knex): Router {
   const router = Router();
@@ -9,14 +9,9 @@ export function makeHealthRouter(salesDb: Knex): Router {
     try {
       const rowCounts: Record<string, number> = {};
 
-      for (const table of [
-        'customers',
-        'products',
-        'orders',
-        'order_items',
-        'shipments',
-        'shipment_items',
-      ] as unknown as Array<(typeof TABLE_NAMES)[number]>) {
+      // Iterate the schema's own list so a table added to the demo dataset shows up
+      // here without a second list to keep in step.
+      for (const table of TABLE_NAMES) {
         try {
           const result = await salesDb(table).count('* as count').first();
           rowCounts[table] = Number(result?.count ?? 0);

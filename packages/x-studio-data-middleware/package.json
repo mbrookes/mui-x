@@ -4,13 +4,11 @@
   "description": "Framework-agnostic server middleware for MUI X Studio data pipeline",
   "license": "MIT",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "source": "./src/index.ts",
-      "import": "./dist/index.js"
+      "import": "./src/index.ts",
+      "require": "./src/index.ts"
     }
   },
   "scripts": {

@@ -5,9 +5,13 @@
   "type": "module",
   "main": "./index.ts",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./server": "./server.ts"
   },
   "scripts": {
     "typescript": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@mui/x-studio-schema": "workspace:*"
   }
 }

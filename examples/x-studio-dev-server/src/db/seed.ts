@@ -1,5 +1,5 @@
 import type { Knex } from 'knex';
-import { generateSalesData } from 'x-studio-shared';
+import { generateSalesData } from 'x-studio-shared/server';
 import { TABLE_NAMES } from './schema.js';
 import { log } from '../logger.js';
 

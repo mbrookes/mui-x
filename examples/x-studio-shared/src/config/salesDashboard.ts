@@ -1,5 +1,5 @@
 import type { StudioState, RelativeDateValue } from '@mui/x-studio';
-import { DEFAULT_SEMANTIC_MODEL_ID } from '@mui/x-studio';
+import { DEFAULT_SEMANTIC_MODEL_ID } from '@mui/x-studio-schema';
 import {
   CUSTOMERS_SOURCE_ID,
   EXCHANGE_RATES_SOURCE_ID,

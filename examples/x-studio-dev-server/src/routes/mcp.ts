@@ -65,7 +65,7 @@ import {
   CRM_ACTIVITIES_SOURCE_ID,
   CRM_DEAL_TRANSITIONS_SOURCE_ID,
   INITIAL_STATE,
-} from 'x-studio-shared';
+} from 'x-studio-shared/server';
 import type { Config } from '../config.js';
 import { resolveClaims, DEV_CLAIMS } from '../middleware/claims.js';
 import { CRM_SCHEMA_ALLOWLIST, SAFE_IDENTIFIER, makeQueryDataSource } from '../dataQuery.js';

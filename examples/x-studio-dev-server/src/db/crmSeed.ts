@@ -1,5 +1,5 @@
 import type { Knex } from 'knex';
-import { generateCrmData } from 'x-studio-shared';
+import { generateCrmData } from 'x-studio-shared/server';
 import { CRM_TABLE_NAMES, createCrmTables } from './crmSchema.js';
 import { log } from '../logger.js';
 

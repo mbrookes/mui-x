@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { DEFAULT_SEMANTIC_MODEL_ID } from '@mui/x-studio';
+import { DEFAULT_SEMANTIC_MODEL_ID } from '@mui/x-studio-schema';
 import { mainDemoState } from './vendor/mainDemoState';
 
 export const MAIN_DEMO_PAGES = [

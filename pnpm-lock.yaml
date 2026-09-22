@@ -1107,7 +1107,11 @@ importers:
         specifier: ^8.14.1
         version: 8.22.0
 
-  examples/x-studio-shared: {}
+  examples/x-studio-shared:
+    dependencies:
+      '@mui/x-studio-schema':
+        specifier: workspace:*
+        version: link:../../packages/x-studio-schema
 
   packages/eslint-plugin-mui-x:
     dependencies:

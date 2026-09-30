@@ -29,6 +29,7 @@
     "world-atlas": "^2.0.2"
   },
   "devDependencies": {
-    "@mui/x-charts-vendor": "workspace:^"
+    "@mui/x-charts-vendor": "workspace:^",
+    "@types/topojson-client": "^3.1.0"
   }
 }

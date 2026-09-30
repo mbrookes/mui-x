@@ -2424,6 +2424,9 @@ importers:
       '@mui/x-charts-vendor':
         specifier: workspace:^
         version: link:../x-charts-vendor/build
+      '@types/topojson-client':
+        specifier: ^3.1.0
+        version: 3.1.5
 
   packages/x-studio-data-middleware:
     dependencies:

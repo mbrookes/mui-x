@@ -30,10 +30,11 @@ const profilingAliases = process.env.PROFILING
 
 // The data layer sends no CORS headers, so the app calls it through this proxy. The proxy adds
 // the API key, which keeps it out of the client bundle (it has no STUDIO_ or VITE_ prefix).
+// Only the consumer API is forwarded, so the key never reaches auth or admin routes.
 const env = loadEnv('development', __dirname, '');
 const dataLayerProxy = env.STUDIO_DATA_LAYER_URL
   ? {
-      '/data-layer': {
+      '/data-layer/api/v1/': {
         target: env.STUDIO_DATA_LAYER_URL,
         changeOrigin: true,
         rewrite: (url: string) => url.replace(/^\/data-layer/, ''),

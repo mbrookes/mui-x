@@ -69,7 +69,7 @@ Each widget query goes to `POST /api/v1/query`; queries made in the same tick sh
 The other modes stay available through Settings or `?mode=`.
 
 The data layer sends no CORS headers, so the browser calls `/data-layer` on the Vite server.
-Vite proxies that path to `STUDIO_DATA_LAYER_URL` and adds `Authorization: Bearer $DATA_LAYER_API_KEY`.
+Vite proxies `/data-layer/api/v1/*` to `STUDIO_DATA_LAYER_URL` and adds `Authorization: Bearer $DATA_LAYER_API_KEY`.
 The key never reaches the client bundle. The proxy works for `pnpm dev` and `pnpm preview`.
 
 To use the deployed preview:

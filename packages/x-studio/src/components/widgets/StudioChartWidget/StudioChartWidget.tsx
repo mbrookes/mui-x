@@ -197,6 +197,7 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     isLoading,
     isError,
     errorMessage,
+    aggregationConfig,
   } = useChartWidgetData(widget, dataSource, pageId);
 
   // Skip chart animations during cross-filter transitions so bars/lines/pies
@@ -844,7 +845,8 @@ export const StudioChartWidget = React.memo(function StudioChartWidget(
     // Built with the raw `widget.config` union (not the flat `config` alias above),
     // whose type equals `ChartRenderContext<StudioChartType>['config']` exactly, so
     // no cast is needed here — the single dispatch cast below handles the narrowing.
-    config: widget.config,
+    // `aggregationConfig` is `widget.config` unless the rows are pre-aggregated.
+    config: aggregationConfig,
     dataSource,
     dataSources,
     widgetSourceId: widget.sourceId,

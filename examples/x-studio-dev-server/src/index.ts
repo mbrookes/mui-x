@@ -33,7 +33,8 @@ async function main(): Promise<void> {
 
   const app = buildApp(salesDb, crmDb, config);
 
-  app.listen(config.port, () => {
+  // HOST=127.0.0.1 keeps the server off public interfaces when it sits behind a proxy.
+  app.listen(config.port, process.env.HOST ?? '0.0.0.0', () => {
     log(`[startup] x-studio-dev-server listening on http://localhost:${config.port}`);
     log(`[startup]   Health:    http://localhost:${config.port}/health`);
     log(`[startup]   Sales API: http://localhost:${config.port}/api/sales-data`);

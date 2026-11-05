@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import type { PluginOption } from 'vite';
@@ -28,8 +28,65 @@ const profilingAliases = process.env.PROFILING
     ]
   : [];
 
+// The data layer sends no CORS headers, so the app calls it through this proxy. The proxy adds
+// the API key, which keeps it out of the client bundle (it has no STUDIO_ or VITE_ prefix).
+// Only the consumer API is forwarded, so the key never reaches auth or admin routes.
+const env = loadEnv('development', __dirname, '');
+const dataLayerProxy = env.STUDIO_DATA_LAYER_URL
+  ? {
+      '/data-layer/api/v1/': {
+        target: env.STUDIO_DATA_LAYER_URL,
+        changeOrigin: true,
+        rewrite: (url: string) => url.replace(/^\/data-layer/, ''),
+        headers: env.DATA_LAYER_API_KEY
+          ? { Authorization: `Bearer ${env.DATA_LAYER_API_KEY}` }
+          : undefined,
+      },
+    }
+  : undefined;
+
+// The AI chat goes to x-studio-dev-server. Only /api/ai is forwarded, so its data, mutation and
+// dashboard routes stay private when the app is served on a public host.
+const studioServerProxy = env.STUDIO_SERVER_PROXY_TARGET
+  ? {
+      '/studio-server/api/ai': {
+        target: env.STUDIO_SERVER_PROXY_TARGET,
+        changeOrigin: true,
+        rewrite: (url: string) => url.replace(/^\/studio-server/, ''),
+      },
+    }
+  : undefined;
+const proxy = { ...dataLayerProxy, ...studioServerProxy };
+
+// Other /data-layer paths get a 404 instead of the app's HTML fallback. The path must already be
+// normalized, so `..` or `%2e%2e` cannot climb out of /api/v1/ once the proxy forwards it.
+function rejectOtherDataLayerPaths(
+  req: { url?: string },
+  res: { statusCode: number; end: () => void },
+  next: () => void,
+) {
+  const rawPath = (req.url ?? '').split('?')[0];
+  const normalizedPath = new URL(rawPath, 'http://localhost').pathname;
+  const encodedSeparator = /%2f|%5c/i.test(rawPath);
+  if (!encodedSeparator && rawPath === normalizedPath && normalizedPath.startsWith('/api/v1/')) {
+    next();
+    return;
+  }
+  res.statusCode = 404;
+  res.end();
+}
+const dataLayerPathsPlugin: PluginOption = {
+  name: 'data-layer-paths',
+  configureServer(server) {
+    server.middlewares.use('/data-layer', rejectOtherDataLayerPaths);
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use('/data-layer', rejectOtherDataLayerPaths);
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), ...visualizerPlugin],
+  plugins: [react(), ...visualizerPlugin, ...(dataLayerProxy ? [dataLayerPathsPlugin] : [])],
   build: {
     sourcemap: !!process.env.ANALYZE,
   },
@@ -136,6 +193,10 @@ export default defineConfig({
   envPrefix: ['VITE_', 'STUDIO_'],
   server: {
     port: 3004,
+    proxy,
+  },
+  preview: {
+    proxy,
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),

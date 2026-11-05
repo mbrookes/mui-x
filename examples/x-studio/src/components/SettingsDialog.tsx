@@ -30,7 +30,7 @@ export type SidebarLayout = 'stacked' | 'tabbed';
 export type SidebarSide = 'left' | 'right';
 export type TableSourceMode = 'explicit' | 'implicit';
 export type DatasetMode = 'sales' | 'ag-studio';
-export type DataMode = 'memory' | 'adapter' | 'server';
+export type DataMode = 'memory' | 'adapter' | 'server' | 'data-layer';
 
 export interface SettingsValues {
   sidebarLayout: SidebarLayout;
@@ -41,6 +41,8 @@ export interface SettingsValues {
   dataMode: DataMode;
   /** Whether a dev server URL is configured (env or ?server) — gates the "server" option. */
   serverConfigured: boolean;
+  /** Whether STUDIO_DATA_LAYER_URL is set — gates the "data-layer" option. */
+  dataLayerConfigured: boolean;
   dataset: DatasetMode;
 }
 
@@ -121,7 +123,13 @@ export function SettingsDialog(props: SettingsDialogProps) {
     // Omit ?mode when the selected mode is already the natural default so URLs stay clean.
     // The legacy `adapter` param is removed in favour of the explicit `mode` param.
     url.searchParams.delete('adapter');
-    const naturalDefault: DataMode = values.serverConfigured ? 'server' : 'memory';
+    // Mirrors App's default order: data layer, then dev server, then memory.
+    let naturalDefault: DataMode = 'memory';
+    if (values.dataLayerConfigured) {
+      naturalDefault = 'data-layer';
+    } else if (values.serverConfigured) {
+      naturalDefault = 'server';
+    }
     if (pendingMode === naturalDefault) {
       url.searchParams.delete('mode');
     } else {
@@ -311,10 +319,21 @@ export function SettingsDialog(props: SettingsDialogProps) {
                   label={t.serverModeLabel}
                   disabled={!values.serverConfigured}
                 />
+                <FormControlLabel
+                  value="data-layer"
+                  control={<Radio size="small" />}
+                  label={t.dataModeDataLayer}
+                  disabled={!values.dataLayerConfigured}
+                />
               </RadioGroup>
               {!values.serverConfigured && (
                 <Typography variant="caption" color="text.secondary">
                   {t.dataModeServerUnavailableHint}
+                </Typography>
+              )}
+              {!values.dataLayerConfigured && (
+                <Typography variant="caption" color="text.secondary">
+                  {t.dataModeDataLayerUnavailableHint}
                 </Typography>
               )}
               {pendingRowCount !== undefined && pendingMode === 'server' && (

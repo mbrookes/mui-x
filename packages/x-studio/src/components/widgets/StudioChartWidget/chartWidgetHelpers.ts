@@ -625,3 +625,23 @@ export function normalizeCrossFilterValue(value: unknown): string | null {
 export function crossFilterValueEquals(a: unknown, b: unknown): boolean {
   return normalizeCrossFilterValue(a) === normalizeCrossFilterValue(b);
 }
+
+/**
+ * The config to aggregate pre-aggregated rows with (`StudioQueryResult.preAggregated`). Each row
+ * already holds its group's count, so `count` re-reduces as `sum`. Other functions see one value
+ * per group and need no change.
+ */
+export function reReduceCountsAsSum<T extends StudioChartConfig>(config: T): T {
+  const ySeries = config.ySeries?.map((series) =>
+    series.yAggregation === 'count' ? { ...series, yAggregation: 'sum' as const } : series,
+  );
+  const seriesChanged = ySeries?.some((series, index) => series !== config.ySeries![index]);
+  if (config.yAggregation !== 'count' && !seriesChanged) {
+    return config;
+  }
+  return {
+    ...config,
+    ...(config.yAggregation === 'count' ? { yAggregation: 'sum' as const } : {}),
+    ...(seriesChanged ? { ySeries } : {}),
+  } as T;
+}

@@ -91,6 +91,11 @@ interface UseWidgetRowsResult {
    * Always false for sources without an adapter (sync path).
    */
   isLoading: boolean;
+  /**
+   * The adapter returned one row per group at the descriptor's `preAggregationGrain`, so `count`
+   * must re-reduce as `sum`. Always false for sources without an adapter.
+   */
+  isPreAggregated: boolean;
   /** True while cross-filter or page-filter changes are being applied via React's deferred rendering. Always false for adapter-based sources (use isLoading instead). */
   isRecomputing: boolean;
   /**
@@ -255,6 +260,7 @@ export function useWidgetRows(
   const {
     adapterRows,
     isPlaceholder: adapterRowsArePlaceholder,
+    isPreAggregated,
     isLoading,
     isError,
     errorMessage,
@@ -847,6 +853,7 @@ export function useWidgetRows(
     shouldShowGhost,
     effectiveRows: enrichedEffectiveRows,
     isLoading,
+    isPreAggregated,
     isRecomputing,
     isError,
     errorMessage,

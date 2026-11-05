@@ -243,6 +243,8 @@ export type {
 
 // ─── Utility types ────────────────────────────────────────────────────────────
 export type { RelativeDateValue, RelativeDateUnit } from '@mui/x-studio-core/engine';
+// Custom adapters receive relative date filter values and must resolve them before sending.
+export { isRelativeDateValue, resolveRelativeDate } from '@mui/x-studio-core/engine';
 
 // ─── Dashboard date range ──────────────────────────────────────────────────────
 export { computeDateRangePreset } from '@mui/x-studio-core/store';

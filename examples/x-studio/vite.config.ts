@@ -45,8 +45,35 @@ const dataLayerProxy = env.STUDIO_DATA_LAYER_URL
     }
   : undefined;
 
+// Other /data-layer paths get a 404 instead of the app's HTML fallback. The path must already be
+// normalized, so `..` or `%2e%2e` cannot climb out of /api/v1/ once the proxy forwards it.
+function rejectOtherDataLayerPaths(
+  req: { url?: string },
+  res: { statusCode: number; end: () => void },
+  next: () => void,
+) {
+  const rawPath = (req.url ?? '').split('?')[0];
+  const normalizedPath = new URL(rawPath, 'http://localhost').pathname;
+  const encodedSeparator = /%2f|%5c/i.test(rawPath);
+  if (!encodedSeparator && rawPath === normalizedPath && normalizedPath.startsWith('/api/v1/')) {
+    next();
+    return;
+  }
+  res.statusCode = 404;
+  res.end();
+}
+const dataLayerPathsPlugin: PluginOption = {
+  name: 'data-layer-paths',
+  configureServer(server) {
+    server.middlewares.use('/data-layer', rejectOtherDataLayerPaths);
+  },
+  configurePreviewServer(server) {
+    server.middlewares.use('/data-layer', rejectOtherDataLayerPaths);
+  },
+};
+
 export default defineConfig({
-  plugins: [react(), ...visualizerPlugin],
+  plugins: [react(), ...visualizerPlugin, ...(dataLayerProxy ? [dataLayerPathsPlugin] : [])],
   build: {
     sourcemap: !!process.env.ANALYZE,
   },

@@ -4,6 +4,7 @@ import * as React from 'react';
 import { buildWidgetQueryDescriptor, studioRequestCache } from '@mui/x-studio-core/engine';
 import type {
   StudioDataSource,
+  StudioQueryResult,
   StudioExpressionField,
   StudioFilterState,
   StudioRelationship,
@@ -30,6 +31,8 @@ export interface UseAdapterRowsResult {
    * source with no adapter.
    */
   isPlaceholder: boolean;
+  /** The adapter returned `preAggregated: true` for the current rows. */
+  isPreAggregated: boolean;
   /**
    * True while an async adapter fetch is in progress.
    * Always false for sources without an adapter (sync path).
@@ -93,9 +96,13 @@ export function useAdapterRows(
   // Async state: rows fetched from adapter, plus whether they are the cold-cache placeholder.
   // Both live in ONE state object so the two can never disagree (a placeholder flag lagging a
   // row update by a render would be exactly the unfiltered-rows bug it exists to prevent).
-  const [rowsState, setRowsState] = React.useState<{ rows: Row[]; isPlaceholder: boolean }>(() => {
+  const [rowsState, setRowsState] = React.useState<{
+    rows: Row[];
+    isPlaceholder: boolean;
+    isPreAggregated: boolean;
+  }>(() => {
     if (!hasAdapter) {
-      return { rows: [], isPlaceholder: false };
+      return { rows: [], isPlaceholder: false, isPreAggregated: false };
     }
     // Seed from cache synchronously on mount. Pass the live adapter so this instance only
     // ever reads entries written by its OWN adapter (two `<Studio>` instances sharing a
@@ -104,7 +111,11 @@ export function useAdapterRows(
       ? studioRequestCache.get(descriptor.cacheKey, dataSource?.adapter)
       : undefined;
     if (cached) {
-      return { rows: cached.rows, isPlaceholder: false };
+      return {
+        rows: cached.rows,
+        isPlaceholder: false,
+        isPreAggregated: Boolean(cached.preAggregated),
+      };
     }
     // Fall back to source.rows as a display placeholder so the widget doesn't
     // flash empty while the adapter re-fetches on a cold cache (e.g. after page
@@ -116,7 +127,11 @@ export function useAdapterRows(
     // yields: L1 normalization belongs to the consumer, and `useWidgetRows` runs it over
     // `adapterRows` before L2/L3. Keeping the reference identical is what lets it reuse the
     // sync path's own normalized-source cache slot rather than cloning the array twice.
-    return { rows: (dataSource?.rows as Row[] | undefined) ?? [], isPlaceholder: true };
+    return {
+      rows: (dataSource?.rows as Row[] | undefined) ?? [],
+      isPlaceholder: true,
+      isPreAggregated: false,
+    };
   });
 
   // react-doctor-disable-next-line react-doctor/rendering-usetransition-loading -- isLoading guards an async data fetch (adapter.getRows), not a state transition
@@ -129,9 +144,13 @@ export function useAdapterRows(
    * the previous state unchanged when nothing actually changed, preserving the setState bail-out
    * the repeated-cache-hit path relies on to avoid an extra render.
    */
-  const setResolvedRows = React.useCallback((rows: Row[]) => {
+  const setResolvedRows = React.useCallback((result: StudioQueryResult) => {
+    const { rows } = result;
+    const isPreAggregated = Boolean(result.preAggregated);
     setRowsState((prev) =>
-      prev.rows === rows && !prev.isPlaceholder ? prev : { rows, isPlaceholder: false },
+      prev.rows === rows && !prev.isPlaceholder && prev.isPreAggregated === isPreAggregated
+        ? prev
+        : { rows, isPlaceholder: false, isPreAggregated },
     );
   }, []);
 
@@ -157,7 +176,7 @@ export function useAdapterRows(
 
     if (cached) {
       // Cache hit — serve synchronously, no loading state.
-      setResolvedRows(cached.rows);
+      setResolvedRows(cached);
       // Must clear isLoading here too: if a previous descriptor (A) missed the cache
       // and set isLoading=true, then the descriptor switched to B (this cache hit)
       // before A resolved, A's cleanup marks it cancelled and its `.then` never runs —
@@ -208,7 +227,7 @@ export function useAdapterRows(
     promise.then(
       (result) => {
         if (!cancelled) {
-          setResolvedRows(result.rows);
+          setResolvedRows(result);
           setIsLoading(false);
           setIsError(false);
           setErrorMessage('');
@@ -232,6 +251,7 @@ export function useAdapterRows(
   return {
     adapterRows: rowsState.rows,
     isPlaceholder: rowsState.isPlaceholder,
+    isPreAggregated: rowsState.isPreAggregated,
     isLoading,
     isError,
     errorMessage,

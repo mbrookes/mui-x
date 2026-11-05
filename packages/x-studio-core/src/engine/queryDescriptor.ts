@@ -439,6 +439,7 @@ export function buildQueryDescriptor(
   // cadence tick while the adapter re-resolves the bound at request time, so without it one key
   // named two different windows. Omitted entirely when no filter carries a relative date.
   const hasAggregations = Boolean(aggregations && aggregations.length > 0);
+  const preAggregationGrain = hasAggregations ? buildPreAggregationGrain(widget) : undefined;
   const relativeDateBounds = collectResolvedRelativeBounds(filter);
   const cacheKeySource = {
     sourceId: widget.sourceId,
@@ -450,6 +451,8 @@ export function buildQueryDescriptor(
     aggregations,
     hasIncomingCrossOrInteractiveFilters: hasIncomingCrossOrInteractiveFilters && hasAggregations,
     hasRankFilters: hasRankFilters && hasAggregations,
+    // A grid with the same query must not read a chart's pre-aggregated counts.
+    ...(preAggregationGrain ? { preAggregationGrain } : {}),
   };
   const cacheKey = `${widget.sourceId}:${stableStringify(cacheKeySource)}`;
 
@@ -464,8 +467,36 @@ export function buildQueryDescriptor(
     aggregations,
     hasIncomingCrossOrInteractiveFilters,
     hasRankFilters,
+    ...(preAggregationGrain ? { preAggregationGrain } : {}),
     cacheKey,
   };
+}
+
+// Chart types that group only by x and the series field, and read every measure from `aggregations`.
+const PRE_AGGREGATABLE_CHART_TYPES = new Set([
+  'bar',
+  'bar-stacked',
+  'bar-100',
+  'line',
+  'area',
+  'area-stacked',
+  'area-100',
+  'pie',
+  'donut',
+]);
+
+/** The grain a chart widget can render pre-aggregated rows at, or `undefined` when it cannot. */
+function buildPreAggregationGrain(widget: StudioWidget): string[] | undefined {
+  const config = widget.config as StudioWidgetConfig;
+  if (widget.kind !== 'chart' || !config?.xField) {
+    return undefined;
+  }
+  if (!PRE_AGGREGATABLE_CHART_TYPES.has(config.chartType ?? 'bar')) {
+    return undefined;
+  }
+  return config.seriesField && config.seriesField !== config.xField
+    ? [config.xField, config.seriesField]
+    : [config.xField];
 }
 
 // ── Shared "descriptor from state" helper ─────────────────────

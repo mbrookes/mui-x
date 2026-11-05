@@ -38,6 +38,7 @@ import { useStudioLocaleText } from '../../../internals/StudioUIConfigContext';
 import { useWidgetRows } from '../../../internals/useWidgetRows';
 import { useChartRows } from '../../../internals/useChartRows';
 import { useBlendedSeriesRows } from './useBlendedSeriesRows';
+import { reReduceCountsAsSum } from './chartWidgetHelpers';
 
 export function useChartWidgetData(
   widget: StudioWidgetOf<'chart'>,
@@ -47,10 +48,10 @@ export function useChartWidgetData(
   // Flat-widen to the generic `StudioChartConfig` patch type: this hook reads keys
   // spanning several chart families (xField/ySeries/chartSortBy/scatter*), so it
   // operates across chartTypes by design rather than narrowing to one family.
-  const config: StudioChartConfig = widget.config;
-  const xGroupBy = config.xGroupBy;
-  const chartSortBy = config.chartSortBy;
-  const chartSortDirection = config.chartSortDirection;
+  const widgetConfig: StudioChartConfig = widget.config;
+  const xGroupBy = widgetConfig.xGroupBy;
+  const chartSortBy = widgetConfig.chartSortBy;
+  const chartSortDirection = widgetConfig.chartSortDirection;
   // Threaded into every aggregation call below so the empty-category bucket label
   // (`chartEmptyCategoryLabel`) resolves to the consumer's locale instead of always
   // falling back to the English default — matching how `StudioPieChart`'s own
@@ -64,18 +65,18 @@ export function useChartWidgetData(
   // outer-joined onto the chart's category axis (see useBlendedSeriesRows). The blend
   // hook owns `isBlended` (the single source of truth) and resolves each foreign
   // source's rows; `blendedMultiYData` below aligns them against the primary series.
-  const blendSeries = config.ySeries;
+  const blendSeries = widgetConfig.ySeries;
   const { isBlended, foreignRowsBySource } = useBlendedSeriesRows(widget, pageId);
 
   // Canonical label order defined on the xField (e.g. pipeline stages).
   // Used by aggregation functions when chartSortBy is not 'value'.
   const xFieldOrderedValues = React.useMemo(() => {
-    const xField = config.xField;
+    const xField = widgetConfig.xField;
     if (!xField || !dataSource) {
       return undefined;
     }
     return dataSource.fields.find((f) => f.id === xField)?.orderedValues;
-  }, [config.xField, dataSource]);
+  }, [widgetConfig.xField, dataSource]);
 
   const dataSources = useStudioSelector(selectDataSources);
   const relationships = useStudioSelector(selectRelationships);
@@ -130,6 +131,7 @@ export function useChartWidgetData(
     shouldShowGhost,
     effectiveRows,
     isLoading,
+    isPreAggregated,
     isRecomputing,
     isError,
     errorMessage,
@@ -153,6 +155,13 @@ export function useChartWidgetData(
     // the still-deferred (stale) rows for a frame.
     widgetScopedRankFilters,
   } = useWidgetRows(widget, dataSource, pageId);
+
+  // Pre-aggregated rows hold one count per group, so every aggregation below must sum them.
+  const aggregationConfig = React.useMemo(
+    () => (isPreAggregated ? reReduceCountsAsSum(widget.config) : widget.config),
+    [isPreAggregated, widget.config],
+  );
+  const config: StudioChartConfig = aggregationConfig;
 
   // The single active widget-scoped rank filter (post-aggregation Top-N reduction). Mirrors the
   // former `selectFilters.find(...)` lookup, but sourced from the deferred snapshot above so the
@@ -1049,6 +1058,7 @@ export function useChartWidgetData(
   ]);
 
   return {
+    aggregationConfig,
     chartColors,
     resolvedChartColors,
     allSeriesNames,

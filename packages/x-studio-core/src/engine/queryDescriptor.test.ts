@@ -993,3 +993,41 @@ describe('buildWidgetQueryDescriptor (finding 2.3)', () => {
     expect(liveRenderDescriptor.hasIncomingCrossOrInteractiveFilters).toBe(true);
   });
 });
+
+describe('buildQueryDescriptor preAggregationGrain', () => {
+  it('groups a bar chart by x, then the series field', () => {
+    const widget = makeWidget({ xField: 'date', yField: 'amount', seriesField: 'region' });
+    expect(buildQueryDescriptor(widget, [], PAGE_ID).preAggregationGrain).toEqual([
+      'date',
+      'region',
+    ]);
+  });
+
+  it('is absent for charts that read raw rows or other dimensions', () => {
+    for (const chartType of ['scatter', 'heatmap', 'mixed', 'funnel'] as const) {
+      const widget = makeWidget({ chartType, xField: 'date', yField: 'amount' });
+      expect(buildQueryDescriptor(widget, [], PAGE_ID).preAggregationGrain).toBeUndefined();
+    }
+  });
+
+  it('is absent for grids, and keeps a grid off the chart cache entry', () => {
+    const chart = makeWidget({ xField: 'region', yField: 'amount', yAggregation: 'count' });
+    const grid = {
+      ...makeWidget({
+        gridGroupByField: 'region',
+        columns: [{ fieldId: 'region' }, { fieldId: 'amount', aggregationFn: 'count' }],
+      }),
+      kind: 'grid' as const,
+    };
+    const chartDescriptor = buildQueryDescriptor(chart, [], PAGE_ID);
+    const gridDescriptor = buildQueryDescriptor(grid, [], PAGE_ID);
+    expect(gridDescriptor.preAggregationGrain).toBeUndefined();
+    expect(gridDescriptor.aggregations).toEqual(chartDescriptor.aggregations);
+    expect(gridDescriptor.cacheKey).not.toBe(chartDescriptor.cacheKey);
+  });
+
+  it('is absent without aggregations', () => {
+    const widget = makeWidget({ xField: 'region', yAggregation: 'count' });
+    expect(buildQueryDescriptor(widget, [], PAGE_ID).preAggregationGrain).toBeUndefined();
+  });
+});

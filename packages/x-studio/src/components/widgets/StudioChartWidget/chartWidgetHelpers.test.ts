@@ -18,6 +18,7 @@ import {
   makeCrossHighlightLineFormatter,
   makeValueFormatter,
   normalizeCrossFilterValue,
+  reReduceCountsAsSum,
   getTemporalSortOrder,
   sortAggregatedTemporally,
   sortMultiSeriesTemporally,
@@ -578,5 +579,30 @@ describe('makeCrossHighlightLineFormatter', () => {
   it('shows "value / baseline" when the point differs from the baseline', () => {
     const formatter = makeCrossHighlightLineFormatter([100], baseFormatter, 'filtré');
     expect(formatter(40, { dataIndex: 0 })).toBe('$40 / $100');
+  });
+});
+
+describe('reReduceCountsAsSum', () => {
+  it('turns count into sum on the widget and on each series', () => {
+    expect(
+      reReduceCountsAsSum({
+        yAggregation: 'count',
+        ySeries: [
+          { fieldId: 'orders', yAggregation: 'count' },
+          { fieldId: 'amount', yAggregation: 'avg' },
+        ],
+      }),
+    ).toEqual({
+      yAggregation: 'sum',
+      ySeries: [
+        { fieldId: 'orders', yAggregation: 'sum' },
+        { fieldId: 'amount', yAggregation: 'avg' },
+      ],
+    });
+  });
+
+  it('returns the same config when nothing counts', () => {
+    const config = { yAggregation: 'max' as const, ySeries: [{ fieldId: 'amount' }] };
+    expect(reReduceCountsAsSum(config)).toBe(config);
   });
 });

@@ -129,6 +129,11 @@ export interface StudioQueryResult {
   rows: Record<string, unknown>[];
   totalCount?: number;
   isTruncated?: boolean;
+  /**
+   * The rows are one per group at `descriptor.preAggregationGrain`, each aggregation's value under
+   * its alias. Set it only when the descriptor has that grain. Studio then re-reduces `count` as `sum`.
+   */
+  preAggregated?: boolean;
 }
 
 /**
@@ -289,6 +294,12 @@ export interface StudioQuery {
    * real rows.
    */
   hasRankFilters?: boolean;
+  /**
+   * The fields the widget groups by (x, then the series field), set only for chart widgets that
+   * can render rows already aggregated at exactly this grain. An adapter may then compute
+   * `aggregations` per group, `xGroupBy` in UTC, and return `preAggregated: true`.
+   */
+  preAggregationGrain?: string[];
   /**
    * Maximum number of rows this widget may fetch, forwarded to a server-side adapter as the
    * query's `limit`.

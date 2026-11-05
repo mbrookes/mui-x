@@ -71,6 +71,7 @@ export interface AppLocaleText {
   dataLayerModeLabel: string;
   dataLayerLoadFailedTitle: string;
   dataLayerTruncatedNotice: (label: string, rows: number) => string;
+  dataLayerTruncatedGroupsNotice: (label: string, groups: number) => string;
   dataLayerPartialNotice: (label: string) => string;
   settingsReloadHint: string;
   devServerConnectionLabel: string;
@@ -181,6 +182,8 @@ const enAppLocaleText: AppLocaleText = {
   dataLayerLoadFailedTitle: 'Could not load the data layer schema',
   dataLayerTruncatedNotice: (label, rows) =>
     `${label}: showing the first ${rows.toLocaleString()} rows. More rows exist.`,
+  dataLayerTruncatedGroupsNotice: (label, groups) =>
+    `${label}: showing the first ${groups.toLocaleString()} groups. More groups exist.`,
   dataLayerPartialNotice: (label) => `${label}: the source returned a partial result.`,
   settingsReloadHint: 'Dataset, row count and data source mode changes take effect after reload.',
   devServerConnectionLabel: 'Dev Server Connection',
@@ -292,6 +295,8 @@ const ptBrAppLocaleText: AppLocaleText = {
   dataLayerLoadFailedTitle: 'Não foi possível carregar o esquema da camada de dados',
   dataLayerTruncatedNotice: (label, rows) =>
     `${label}: exibindo as primeiras ${rows.toLocaleString()} linhas. Existem mais linhas.`,
+  dataLayerTruncatedGroupsNotice: (label, groups) =>
+    `${label}: exibindo os primeiros ${groups.toLocaleString()} grupos. Existem mais grupos.`,
   dataLayerPartialNotice: (label) => `${label}: a fonte retornou um resultado parcial.`,
   settingsReloadHint:
     'As alterações de conjunto de dados, número de linhas e modo da fonte de dados entram em vigor após recarregar.',

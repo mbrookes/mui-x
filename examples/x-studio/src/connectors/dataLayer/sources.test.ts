@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { StudioQueryDescriptor } from '@mui/x-studio';
-import type {
-  DataLayerClient,
-  DataLayerEntity,
-  DataLayerQuery,
-  DataLayerQueryResult,
+import {
+  DataLayerError,
+  type DataLayerClient,
+  type DataLayerEntity,
+  type DataLayerQuery,
+  type DataLayerQueryResult,
 } from './client';
 import { createDataLayerAdapter, createDataLayerState, type DataLayerReadNotice } from './sources';
 
@@ -105,6 +106,7 @@ describe('createDataLayerAdapter', () => {
       sourceId: 'dl-pets',
       label: 'Pets',
       rows: 1500,
+      aggregated: false,
       truncated: true,
       partial: false,
       warnings: [],
@@ -134,6 +136,153 @@ describe('createDataLayerAdapter', () => {
 
     expect(query.mock.calls[0][0].select).toBeUndefined();
     expect(result.rows[0].tags).toBe('[{"name":"a"}]');
+  });
+});
+
+describe('createDataLayerAdapter aggregates', () => {
+  const ORDERS: DataLayerEntity = {
+    ...PETS,
+    name: 'orders',
+    label: 'Orders',
+    fields: [
+      { name: 'id', type: 'integer', nullable: false, filterable: true, sortable: true },
+      { name: 'status', type: 'string', nullable: true, filterable: true, sortable: true },
+      { name: 'amount', type: 'number', nullable: true, filterable: true, sortable: true },
+    ],
+  };
+  const chart = (overrides: Partial<StudioQueryDescriptor> = {}) =>
+    descriptor({
+      sourceId: 'dl-orders',
+      select: ['status', 'amount'],
+      groupBy: 'status',
+      preAggregationGrain: ['status'],
+      aggregations: [{ field: 'amount', fn: 'count', alias: 'amount' }],
+      ...overrides,
+    });
+  const meta = (hasMore: boolean, offset = 0): DataLayerQueryResult['meta'] => ({
+    returned: 1,
+    limit: 1000,
+    offset,
+    hasMore,
+    partial: false,
+    durationMs: 1,
+  });
+
+  it('reads groups, pages them, and returns pre-aggregated rows', async () => {
+    const query = vi.fn(
+      async (q: DataLayerQuery): Promise<DataLayerQueryResult> =>
+        q.offset === 0
+          ? { data: [{ g0: 'paid', m0: 7 }], meta: meta(true) }
+          : { data: [{ g0: null, m0: 2 }], meta: meta(false, 1) },
+    );
+    const onRead = vi.fn<(notice: DataLayerReadNotice) => void>();
+    const adapter = createDataLayerAdapter({ query, getSchema: vi.fn() }, ORDERS, { onRead });
+
+    const result = await adapter.getRows(chart());
+
+    expect(query.mock.calls[0][0]).toEqual({
+      entity: 'orders',
+      where: undefined,
+      aggregate: { groupBy: [{ field: 'status', as: 'g0' }], metrics: [{ op: 'count', as: 'm0' }] },
+      limit: 1000,
+      offset: 0,
+    });
+    expect(query.mock.calls[1][0].offset).toBe(1);
+    expect(result).toEqual({
+      rows: [
+        { status: 'paid', amount: 7 },
+        { status: null, amount: 2 },
+      ],
+      totalCount: 2,
+      isTruncated: false,
+      preAggregated: true,
+    });
+    expect(onRead.mock.calls[0][0]).toMatchObject({ rows: 2, aggregated: true, truncated: false });
+  });
+
+  it('reports capped groups as truncated, never as exact', async () => {
+    const query = vi.fn(
+      async (): Promise<DataLayerQueryResult> => ({
+        data: [{ g0: 'paid', m0: 7 }],
+        meta: meta(true),
+      }),
+    );
+    const onRead = vi.fn<(notice: DataLayerReadNotice) => void>();
+    const adapter = createDataLayerAdapter({ query, getSchema: vi.fn() }, ORDERS, {
+      maxRows: 1,
+      onRead,
+    });
+
+    const result = await adapter.getRows(chart());
+
+    expect(result).toMatchObject({ isTruncated: true, totalCount: undefined, preAggregated: true });
+    expect(onRead.mock.calls[0][0]).toMatchObject({ aggregated: true, truncated: true });
+  });
+
+  it('falls back to raw rows when the source has no aggregates, and stops asking', async () => {
+    const query = vi.fn(async (q: DataLayerQuery): Promise<DataLayerQueryResult> => {
+      if (q.aggregate) {
+        throw new DataLayerError({
+          code: 'OPERATOR_NOT_SUPPORTED',
+          message: "This source can't compute aggregates.",
+        });
+      }
+      return { data: [{ status: 'paid', amount: 3 }], meta: meta(false) };
+    });
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    const adapter = createDataLayerAdapter({ query, getSchema: vi.fn() }, ORDERS);
+
+    const first = await adapter.getRows(chart());
+    await adapter.getRows(chart());
+
+    expect(first).toEqual({
+      rows: [{ status: 'paid', amount: 3 }],
+      totalCount: 1,
+      isTruncated: false,
+    });
+    expect(query.mock.calls.map(([q]) => Boolean(q.aggregate))).toEqual([true, false, false]);
+    expect(debug).toHaveBeenCalledWith(
+      expect.stringContaining("OPERATOR_NOT_SUPPORTED: This source can't compute aggregates."),
+    );
+    debug.mockRestore();
+  });
+
+  it('retries aggregates after a field-level rejection, and rethrows other errors', async () => {
+    const error = new DataLayerError({
+      code: 'OPERATOR_NOT_SUPPORTED',
+      message: "'sum' does not support this field type.",
+      details: { field: 'amount' },
+    });
+    const query = vi.fn(async (q: DataLayerQuery): Promise<DataLayerQueryResult> => {
+      if (q.aggregate) {
+        throw error;
+      }
+      return { data: [], meta: meta(false) };
+    });
+    vi.spyOn(console, 'debug').mockImplementation(() => {});
+    const adapter = createDataLayerAdapter({ query, getSchema: vi.fn() }, ORDERS);
+
+    await adapter.getRows(chart());
+    await adapter.getRows(chart());
+    expect(query.mock.calls.map(([q]) => Boolean(q.aggregate))).toEqual([true, false, true, false]);
+
+    query.mockRejectedValueOnce(new DataLayerError({ code: 'SOURCE_TIMEOUT', message: 'Slow.' }));
+    await expect(adapter.getRows(chart())).rejects.toThrow('SOURCE_TIMEOUT');
+    vi.restoreAllMocks();
+  });
+
+  it('logs why a widget with aggregations reads raw rows', async () => {
+    const { client, query } = fakeClient(1);
+    const debug = vi.spyOn(console, 'debug').mockImplementation(() => {});
+    const adapter = createDataLayerAdapter(client, PETS);
+
+    await adapter.getRows(descriptor({ aggregations: [{ field: 'id', fn: 'sum', alias: 'id' }] }));
+
+    expect(query.mock.calls[0][0].aggregate).toBeUndefined();
+    expect(debug).toHaveBeenCalledWith(
+      "[data-layer] widget-1 reads raw rows: the widget can't read pre-aggregated rows.",
+    );
+    debug.mockRestore();
   });
 });
 

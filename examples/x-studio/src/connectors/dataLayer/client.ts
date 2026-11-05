@@ -62,10 +62,24 @@ export type DataLayerFilter =
   | { not: DataLayerFilter }
   | { field: string; op: DataLayerFilterOp; value?: DataLayerScalar | DataLayerScalar[] };
 
+export type DataLayerAggregateOp = 'count' | 'countDistinct' | 'sum' | 'avg' | 'min' | 'max';
+
+export type DataLayerDateBucket = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+/** One row per group, computed by the source. Only sources with aggregate push-down accept it. */
+export interface DataLayerAggregate {
+  /** `bucket` groups a date or datetime field by UTC period; the value is the period's first day. */
+  groupBy: { field: string; bucket?: DataLayerDateBucket; as?: string }[];
+  /** `count` with no field counts rows. Every other op needs a field. */
+  metrics: { op: DataLayerAggregateOp; field?: string; as: string }[];
+}
+
 export interface DataLayerQuery {
   entity: string;
   select?: string[];
   where?: DataLayerFilter;
+  /** Replaces `select`. `limit` and `offset` then page the groups. */
+  aggregate?: DataLayerAggregate;
   orderBy?: { field: string; direction?: 'asc' | 'desc' }[];
   limit?: number;
   offset?: number;
@@ -98,7 +112,13 @@ export interface DataLayerErrorBody {
 }
 
 /** Upper bounds from the contracts' `QUERY_LIMITS`. A server may set lower ones. */
-export const DATA_LAYER_LIMITS = { maxBatch: 10, maxLimit: 1000, maxOffset: 100_000 } as const;
+export const DATA_LAYER_LIMITS = {
+  maxBatch: 10,
+  maxLimit: 1000,
+  maxOffset: 100_000,
+  maxGroupBy: 3,
+  maxMetrics: 10,
+} as const;
 
 /** An error envelope from the data layer: a request failure, or one failed query in a batch. */
 export class DataLayerError extends Error {

@@ -907,7 +907,10 @@ export default function App() {
       Object.values(dataLayerNotices).map((notice) =>
         [
           notice.truncated
-            ? t.dataLayerTruncatedNotice(notice.label, notice.rows)
+            ? (notice.aggregated ? t.dataLayerTruncatedGroupsNotice : t.dataLayerTruncatedNotice)(
+                notice.label,
+                notice.rows,
+              )
             : t.dataLayerPartialNotice(notice.label),
           ...notice.warnings,
         ].join(' '),

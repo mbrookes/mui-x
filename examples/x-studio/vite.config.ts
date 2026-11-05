@@ -45,6 +45,19 @@ const dataLayerProxy = env.STUDIO_DATA_LAYER_URL
     }
   : undefined;
 
+// The AI chat goes to x-studio-dev-server. Only /api/ai is forwarded, so its data, mutation and
+// dashboard routes stay private when the app is served on a public host.
+const studioServerProxy = env.STUDIO_SERVER_PROXY_TARGET
+  ? {
+      '/studio-server/api/ai': {
+        target: env.STUDIO_SERVER_PROXY_TARGET,
+        changeOrigin: true,
+        rewrite: (url: string) => url.replace(/^\/studio-server/, ''),
+      },
+    }
+  : undefined;
+const proxy = { ...dataLayerProxy, ...studioServerProxy };
+
 // Other /data-layer paths get a 404 instead of the app's HTML fallback. The path must already be
 // normalized, so `..` or `%2e%2e` cannot climb out of /api/v1/ once the proxy forwards it.
 function rejectOtherDataLayerPaths(
@@ -180,10 +193,10 @@ export default defineConfig({
   envPrefix: ['VITE_', 'STUDIO_'],
   server: {
     port: 3004,
-    proxy: dataLayerProxy,
+    proxy,
   },
   preview: {
-    proxy: dataLayerProxy,
+    proxy,
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),

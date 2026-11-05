@@ -1,6 +1,7 @@
 import * as React from 'react';
 import {
   Alert,
+  AlertTitle,
   Box,
   Chip,
   CircularProgress,
@@ -60,9 +61,16 @@ import {
   createEmployeesAdapter,
   prefetchEmployees,
 } from './connectors/employeesSource';
+import { createDataLayerClient } from './connectors/dataLayer/client';
+import { createDataLayerState, dataLayerSourceId } from './connectors/dataLayer/sources';
+import type { DataLayerReadNotice } from './connectors/dataLayer/sources';
 
 const EMPLOYEES_SERVER_URL =
   (import.meta.env.VITE_EMPLOYEES_SERVER_URL as string | undefined) ?? 'http://localhost:3002';
+
+// vite.config.ts proxies this path to STUDIO_DATA_LAYER_URL and adds DATA_LAYER_API_KEY.
+const DATA_LAYER_CONFIGURED = Boolean(import.meta.env.STUDIO_DATA_LAYER_URL);
+const DATA_LAYER_PROXY_PATH = '/data-layer';
 
 function slugifyPageTitle(title: string) {
   return title
@@ -121,13 +129,13 @@ function getUrlAdapterParam(): boolean {
   return new URL(window.location.href).searchParams.has('adapter');
 }
 
-/** Read ?mode=memory|adapter|server — an explicit override that wins over .env config. */
+/** Read ?mode=memory|adapter|server|data-layer — an explicit override that wins over .env config. */
 function getUrlModeParam(): DataMode | undefined {
   if (typeof window === 'undefined') {
     return undefined;
   }
   const v = new URL(window.location.href).searchParams.get('mode');
-  return v === 'memory' || v === 'adapter' || v === 'server' ? v : undefined;
+  return v === 'memory' || v === 'adapter' || v === 'server' || v === 'data-layer' ? v : undefined;
 }
 
 /** Read ?dataset=ag-studio to select the AG Studio Data dataset. */
@@ -232,6 +240,41 @@ function getUrlFilterValuesParam(): string | null {
   return new URL(window.location.href).searchParams.get('fv');
 }
 
+/**
+ * Applies the ?fv= filter value overrides. Read the param on first render: the URL sync
+ * effect removes it in edit mode.
+ */
+function applyUrlFilterValues(
+  state: Partial<StudioState>,
+  fvParam: string | null,
+): Partial<StudioState> {
+  const filterValues = fvParam ? decodeFilterValues(fvParam) : null;
+  if (!filterValues || !state.doc?.filters) {
+    return state;
+  }
+  return {
+    ...state,
+    doc: {
+      ...state.doc,
+      filters: state.doc.filters.map((f) => {
+        const patch = filterValues[f.id];
+        if (!patch) {
+          return f;
+        }
+        return {
+          ...f,
+          operator: patch.operator as StudioFilterOperator,
+          value: patch.value,
+          ...(patch.operator2 != null && {
+            operator2: patch.operator2 as StudioFilterOperator,
+          }),
+          ...(patch.value2 != null && { value2: patch.value2 }),
+        };
+      }),
+    },
+  } as Partial<StudioState>;
+}
+
 // react-doctor-disable-next-line react-doctor/no-giant-component, react-doctor/prefer-useReducer -- top-level orchestration state is intentionally broad and not naturally reducible
 export default function App() {
   const studioRef = React.useRef<StudioHandle>(null);
@@ -239,6 +282,7 @@ export default function App() {
   // Compute URL params once — stable across renders.
   const rowCount = React.useMemo(() => getUrlRowsParam(), []);
   const dataset = React.useMemo(() => getUrlDatasetParam(), []);
+  const urlFilterValues = React.useMemo(() => getUrlFilterValuesParam(), []);
   const urlPageId = React.useMemo(
     () =>
       resolvePageIdFromQuery(
@@ -280,39 +324,13 @@ export default function App() {
     };
     const baseConfig = dataset === 'ag-studio' && osData ? OS_INITIAL_STATE : INITIAL_STATE;
 
-    let baseState: Partial<StudioState> = {
-      ...baseConfig,
-      runtime: { ...baseConfig.runtime, dataSources: baseDataSources },
-    };
-
-    // Apply ?fv= filter value overrides from URL
-    const fvParam = getUrlFilterValuesParam();
-    if (fvParam) {
-      const filterValues = decodeFilterValues(fvParam);
-      if (filterValues && baseState.doc?.filters) {
-        baseState = {
-          ...baseState,
-          doc: {
-            ...baseState.doc,
-            filters: baseState.doc.filters.map((f) => {
-              const patch = filterValues[f.id];
-              if (!patch) {
-                return f;
-              }
-              return {
-                ...f,
-                operator: patch.operator as StudioFilterOperator,
-                value: patch.value,
-                ...(patch.operator2 != null && {
-                  operator2: patch.operator2 as StudioFilterOperator,
-                }),
-                ...(patch.value2 != null && { value2: patch.value2 }),
-              };
-            }),
-          },
-        } as Partial<StudioState>;
-      }
-    }
+    const baseState = applyUrlFilterValues(
+      {
+        ...baseConfig,
+        runtime: { ...baseConfig.runtime, dataSources: baseDataSources },
+      },
+      urlFilterValues,
+    );
 
     if (!urlPageId) {
       return baseState;
@@ -327,7 +345,7 @@ export default function App() {
         },
       },
     } as Partial<StudioState>;
-  }, [dataset, osData, urlPageId]);
+  }, [dataset, osData, urlPageId, urlFilterValues]);
 
   // If ?rows=N is in the URL, regenerate all sources with that count after first
   // paint so the main thread is not blocked during initial render.
@@ -513,6 +531,9 @@ export default function App() {
   // explicit ?mode=adapter is preserved because adapter mode processes rows locally.
   const dataMode = React.useMemo<DataMode>(() => {
     const explicit = getUrlModeParam();
+    if (explicit === 'data-layer') {
+      return DATA_LAYER_CONFIGURED ? 'data-layer' : 'memory';
+    }
     if (explicit === 'server') {
       if (rowCount !== undefined) {
         return 'memory';
@@ -525,12 +546,80 @@ export default function App() {
     if (getUrlAdapterParam()) {
       return 'adapter';
     }
-    if (rowCount !== undefined && serverConfigured) {
+    if (rowCount !== undefined && (serverConfigured || DATA_LAYER_CONFIGURED)) {
       return 'memory';
+    }
+    if (DATA_LAYER_CONFIGURED) {
+      return 'data-layer';
     }
     return serverConfigured ? 'server' : 'memory';
   }, [serverConfigured, rowCount]);
   const adapterMode = dataMode === 'adapter';
+  const dataLayerMode = dataMode === 'data-layer';
+
+  // Data layer mode: list the entities from /api/v1/schema, then mount Studio with one data
+  // source per entity. The current demo data stays available through the Settings switch.
+  const [dataLayerState, setDataLayerState] = React.useState<Partial<StudioState> | null>(null);
+  const [dataLayerError, setDataLayerError] = React.useState<string | null>(null);
+  // Truncated or partial reads, keyed by widget, so the app never hides missing rows.
+  const [dataLayerNotices, setDataLayerNotices] = React.useState<
+    Record<string, DataLayerReadNotice>
+  >({});
+  const [dataLayerRows, setDataLayerRows] = React.useState<
+    Record<string, Record<string, unknown>[]>
+  >({});
+
+  React.useEffect(() => {
+    if (!dataLayerMode) {
+      return undefined;
+    }
+    const controller = new AbortController();
+    const client = createDataLayerClient({ baseUrl: DATA_LAYER_PROXY_PATH });
+    const onRead = (notice: DataLayerReadNotice) => {
+      setDataLayerNotices((prev) => {
+        const next = { ...prev };
+        if (notice.truncated || notice.partial) {
+          next[notice.widgetId] = notice;
+        } else {
+          delete next[notice.widgetId];
+        }
+        return next;
+      });
+    };
+    client
+      .getSchema(controller.signal)
+      .then((schema) => {
+        const state = createDataLayerState(client, schema.entities, { onRead });
+        setDataLayerState(applyUrlFilterValues(state, urlFilterValues));
+        // As for employees: rows give the data drawer its row count, preview, and filter values.
+        for (const entity of schema.entities) {
+          const source = state.runtime.dataSources[dataLayerSourceId(entity.name)];
+          if (source?.adapter && entity.requiredFilters.length === 0) {
+            source.adapter
+              .getRows({ sourceId: source.id, widgetId: 'data-drawer', select: [], cacheKey: '' })
+              .then(({ rows }) => {
+                if (!controller.signal.aborted) {
+                  setDataLayerRows((prev) => ({ ...prev, [source.id]: rows }));
+                }
+              })
+              // Widgets on this source show the error.
+              .catch(() => {});
+          }
+        }
+      })
+      .catch((error: unknown) => {
+        if (!controller.signal.aborted) {
+          setDataLayerError(error instanceof Error ? error.message : String(error));
+        }
+      });
+    return () => controller.abort();
+  }, [dataLayerMode, urlFilterValues]);
+
+  React.useEffect(() => {
+    for (const [sourceId, rows] of Object.entries(dataLayerRows)) {
+      studioRef.current?.setDataSourceRows(sourceId, rows);
+    }
+  }, [dataLayerRows]);
 
   // Adapter mode: wire a simulated-server adapter for every data source
   React.useEffect(() => {
@@ -622,6 +711,9 @@ export default function App() {
   // Also pre-fetch rows so the data drawer shows the correct count and preview,
   // and so widgets have a synchronous fallback on cold cache (no empty flash).
   React.useEffect(() => {
+    if (dataLayerMode) {
+      return;
+    }
     studioRef.current?.setDataSourceAdapter(
       EMPLOYEES_SOURCE_ID,
       createEmployeesAdapter(EMPLOYEES_SERVER_URL),
@@ -631,7 +723,7 @@ export default function App() {
         studioRef.current?.setDataSourceRows(EMPLOYEES_SOURCE_ID, rows);
       }
     });
-  }, [studioKey]);
+  }, [studioKey, dataLayerMode]);
 
   // react-doctor-disable-next-line react-doctor/rerender-state-only-in-handlers -- state updated from event-driven controller callback
   const handleStateChange = React.useCallback((state: StudioState) => {
@@ -707,7 +799,7 @@ export default function App() {
   // react-doctor-disable-next-line react-doctor/no-fetch-in-effect -- example app: fetch without a data-fetching library is acceptable here
   React.useEffect(() => {
     const serverUrl = import.meta.env.STUDIO_SERVER_URL as string | undefined;
-    if (!serverUrl) {
+    if (!serverUrl || dataLayerMode) {
       return;
     }
     const token = import.meta.env.STUDIO_SERVER_TOKEN as string | undefined;
@@ -807,6 +899,21 @@ export default function App() {
   }, []);
 
   const pageList = Object.values(pages);
+  const showDataLayerError = dataLayerMode && dataLayerError !== null;
+  const waitingForData = isGenerating || (dataLayerMode && !dataLayerState);
+  // The drawer read and a grid on the same entity can report the same thing once.
+  const dataLayerMessages = [
+    ...new Set(
+      Object.values(dataLayerNotices).map((notice) =>
+        [
+          notice.truncated
+            ? t.dataLayerTruncatedNotice(notice.label, notice.rows)
+            : t.dataLayerPartialNotice(notice.label),
+          ...notice.warnings,
+        ].join(' '),
+      ),
+    ),
+  ];
 
   React.useEffect(() => {
     if (!activePageId) {
@@ -876,6 +983,42 @@ export default function App() {
                   }}
                 />
               )}
+              {dataLayerMode && (
+                <Chip
+                  label={t.dataLayerModeLabel}
+                  size="small"
+                  color="primary"
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    left: 12,
+                    zIndex: 10,
+                    fontWeight: 600,
+                    letterSpacing: 0.3,
+                    opacity: 0.5,
+                  }}
+                />
+              )}
+              {dataLayerMessages.length > 0 && (
+                <Box
+                  sx={{
+                    position: 'absolute',
+                    bottom: 12,
+                    right: 12,
+                    zIndex: 10,
+                    maxWidth: 420,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
+                >
+                  {dataLayerMessages.map((message) => (
+                    <Alert key={message} severity="warning" variant="outlined" sx={{ py: 0 }}>
+                      {message}
+                    </Alert>
+                  ))}
+                </Box>
+              )}
               {dataMode === 'memory' && rowCount !== undefined && (
                 <Chip
                   label={t.generatedRowsLabel(rowCount)}
@@ -906,7 +1049,15 @@ export default function App() {
                   }}
                 />
               )}
-              {isGenerating ? (
+              {showDataLayerError && (
+                <Box sx={{ p: 3 }}>
+                  <Alert severity="error">
+                    <AlertTitle>{t.dataLayerLoadFailedTitle}</AlertTitle>
+                    {dataLayerError}
+                  </Alert>
+                </Box>
+              )}
+              {!showDataLayerError && waitingForData && (
                 <Box
                   sx={{
                     display: 'flex',
@@ -917,11 +1068,12 @@ export default function App() {
                 >
                   <CircularProgress />
                 </Box>
-              ) : (
+              )}
+              {!showDataLayerError && !waitingForData && (
                 <Studio
-                  key={studioKey}
+                  key={dataLayerMode ? 'data-layer' : studioKey}
                   ref={studioRef}
-                  initialState={initialState}
+                  initialState={(dataLayerMode && dataLayerState) || initialState}
                   onStateChange={handleStateChange}
                   sidebarLayout={sidebarLayout}
                   sidebarSide={sidebarSide}
@@ -960,6 +1112,7 @@ export default function App() {
               rowCount: getUrlRowsParam(),
               dataMode,
               serverConfigured,
+              dataLayerConfigured: DATA_LAYER_CONFIGURED,
               dataset: getUrlDatasetParam(),
             }}
             onSidebarLayoutChange={setSidebarLayout}

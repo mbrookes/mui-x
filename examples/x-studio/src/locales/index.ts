@@ -66,6 +66,12 @@ export interface AppLocaleText {
   dataSourceModeLabel: string;
   dataModeMemory: string;
   dataModeServerUnavailableHint: string;
+  dataModeDataLayer: string;
+  dataModeDataLayerUnavailableHint: string;
+  dataLayerModeLabel: string;
+  dataLayerLoadFailedTitle: string;
+  dataLayerTruncatedNotice: (label: string, rows: number) => string;
+  dataLayerPartialNotice: (label: string) => string;
   settingsReloadHint: string;
   devServerConnectionLabel: string;
   devServerConnectedLabel: string;
@@ -168,6 +174,14 @@ const enAppLocaleText: AppLocaleText = {
   dataModeMemory: 'In-memory (default)',
   dataModeServerUnavailableHint:
     'Set STUDIO_SERVER_URL in .env.local (or add ?server=URL) to enable server mode.',
+  dataModeDataLayer: 'MUI data layer',
+  dataModeDataLayerUnavailableHint:
+    'Set STUDIO_DATA_LAYER_URL and DATA_LAYER_API_KEY in .env.local to enable the data layer.',
+  dataLayerModeLabel: 'Data Layer',
+  dataLayerLoadFailedTitle: 'Could not load the data layer schema',
+  dataLayerTruncatedNotice: (label, rows) =>
+    `${label}: showing the first ${rows.toLocaleString()} rows. More rows exist.`,
+  dataLayerPartialNotice: (label) => `${label}: the source returned a partial result.`,
   settingsReloadHint: 'Dataset, row count and data source mode changes take effect after reload.',
   devServerConnectionLabel: 'Dev Server Connection',
   devServerConnectedLabel: 'Connected to:',
@@ -271,6 +285,14 @@ const ptBrAppLocaleText: AppLocaleText = {
   dataModeMemory: 'Em memória (padrão)',
   dataModeServerUnavailableHint:
     'Defina STUDIO_SERVER_URL em .env.local (ou adicione ?server=URL) para ativar o modo servidor.',
+  dataModeDataLayer: 'Camada de dados MUI',
+  dataModeDataLayerUnavailableHint:
+    'Defina STUDIO_DATA_LAYER_URL e DATA_LAYER_API_KEY em .env.local para ativar a camada de dados.',
+  dataLayerModeLabel: 'Camada de dados',
+  dataLayerLoadFailedTitle: 'Não foi possível carregar o esquema da camada de dados',
+  dataLayerTruncatedNotice: (label, rows) =>
+    `${label}: exibindo as primeiras ${rows.toLocaleString()} linhas. Existem mais linhas.`,
+  dataLayerPartialNotice: (label) => `${label}: a fonte retornou um resultado parcial.`,
   settingsReloadHint:
     'As alterações de conjunto de dados, número de linhas e modo da fonte de dados entram em vigor após recarregar.',
   devServerConnectionLabel: 'Conexão com o servidor de desenvolvimento',

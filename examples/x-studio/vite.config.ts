@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import type { PluginOption } from 'vite';
@@ -27,6 +27,22 @@ const profilingAliases = process.env.PROFILING
       { find: 'scheduler/tracing', replacement: 'scheduler/tracing-profiling' },
     ]
   : [];
+
+// The data layer sends no CORS headers, so the app calls it through this proxy. The proxy adds
+// the API key, which keeps it out of the client bundle (it has no STUDIO_ or VITE_ prefix).
+const env = loadEnv('development', __dirname, '');
+const dataLayerProxy = env.STUDIO_DATA_LAYER_URL
+  ? {
+      '/data-layer': {
+        target: env.STUDIO_DATA_LAYER_URL,
+        changeOrigin: true,
+        rewrite: (url: string) => url.replace(/^\/data-layer/, ''),
+        headers: env.DATA_LAYER_API_KEY
+          ? { Authorization: `Bearer ${env.DATA_LAYER_API_KEY}` }
+          : undefined,
+      },
+    }
+  : undefined;
 
 export default defineConfig({
   plugins: [react(), ...visualizerPlugin],
@@ -136,6 +152,10 @@ export default defineConfig({
   envPrefix: ['VITE_', 'STUDIO_'],
   server: {
     port: 3004,
+    proxy: dataLayerProxy,
+  },
+  preview: {
+    proxy: dataLayerProxy,
   },
   define: {
     'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV ?? 'development'),
